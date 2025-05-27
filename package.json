@@ -1,0 +1,17 @@
+{
+  "name": "contextweaver-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Monorepo for ContextWeaver VS Code and Chrome extensions.",
+  "scripts": {
+    "vscode:build": "echo \"VSCE build script placeholder\"",
+    "chrome:build": "echo \"CE build script placeholder\""
+  },
+  "keywords": [
+    "vscode-extension",
+    "chrome-extension",
+    "llm",
+    "context"
+  ],
+  "author": "ContextWeaver Development Assistant"
+}

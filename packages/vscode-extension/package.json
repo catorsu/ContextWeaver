@@ -1,0 +1,32 @@
+{
+  "name": "contextweaver-vscode",
+  "displayName": "ContextWeaver VSCode Extension",
+  "description": "VS Code component for ContextWeaver, providing context to the Chrome extension.",
+  "version": "0.1.0",
+  "publisher": "ContextWeaverDevelopment",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "@types/node": "18.x",
+    "typescript": "^5.0.0",
+    "eslint": "^8.0.0",
+    "@typescript-eslint/parser": "^5.0.0",
+    "@typescript-eslint/eslint-plugin": "^5.0.0",
+    "vsce": "^2.15.0"
+  }
+}
