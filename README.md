@@ -36,6 +36,7 @@ The primary goal of ContextWeaver is to streamline the process of providing rele
 ### Inter-Plugin Communication (IPC)
 
 *   **FR-COM-001:** Define and implement a clear and versioned IPC protocol between VSCE and CE.
+    *   The detailed IPC protocol has been designed and is documented in [`docs/IPC_Protocol_Design.md`](docs/IPC_Protocol_Design.md).
 
 ### Security
 

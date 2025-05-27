@@ -113,7 +113,7 @@ This structure allows for:
 ### 4.3. Inter-Plugin Communication (IPC)
 
 *   **Mechanism:** WebSocket connection over `localhost`.
-*   **Protocol:** JSON-based messages. (Detailed message schemas will be defined in a separate `IPC_Protocol_Design.md` document or a dedicated section here once finalized in Phase 1 of the Development Plan).
+*   **Protocol:** JSON-based messages. (Detailed message schemas are defined in the `docs/IPC_Protocol_Design.md` document).
 *   **Authentication:** Shared secret token.
 *   **Key Data Flows:**
     *   CE requests project data (file tree, file content, search) from VSCE.

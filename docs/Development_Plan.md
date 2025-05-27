@@ -13,16 +13,17 @@ This tracking system helps monitor progress and identify impediments during deve
 **Phase 1: Foundation & IPC Design** `[ ]`
 *   **Goal:** Establish the project structure, define the core communication protocol, and create basic functional shells for both extensions.
 *   **Key Tasks:**
-    1.  **Project Setup** `[ ]`
-        *   Establish separate version control repositories (or a monorepo structure) for the VSCE and CE. `[ ]`
-        *   Set up build systems for both extensions (e.g., TypeScript compilation, bundlers if necessary). `[ ]`
-    2.  **Detailed Inter-Plugin Communication (IPC) Protocol Design** `[ ]`
-        *   Finalize the choice of IPC mechanism (e.g., WebSockets). `[ ]`
-        *   Define all message types or API endpoints required for each functional requirement (e.g., requesting file tree, file content, folder content, entire codebase, search, registering active Chrome tab, sending snippet from VS Code). `[ ]`
-        *   Specify precise JSON schemas (or equivalent structured format) for all request and response payloads. This includes the metadata for context block indicators (`unique_block_id`, `content_source_id`, `type`, `label`). `[ ]`
-        *   Define the authentication mechanism (e.g., user-configured shared secret token) for IPC. `[ ]`
-        *   Outline the format for error messages to be exchanged over IPC. `[ ]`
-        *   Determine and document the port configuration and discovery strategy (as per FR-IPC-002). `[ ]`
+    1.  **Project Setup** `[√]`
+        *   Establish separate version control repositories (or a monorepo structure) for the VSCE and CE. `[√]`
+        *   Set up build systems for both extensions (e.g., TypeScript compilation, bundlers if necessary). `[√]`
+    2.  **Detailed Inter-Plugin Communication (IPC) Protocol Design** `[Pending Review]`
+        *   Artifact: `docs/IPC_Protocol_Design.md`
+        *   Finalize the choice of IPC mechanism (e.g., WebSockets). `[√]`
+        *   Define all message types or API endpoints required for each functional requirement (e.g., requesting file tree, file content, folder content, entire codebase, search, registering active Chrome tab, sending snippet from VS Code). `[√]`
+        *   Specify precise JSON schemas (or equivalent structured format) for all request and response payloads. This includes the metadata for context block indicators (`unique_block_id`, `content_source_id`, `type`, `label`). `[√]`
+        *   Define the authentication mechanism (e.g., user-configured shared secret token) for IPC. `[√]`
+        *   Outline the format for error messages to be exchanged over IPC. `[√]`
+        *   Determine and document the port configuration and discovery strategy (as per FR-IPC-002). `[√]`
     3.  **VSCE - Basic Server Implementation** `[ ]`
         *   Implement the chosen server (e.g., WebSocket server) listening on `localhost`. `[ ]`
         *   Implement basic connection handling and the agreed-upon authentication mechanism. `[ ]`
