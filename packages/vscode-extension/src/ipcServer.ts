@@ -47,7 +47,7 @@ export class IPCServer {
             this.outputChannel.appendLine('WARNING: ' + LOG_PREFIX_SERVER + msg);
         }
         try {
-            this.wss = new WebSocketServer({ port: this.port, host: 'localhost' });
+            this.wss = new WebSocketServer({ port: this.port }); // Removed host: 'localhost' to listen on all available IPv4 interfaces by default
             this.wss.on('listening', () => {
                 const msg = `WebSocket server listening on localhost:${this.port}`;
                 this.outputChannel.appendLine(LOG_PREFIX_SERVER + msg);

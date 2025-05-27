@@ -28,10 +28,10 @@ This tracking system helps monitor progress and identify impediments during deve
         *   Implement the chosen server (e.g., WebSocket server) listening on `localhost`. `[√]`
         *   Implement basic connection handling and the agreed-upon authentication mechanism. `[√]`
         *   Create stub handlers for all defined IPC messages that return placeholder data according to the defined schemas. `[√]`
-    4.  **CE - Basic Client Implementation** `[ ]`
-        *   Implement the client logic to connect to the VSCE server. `[ ]`
-        *   Implement the client-side of the agreed-upon authentication mechanism. `[ ]`
-        *   Create stub functions to send all defined IPC messages and log/handle placeholder responses. `[ ]`
+    4.  **CE - Basic Client Implementation** `[√]`
+        *   Implement the client logic to connect to the VSCE server. `[√]`
+        *   Implement the client-side of the agreed-upon authentication mechanism. `[√]`
+        *   Create stub functions to send all defined IPC messages and log/handle placeholder responses. `[√]`
     5.  **Initial "Handshake" Test** `[ ]`
         *   Implement a simple "status" or "ping" request/response flow to verify basic IPC connectivity and authentication between the fully stubbed VSCE server and CE client. `[ ]`
 
