@@ -1,0 +1,21 @@
+{
+  "root": true,
+  "parser": "@typescript-eslint/parser",
+  "plugins": [
+    "@typescript-eslint"
+  ],
+  "extends": [
+    "eslint:recommended",
+    "plugin:@typescript-eslint/recommended"
+  ],
+  "rules": {
+    // Add any specific rules or overrides here
+    "semi": ["error", "always"],
+    "quotes": ["error", "single"],
+    "@typescript-eslint/no-explicit-any": "warn" // Allow 'any' with a warning for now
+  },
+  "env": {
+    "node": true, // For Node.js environment in VS Code extensions
+    "es2020": true
+  }
+}

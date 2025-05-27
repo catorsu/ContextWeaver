@@ -1,0 +1,16 @@
+.vscode/**
+node_modules/**
+out/**
+dist/**
+src/**
+.eslintrc.json
+tsconfig.json
+*.map
+
+# Include only the compiled output in dist
+!dist/extension.js
+!dist/extension.js.map
+# Include package.json and README/LICENSE if needed for publishing
+package.json
+README.md
+LICENSE.md

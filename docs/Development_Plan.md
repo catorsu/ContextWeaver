@@ -24,10 +24,10 @@ This tracking system helps monitor progress and identify impediments during deve
         *   Define the authentication mechanism (e.g., user-configured shared secret token) for IPC. `[√]`
         *   Outline the format for error messages to be exchanged over IPC. `[√]`
         *   Determine and document the port configuration and discovery strategy (as per FR-IPC-002). `[√]`
-    3.  **VSCE - Basic Server Implementation** `[ ]`
-        *   Implement the chosen server (e.g., WebSocket server) listening on `localhost`. `[ ]`
-        *   Implement basic connection handling and the agreed-upon authentication mechanism. `[ ]`
-        *   Create stub handlers for all defined IPC messages that return placeholder data according to the defined schemas. `[ ]`
+    3.  **VSCE - Basic Server Implementation** `[√]`
+        *   Implement the chosen server (e.g., WebSocket server) listening on `localhost`. `[√]`
+        *   Implement basic connection handling and the agreed-upon authentication mechanism. `[√]`
+        *   Create stub handlers for all defined IPC messages that return placeholder data according to the defined schemas. `[√]`
     4.  **CE - Basic Client Implementation** `[ ]`
         *   Implement the client logic to connect to the VSCE server. `[ ]`
         *   Implement the client-side of the agreed-upon authentication mechanism. `[ ]`
