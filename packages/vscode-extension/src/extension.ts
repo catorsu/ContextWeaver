@@ -27,17 +27,8 @@ export function activate(context: vscode.ExtensionContext) {
     // Retrieve configuration for IPC
     const configuration = vscode.workspace.getConfiguration(EXTENSION_ID); // Use constant
     const port = configuration.get('ipc.port', 30001); // Default to 30001
-    const token = configuration.get('ipc.token', '');
-
-    if (!token) {
-        const msg = LOG_PREFIX + 'IPC token is not set. Please configure it in settings (contextweaver.ipc.token) for secure communication.';
-        vscode.window.showWarningMessage(msg);
-        outputChannel.appendLine('WARNING: ' + msg);
-        // Optionally, prevent server from starting or operate in a degraded mode.
-        // For now, we'll let it start but it won't authenticate clients properly.
-    }
-
-    ipcServer = new IPCServer(port, token, context, outputChannel); // Pass outputChannel
+    // Token configuration has been removed.
+    ipcServer = new IPCServer(port, context, outputChannel); // Pass outputChannel
     ipcServer.start();
 
     context.subscriptions.push(

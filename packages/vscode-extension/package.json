@@ -28,12 +28,8 @@
           "type": "number",
           "default": 30001,
           "description": "Port for IPC communication with the ContextWeaver Chrome Extension."
-        },
-        "contextweaver.ipc.token": {
-          "type": "string",
-          "default": "",
-          "description": "Shared secret token for IPC authentication. Must match the token in the Chrome Extension."
         }
+
       }
     }
   },

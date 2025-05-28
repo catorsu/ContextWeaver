@@ -6,8 +6,9 @@
 const LOG_PREFIX_OPTIONS = '[ContextWeaver CE-Options]';
 
 const portInput = document.getElementById('ipcPort') as HTMLInputElement;
-const tokenInput = document.getElementById('ipcToken') as HTMLInputElement;
+
 const saveButton = document.getElementById('saveSettings');
+const connectButton = document.getElementById('connectIPC');
 const saveStatusMessageElement = document.getElementById('saveStatusMessage');
 const connectionStatusMessageElement = document.getElementById('connectionStatusMessage');
 
@@ -41,7 +42,6 @@ function showConnectionStatus(message: string, type: 'success' | 'error' | 'info
 async function saveOptions() {
     console.log(LOG_PREFIX_OPTIONS, 'saveOptions function called');
     const port = parseInt(portInput.value, 10);
-    const token = tokenInput.value.trim();
 
     if (isNaN(port) || port < 1024 || port > 65535) {
         showSaveStatus('Error: Port must be a number between 1024 and 65535.', 'error');
@@ -50,11 +50,10 @@ async function saveOptions() {
 
     try {
         await chrome.storage.sync.set({
-            ipcPort: port,
-            ipcToken: token
+            ipcPort: port
         });
         showSaveStatus('Settings saved successfully! Reconnecting if necessary...', 'success');
-        console.log(LOG_PREFIX_OPTIONS, `Settings saved: Port=${port}, Token length=${token.length}`);
+        console.log(LOG_PREFIX_OPTIONS, `Settings saved: Port=${port}`);
 
         // Notify service worker that settings have changed
         chrome.runtime.sendMessage({ action: 'settingsUpdated' }).catch(err => {
@@ -71,12 +70,10 @@ async function saveOptions() {
 async function loadOptions() {
     try {
         const items = await chrome.storage.sync.get({
-            ipcPort: 30001, // Default port
-            ipcToken: ''    // Default empty token
+            ipcPort: 30001 // Default port
         });
         portInput.value = items.ipcPort.toString();
-        tokenInput.value = items.ipcToken;
-        console.log(LOG_PREFIX_OPTIONS, `Settings loaded: Port=${items.ipcPort}, Token length=${items.ipcToken.length}`);
+        console.log(LOG_PREFIX_OPTIONS, `Settings loaded: Port=${items.ipcPort}`);
     } catch (error: any) {
         showSaveStatus(`Error loading settings: ${error.message}`, 'error'); // Use saveStatus for loading errors too
         console.error(LOG_PREFIX_OPTIONS, 'Error loading settings:', error);
@@ -140,6 +137,26 @@ function requestInitialConnectionStatus() {
 
 if (saveButton) {
     saveButton.addEventListener('click', saveOptions);
+}
+
+if (connectButton) {
+    connectButton.addEventListener('click', () => {
+        console.log(LOG_PREFIX_OPTIONS, 'Connect/Reconnect button clicked. Sending reconnect message to service worker.');
+        showConnectionStatus('Attempting to connect to VS Code...', 'info');
+        chrome.runtime.sendMessage({ action: 'reconnectIPC' })
+            .then(response => {
+                if (response && response.action === 'ipcConnectionStatus') {
+                    // Status will be updated by the onMessage listener, but we can log here
+                    console.log(LOG_PREFIX_OPTIONS, 'Reconnect message sent, initial response:', response);
+                } else if (response && response.error) {
+                    showConnectionStatus(`Error initiating reconnect: ${response.error}`, 'error');
+                }
+            })
+            .catch(err => {
+                console.error(LOG_PREFIX_OPTIONS, 'Error sending reconnectIPC message to service worker:', err);
+                showConnectionStatus('Failed to send reconnect command. Service worker might be unavailable.', 'error');
+            });
+    });
 }
 
 document.addEventListener('DOMContentLoaded', () => {

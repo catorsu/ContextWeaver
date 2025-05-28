@@ -14,8 +14,7 @@ The primary goal of ContextWeaver is to streamline the process of providing rele
 *   **FR-VSCE-002:** Access and list the file/folder structure of the workspace.
 *   **FR-VSCE-003:** Provide a search functionality for files and symbols within the workspace.
 *   **FR-VSCE-004:** Extract selected code snippets or entire file contents.
-*   **FR-VSCE-005:** Implement an IPC mechanism (e.g., WebSocket server) to communicate with the Chrome Extension.
-*   **FR-VSCE-006:** Secure the IPC channel (e.g., token-based authentication).
+*   **FR-VSCE-005:** Implement an IPC mechanism (WebSocket server) to communicate with the Chrome Extension, including port fallback if the default is busy.
 *   **FR-VSCE-007:** Handle `.gitignore` specifications to exclude irrelevant files/folders.
 *   **FR-VSCE-008:** Allow users to select one or more open projects/workspaces if multiple are open (V2).
 *   **FR-VSCE-009:** Allow users to configure project-specific settings (V2).
@@ -30,7 +29,7 @@ The primary goal of ContextWeaver is to streamline the process of providing rele
 *   **FR-CE-006:** Allow users to select context items (files, code snippets) from the displayed data.
 *   **FR-CE-007:** Insert selected context into the LLM chat input, formatted appropriately (e.g., with Markdown code blocks).
 *   **FR-CE-008:** Manage connection status with VSCE and provide feedback to the user.
-*   **FR-CE-009:** Secure the IPC channel (e.g., token-based authentication).
+*   **FR-CE-009:** Provide a manual reconnection option in the extension's settings.
 *   **FR-CE-010:** Allow users to configure preferred LLM interface selectors if detection fails (V2).
 
 ### Inter-Plugin Communication (IPC)
@@ -40,10 +39,12 @@ The primary goal of ContextWeaver is to streamline the process of providing rele
 
 ### Security
 
-*   **SEC-001:** IPC channel must be authenticated to prevent unauthorized access.
+*   **SEC-001:** IPC communication relies on `localhost` binding. Token-based authentication has been removed.
 *   **SEC-002:** VSCE must respect VS Code's Workspace Trust feature.
 
-## Setup and Usage (Placeholder)
+## Setup and Usage
+
+Detailed instructions on how to build, install, and use the extensions, including updated IPC configuration and connection management, will be added here.
 
 Instructions on how to build, install, and use the extensions will be added here.
 

@@ -10,7 +10,6 @@ const LOG_PREFIX_SW = '[ContextWeaver CE-SW]';
 class IPCClient {
     private ws: WebSocket | null = null;
     public port: number = 30001; // Default port
-    private token: string = '';   // Shared secret token
     private connectionPromise: Promise<void> | null = null;
     private resolveConnectionPromise: (() => void) | null = null;
     private rejectConnectionPromise: ((reason?: any) => void) | null = null;
@@ -27,12 +26,10 @@ class IPCClient {
         try {
             const result = await chrome.storage.sync.get(['ipcPort', 'ipcToken']);
             this.port = result.ipcPort || 30001;
-            this.token = result.ipcToken || '';
-            console.log(LOG_PREFIX_SW, `Configuration loaded: Port=${this.port}, Token configured=${!!this.token}`);
+            console.log(LOG_PREFIX_SW, `Configuration loaded: Port=${this.port}`);
         } catch (error) {
             console.error(LOG_PREFIX_SW, 'Error loading configuration:', error);
             this.port = 30001;
-            this.token = '';
         }
     }
 
@@ -72,12 +69,7 @@ class IPCClient {
 
             this.ws.onopen = () => {
                 console.log(LOG_PREFIX_SW, `Successfully connected to ${serverUrl}`);
-                chrome.runtime.sendMessage({
-                    action: "ipcConnectionStatus",
-                    status: "connected",
-                    port: this.port,
-                    message: `Successfully connected to VS Code on port ${this.port}.`
-                }).catch(err => console.warn(LOG_PREFIX_SW, "Error sending ipcConnectionStatus (connected) message:", err));
+                // Removed proactive message sending. UI pages should request status when ready.
                 if (this.resolveConnectionPromise) this.resolveConnectionPromise();
             };
 
@@ -214,17 +206,12 @@ class IPCClient {
             throw new Error('WebSocket not connected.');
         }
 
-        if (!this.token && command !== 'register_active_target') {
-            console.warn(LOG_PREFIX_SW, `Token not configured. Command '${command}' might fail if server requires token.`);
-        }
-
         const message_id = crypto.randomUUID();
         const message = {
             protocol_version: "1.0",
             message_id,
             type: "request",
             command,
-            token: this.token,
             payload
         };
 
@@ -355,6 +342,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             // connectWithRetry will handle the reconnection attempts and associated promise logic
             ipcClient.connectWithRetry();
         });
+        // No sendResponse needed for this type of message, it's a one-way notification to SW
+    } else if (message.action === 'reconnectIPC') {
+        console.log(LOG_PREFIX_SW, 'Received reconnectIPC message. Forcing reconnection.');
+        if (ipcClient.isConnected()) {
+            ipcClient.isIntentionalDisconnect = true;
+            ipcClient.disconnect();
+        }
+        ipcClient.connectWithRetry();
         // No sendResponse needed for this type of message, it's a one-way notification to SW
     } else if (message.action === 'sendIPCRequest') {
         ipcClient.sendRequest(message.command, message.payload)

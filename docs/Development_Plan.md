@@ -10,13 +10,13 @@ This tracking system helps monitor progress and identify impediments during deve
 
 ---
 
-**Phase 1: Foundation & IPC Design** `[ ]`
+**Phase 1: Foundation & IPC Design** `[√]`
 *   **Goal:** Establish the project structure, define the core communication protocol, and create basic functional shells for both extensions.
 *   **Key Tasks:**
     1.  **Project Setup** `[√]`
         *   Establish separate version control repositories (or a monorepo structure) for the VSCE and CE. `[√]`
         *   Set up build systems for both extensions (e.g., TypeScript compilation, bundlers if necessary). `[√]`
-    2.  **Detailed Inter-Plugin Communication (IPC) Protocol Design** `[Pending Review]`
+    2.  **Detailed Inter-Plugin Communication (IPC) Protocol Design** `[√]`
         *   Artifact: `docs/IPC_Protocol_Design.md`
         *   Finalize the choice of IPC mechanism (e.g., WebSockets). `[√]`
         *   Define all message types or API endpoints required for each functional requirement (e.g., requesting file tree, file content, folder content, entire codebase, search, registering active Chrome tab, sending snippet from VS Code). `[√]`
@@ -32,7 +32,7 @@ This tracking system helps monitor progress and identify impediments during deve
         *   Implement the client logic to connect to the VSCE server. `[√]`
         *   Implement the client-side of the agreed-upon authentication mechanism. `[√]`
         *   Create stub functions to send all defined IPC messages and log/handle placeholder responses. `[√]`
-    5.  **Initial "Handshake" Test** `[ ]`
+    5.  **Initial "Handshake" Test** `[√]`
         *   Implement a simple "status" or "ping" request/response flow to verify basic IPC connectivity and authentication between the fully stubbed VSCE server and CE client. `[ ]`
 
 ---
@@ -154,7 +154,7 @@ This tracking system helps monitor progress and identify impediments during deve
 
 **Key Milestones (Illustrative):**
 
-*   Phase 1 Completion: IPC Protocol Document v1.0 finalized. Basic "ping" and authentication successfully tested between stubbed extensions. `[ ]`
+*   Phase 1 Completion: IPC Protocol Document v1.0 finalized. Basic "ping" and connection successfully tested between extensions (token authentication removed, port fallback implemented). `[√]`
 *   Phase 2 Completion: VSCE core logic fully implemented and unit/integration tested against a mock client. All data provision and service functionalities are operational. `[ ]`
 *   Phase 3 Completion: CE UI and client-side logic fully implemented and unit/integration tested against a mock server. All user interactions and indicator functionalities are operational. `[ ]`
 *   Phase 4 Completion: System fully integrated. E2E testing, performance testing, and security review completed. Major bugs resolved. User documentation drafted. Release Candidate available. `[ ]`

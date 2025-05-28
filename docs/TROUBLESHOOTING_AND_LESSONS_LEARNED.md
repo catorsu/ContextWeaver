@@ -112,3 +112,39 @@ Each new entry should follow the format below:
 
 ---
 <!-- New entries should be added below this line, following the format above. -->
+
+## [2025-05-28] - IPC Simplification: Removal of Token Authentication and Port Fallback
+
+**Phase/Task in Development Plan:** Phase 1, Task 3 (VSCE - Basic Server Implementation), Phase 1, Task 4 (CE - Basic Client Implementation), and subsequent IPC-related tasks.
+
+**Problem Encountered:**
+*   **Symptoms:** The initial IPC design included token-based authentication (FR-IPC-003) and a basic port configuration (FR-IPC-002). While functional, this added complexity to setup and troubleshooting for users, requiring manual token synchronization between VS Code settings and Chrome Extension options. The port handling in VSCE was also basic, failing if the default port was in use without attempting alternatives.
+*   **Context:** Streamlining the user experience and reducing setup friction for the ContextWeaver project.
+*   **Initial Diagnosis/Hypothesis:** The token-based authentication, while adding a layer of security, was deemed an unnecessary burden given the `localhost` binding of the IPC server. The port handling could be made more robust to improve reliability.
+
+**Investigation & Iterations:**
+1.  **Token Removal:**
+    *   Analyzed the security implications of removing the token. Since the VSCE server binds exclusively to `127.0.0.1` (localhost), direct external access is prevented. The primary remaining risk would be from other malicious software *already running on the user's machine* attempting to spoof ContextWeaver IPC messages. Given the nature of the data exchanged (read-only file/workspace context), this risk was deemed acceptable for V1 in favor of ease of use.
+    *   Modified `packages/vscode-extension/src/ipcServer.ts` to remove `expectedToken` property, constructor parameter, and all token validation logic. Clients are now considered authenticated upon successful connection.
+    *   Modified `packages/vscode-extension/package.json` to remove the `contextweaver.ipc.token` configuration property.
+    *   Modified `packages/vscode-extension/src/extension.ts` to remove the token parameter from `IPCServer` instantiation.
+    *   Modified `packages/chrome-extension/src/serviceWorker.ts` to remove `token` property, `ipcToken` loading/saving from `chrome.storage.sync`, and the `token` field from outgoing messages.
+    *   Modified `packages/chrome-extension/options.html` and `packages/chrome-extension/src/options.ts` to remove the IPC token input field and its associated logic.
+2.  **Port Fallback:**
+    *   Enhanced `packages/vscode-extension/src/ipcServer.ts` to implement a port fallback mechanism. The server now attempts to bind to the configured port. If `EADDRINUSE` (address in use) error occurs, it tries up to 3 subsequent ports (e.g., 30001, 30002, 30003, 30004).
+    *   Added VS Code information messages to notify the user of the actual port the server successfully started on, or if all attempts failed.
+3.  **Manual Reconnection:**
+    *   Added a "Connect/Reconnect to VS Code" button to `packages/chrome-extension/options.html`.
+    *   Implemented logic in `packages/chrome-extension/src/options.ts` to send a `reconnectIPC` message to the service worker when this button is clicked.
+    *   Added a handler for the `reconnectIPC` message in `packages/chrome-extension/src/serviceWorker.ts` to force a disconnection (if connected) and then trigger `connectWithRetry()`.
+
+**Solution Implemented:**
+*   **Token Authentication Removed:** Simplified IPC setup by removing the need for a shared secret token, relying on `localhost` binding for security.
+*   **Robust Port Handling:** VSCE now attempts multiple ports on startup if the default is busy, improving reliability. Users are informed of the active port.
+*   **Manual Reconnection:** CE provides a UI button for users to manually trigger a reconnection, aiding troubleshooting.
+
+**Key Takeaway(s) / How to Avoid in Future:**
+*   **Lesson 1 (Security vs. Usability Trade-off):** For internal IPC over `localhost`, the overhead of token-based authentication might outweigh its benefits if the exposed API surface is read-only and the primary threat model is external network attacks. Simplifying setup can significantly improve user adoption and reduce support burden.
+*   **Lesson 2 (Port Conflict Resolution):** Implementing a small range of port fallback attempts makes the VSCE more resilient to common `EADDRINUSE` errors, improving the out-of-the-box experience. Clear user notification about the active port is essential.
+*   **Lesson 3 (User Control for Connectivity):** Providing a manual "Reconnect" button in the CE's options page empowers users to troubleshoot connection issues without needing to restart extensions or VS Code, enhancing the overall user experience.
+*   **Prevention:** Continuously evaluate security measures against actual threat models and user experience impact. Prioritize robust connection management and clear user feedback for background services.

@@ -28,69 +28,96 @@ export class IPCServer {
     private wss: WebSocketServer | null = null;
     private clients: Map<WebSocket, Client> = new Map();
     private readonly port: number;
-    private readonly expectedToken: string;
     private readonly extensionContext: vscode.ExtensionContext;
     private outputChannel: vscode.OutputChannel;
 
-    constructor(port: number, token: string, context: vscode.ExtensionContext, outputChannelInstance: vscode.OutputChannel) {
+    constructor(port: number, context: vscode.ExtensionContext, outputChannelInstance: vscode.OutputChannel) {
         this.port = port;
-        this.expectedToken = token;
         this.extensionContext = context;
         this.outputChannel = outputChannelInstance;
-        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Initialized with port ${port}. Token configured: ${!!token}`);
+        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Initialized with port ${port}.`);
     }
 
     public start(): void {
-        if (!this.expectedToken) {
-            const msg = "IPC Server started without a token. Communication will not be secure.";
-            vscode.window.showWarningMessage(LOG_PREFIX_SERVER + msg);
-            this.outputChannel.appendLine('WARNING: ' + LOG_PREFIX_SERVER + msg);
-        }
-        try {
-            this.wss = new WebSocketServer({ port: this.port }); // Removed host: 'localhost' to listen on all available IPv4 interfaces by default
-            this.wss.on('listening', () => {
-                const msg = `WebSocket server listening on localhost:${this.port}`;
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + msg);
-                console.log(LOG_PREFIX_SERVER + msg); // Keep console log for immediate debug visibility
-                vscode.window.showInformationMessage(`ContextWeaver: IPC Server started on port ${this.port}.`);
-            });
+        const MAX_PORT_RETRIES = 3; // Try original port + 3 alternatives
+        let currentPort = this.port;
+        let attempts = 0;
 
-            this.wss.on('connection', (ws: WebSocket, req) => { // Explicitly type ws as WebSocket
-                const clientIp = req.socket.remoteAddress || 'unknown';
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Client connected from ${clientIp}`);
-                const client: Client = { ws, isAuthenticated: false, ip: clientIp };
-                this.clients.set(ws, client);
+        const tryStartServer = (portToTry: number) => {
+            try {
+                this.wss = new WebSocketServer({ port: portToTry });
 
-                ws.on('message', (message) => {
-                    this.handleMessage(client, message);
-                });
-
-                ws.on('close', () => {
-                    this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Client from ${client.ip} disconnected.`);
-                    this.clients.delete(ws);
-                });
-
-                ws.on('error', (error) => {
-                    this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error on WebSocket connection from ${client.ip}: ${error.message}`);
-                    console.error(LOG_PREFIX_SERVER + `Error on WebSocket connection from ${client.ip}:`, error);
-                    // Ensure client is removed on error as well
-                    if (this.clients.has(ws)) {
-                        this.clients.delete(ws);
+                this.wss.on('listening', () => {
+                    const msg = `WebSocket server listening on localhost:${portToTry}`;
+                    this.outputChannel.appendLine(LOG_PREFIX_SERVER + msg);
+                    console.log(LOG_PREFIX_SERVER + msg);
+                    if (portToTry !== this.port) {
+                        vscode.window.showInformationMessage(`ContextWeaver: IPC Server started on port ${portToTry} (configured port ${this.port} was busy).`);
+                    } else {
+                        vscode.window.showInformationMessage(`ContextWeaver: IPC Server started on port ${portToTry}.`);
                     }
                 });
-            });
 
-            this.wss.on('error', (error: Error & { code?: string }) => { // Added type for error.code
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `WebSocket server error: ${error.message}`);
-                console.error(LOG_PREFIX_SERVER + 'WebSocket server error:', error);
-                vscode.window.showErrorMessage(`ContextWeaver: IPC Server failed to start on port ${this.port}. Error: ${error.message}`);
-                // TODO: Implement port fallback mechanism if desired (FR-IPC-002)
-            });
-        } catch (error: any) {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Failed to create WebSocket server: ${error.message}`);
-            console.error(LOG_PREFIX_SERVER + 'Failed to create WebSocket server:', error);
-            vscode.window.showErrorMessage(`ContextWeaver: Exception while starting IPC Server on port ${this.port}. Error: ${error.message}`);
-        }
+                this.wss.on('connection', (ws: WebSocket, req) => {
+                    const clientIp = req.socket.remoteAddress || 'unknown';
+                    this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Client connected from ${clientIp}`);
+                    const client: Client = { ws, isAuthenticated: true, ip: clientIp }; // Token auth removed, client is authenticated on connect
+                    this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Client from ${client.ip} authenticated (token auth removed).`);
+                    this.clients.set(ws, client);
+
+                    ws.on('message', (message) => {
+                        this.handleMessage(client, message);
+                    });
+
+                    ws.on('close', () => {
+                        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Client from ${client.ip} disconnected.`);
+                        this.clients.delete(ws);
+                    });
+
+                    ws.on('error', (error) => {
+                        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error on WebSocket connection from ${client.ip}: ${error.message}`);
+                        console.error(LOG_PREFIX_SERVER + `Error on WebSocket connection from ${client.ip}:`, error);
+                        if (this.clients.has(ws)) {
+                            this.clients.delete(ws);
+                        }
+                    });
+                });
+
+                this.wss.on('error', (error: Error & { code?: string }) => {
+                    this.outputChannel.appendLine(LOG_PREFIX_SERVER + `WebSocket server error on port ${portToTry}: ${error.message}`);
+                    console.error(LOG_PREFIX_SERVER + `WebSocket server error on port ${portToTry}:`, error);
+                    if (error.code === 'EADDRINUSE' && attempts < MAX_PORT_RETRIES) {
+                        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Port ${portToTry} is in use. Attempting next port.`);
+                        console.warn(LOG_PREFIX_SERVER + `Port ${portToTry} is in use. Attempting next port.`);
+                        if (this.wss) { // Clean up the failed server instance
+                            this.wss.removeAllListeners();
+                            this.wss.close();
+                            this.wss = null;
+                        }
+                        attempts++;
+                        currentPort++;
+                        tryStartServer(currentPort);
+                    } else if (error.code === 'EADDRINUSE') {
+                        const failMsg = `ContextWeaver: IPC Server failed to start. Port ${this.port} and ${MAX_PORT_RETRIES} alternatives are in use.`;
+                        this.outputChannel.appendLine(LOG_PREFIX_SERVER + failMsg);
+                        console.error(LOG_PREFIX_SERVER + failMsg);
+                        vscode.window.showErrorMessage(failMsg);
+                    } else {
+                        const failMsg = `ContextWeaver: IPC Server failed to start on port ${portToTry}. Error: ${error.message}`;
+                        this.outputChannel.appendLine(LOG_PREFIX_SERVER + failMsg);
+                        console.error(LOG_PREFIX_SERVER + failMsg);
+                        vscode.window.showErrorMessage(failMsg);
+                    }
+                });
+
+            } catch (error: any) { // Catch synchronous errors from new WebSocketServer, though 'error' event is more common
+                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Failed to create WebSocket server on port ${portToTry}: ${error.message}`);
+                console.error(LOG_PREFIX_SERVER + `Failed to create WebSocket server on port ${portToTry}:`, error);
+                vscode.window.showErrorMessage(`ContextWeaver: Exception while starting IPC Server on port ${portToTry}. Error: ${error.message}`);
+            }
+        };
+
+        tryStartServer(currentPort);
     }
 
     private handleMessage(client: Client, message: WebSocket.RawData): void {
@@ -107,7 +134,7 @@ export class IPCServer {
             return;
         }
 
-        const { protocol_version, message_id, type, command, token, payload } = parsedMessage;
+        const { protocol_version, message_id, type, command, payload } = parsedMessage;
 
         if (protocol_version !== '1.0') {
             this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Protocol version mismatch from ${client.ip}. Expected 1.0, got ${protocol_version}.`);
@@ -115,35 +142,13 @@ export class IPCServer {
             return;
         }
 
-        // Authenticate if not already and if it's a request type
-        if (type === 'request' && !client.isAuthenticated) {
-            if (!this.expectedToken) { // Server started without a token
-                const msg = `Allowing unauthenticated request from ${client.ip} because server token is not set.`;
-                this.outputChannel.appendLine('WARNING: ' + LOG_PREFIX_SERVER + msg);
-                console.warn(LOG_PREFIX_SERVER + msg);
-                client.isAuthenticated = true;
-            } else if (token && token === this.expectedToken) {
-                client.isAuthenticated = true;
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Client from ${client.ip} authenticated successfully.`);
-                console.log(LOG_PREFIX_SERVER + `Client from ${client.ip} authenticated successfully.`);
-            } else {
-                const msg = `Authentication failed for client from ${client.ip}. Token: ${token ? 'provided_invalid' : 'missing'}`;
-                this.outputChannel.appendLine('WARNING: ' + LOG_PREFIX_SERVER + msg);
-                console.warn(LOG_PREFIX_SERVER + msg);
-                this.sendError(client.ws, message_id, 'AUTHENTICATION_FAILED', 'Invalid or missing token.');
-                client.ws.close(); // Optionally close connection on auth failure
-                return;
-            }
-        }
-
-        // For push messages, we might not require prior authentication if they are simple status updates from a trusted source,
-        // but snippets should only go to authenticated and registered targets.
-        // For now, let's assume all requests need authentication. Pushes are VSCE -> CE.
-        if (type === 'request' && !client.isAuthenticated) {
-            const msg = `Unauthenticated request type '${type}' command '${command}' from ${client.ip} blocked.`;
-            this.outputChannel.appendLine('WARNING: ' + LOG_PREFIX_SERVER + msg);
-            console.warn(LOG_PREFIX_SERVER + msg);
-            this.sendError(client.ws, message_id, 'NOT_AUTHENTICATED', 'Client not authenticated.');
+        // Token-based authentication has been removed.
+        // All connected clients are considered authenticated for message processing.
+        if (!client.isAuthenticated) { // Should always be true now due to change in 'connection' handler
+            const msg = `Request type '${type}' command '${command}' from ${client.ip} blocked as client is not marked authenticated. This should not happen.`;
+            this.outputChannel.appendLine('ERROR: ' + LOG_PREFIX_SERVER + msg);
+            console.error(LOG_PREFIX_SERVER + msg);
+            this.sendError(client.ws, message_id, 'INTERNAL_SERVER_ERROR', 'Client not marked authenticated despite token removal.');
             return;
         }
 

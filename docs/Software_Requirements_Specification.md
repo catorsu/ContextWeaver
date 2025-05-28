@@ -262,17 +262,17 @@ The target users are software developers and other technical users who:
 
 *   **FR-IPC-002: Port Configuration:**
     *   The VSCE shall attempt to use a default port (e.g., 30001).
-    *   If the default port is unavailable, the VSCE may try a small range of subsequent ports.
-    *   The VSCE shall provide a mechanism for the user to know which port it is running on (e.g., an info message).
+    *   If the default port is unavailable, the VSCE shall attempt to bind to a small, predefined range of subsequent ports (e.g., up to 3 additional ports).
+    *   The VSCE shall notify the user via a VS Code information message about the specific port it successfully bound to, or if it failed to bind to any port in the range.
     *   The CE shall allow the user to configure the target port in its settings.
 
 *   **FR-IPC-003: Security:**
-    *   The VSCE server shall only bind to `localhost`.
-    *   A shared secret/token mechanism shall be used for authentication:
-        *   The VSCE shall generate or allow the user to set a secret token.
-        *   The user must configure this token in the CE settings.
-        *   The CE must send this token with every request to the VSCE.
-        *   The VSCE must validate this token for all incoming requests.
+    *   The VSCE local server shall only bind to `localhost` (or `127.0.0.1`).
+    *   Token-based authentication has been removed. Communication relies on the inherent security of `localhost` binding, assuming no malicious processes are running on the user's machine attempting to spoof ContextWeaver IPC messages.
+
+*   **FR-CE-017: Manual IPC Reconnection:**
+    *   The CE shall provide a user-accessible button (e.g., in its options page) to manually trigger a reconnection attempt to the VSCE IPC server.
+    *   This button shall provide immediate feedback on the reconnection attempt status.
 
 *   **FR-IPC-004: Data Exchange - CE to VSCE:**
     *   Requests for file tree, file content, folder content, entire codebase content, search queries.

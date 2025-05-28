@@ -8,10 +8,10 @@
 This document defines the Inter-Plugin Communication (IPC) protocol used between the ContextWeaver VS Code Extension (VSCE) and the Chrome Extension (CE).
 
 *   **Transport:** WebSockets
-*   **Server:** VSCE (listens on `localhost`)
+*   **Server:** VSCE (listens on `localhost` and attempts port fallback if default is busy)
 *   **Client:** CE
 *   **Format:** JSON
-*   **Authentication:** Shared secret token sent by CE with each request.
+*   **Authentication:** Removed. Communication relies on `localhost` binding for security.
 
 ## 2. Core Message Structure
 
@@ -23,24 +23,19 @@ All messages exchanged between the VSCE and CE will adhere to the following JSON
   "message_id": "string",    // Unique UUID for requests, echoed in responses. Not required for pushes.
   "type": "request | response | push | error_response", // Category of the message
   "command": "string",       // Specific action or event name
-  "token": "string",         // Shared secret token (only for CE -> VSCE requests)
   "payload": {}              // Command-specific data object
 }
 ```
 
-## 3. Authentication
+## 3. Message Types and Commands
 
-For every `request` message sent from the CE to the VSCE, the `token` field in the core message structure must contain the shared secret token. The VSCE will validate this token. If invalid or missing, the VSCE will respond with an authentication error.
-
-## 4. Message Types and Commands
-
-### 4.1. CE -> VSCE (Requests)
+### 3.1. CE -> VSCE (Requests)
 
 These messages are initiated by the Chrome Extension and sent to the VS Code Extension.
 
 ---
 
-#### 4.1.1. `register_active_target`
+#### 3.1.1. `register_active_target`
 Registers the current LLM tab with the VSCE so it knows where to push snippets.
 
 *   **`type`**: `"request"`
@@ -52,11 +47,11 @@ Registers the current LLM tab with the VSCE so it knows where to push snippets.
       "llmHost": "string"  // Hostname of the LLM interface (e.g., "gemini.google.com")
     }
     ```
-*   **VSCE Response**: `response_generic_ack` (see 4.2.1)
+*   **VSCE Response**: `response_generic_ack` (see 3.2.1)
 
 ---
 
-#### 4.1.2. `get_file_tree`
+#### 3.1.2. `get_file_tree`
 Requests the file and folder hierarchy for a specified workspace or the active one.
 
 *   **`type`**: `"request"`
@@ -67,11 +62,11 @@ Requests the file and folder hierarchy for a specified workspace or the active o
       "workspaceFolderUri": "string | null" // URI of a specific workspace folder in a multi-root setup, or null for the (first) active one.
     }
     ```
-*   **VSCE Response**: `response_file_tree` (see 4.2.2)
+*   **VSCE Response**: `response_file_tree` (see 3.2.2)
 
 ---
 
-#### 4.1.3. `get_file_content`
+#### 3.1.3. `get_file_content`
 Requests the content of a specific file.
 
 *   **`type`**: `"request"`
@@ -82,11 +77,11 @@ Requests the content of a specific file.
       "filePath": "string" // Normalized, absolute path to the file
     }
     ```
-*   **VSCE Response**: `response_file_content` (see 4.2.3)
+*   **VSCE Response**: `response_file_content` (see 3.2.3)
 
 ---
 
-#### 4.1.4. `get_folder_content`
+#### 3.1.4. `get_folder_content`
 Requests the concatenated content of all files within a specified folder (respecting filters).
 
 *   **`type`**: `"request"`
@@ -97,11 +92,11 @@ Requests the concatenated content of all files within a specified folder (respec
       "folderPath": "string" // Normalized, absolute path to the folder
     }
     ```
-*   **VSCE Response**: `response_folder_content` (see 4.2.4)
+*   **VSCE Response**: `response_folder_content` (see 3.2.4)
 
 ---
 
-#### 4.1.5. `get_entire_codebase`
+#### 3.1.5. `get_entire_codebase`
 Requests the concatenated content of all files in a workspace (respecting filters).
 
 *   **`type`**: `"request"`
@@ -112,31 +107,31 @@ Requests the concatenated content of all files in a workspace (respecting filter
       "workspaceFolderUri": "string | null" // URI of a specific workspace folder, or null.
     }
     ```
-*   **VSCE Response**: `response_entire_codebase` (see 4.2.5)
+*   **VSCE Response**: `response_entire_codebase` (see 3.2.5)
 
 ---
 
-#### 4.1.6. `get_active_file_info`
+#### 3.1.6. `get_active_file_info`
 Requests information (path) about the currently active/focused file in VS Code. The CE will then typically make a `get_file_content` request.
 
 *   **`type`**: `"request"`
 *   **`command`**: `"get_active_file_info"`
 *   **`payload`**: `{}`
-*   **VSCE Response**: `response_active_file_info` (see 4.2.6)
+*   **VSCE Response**: `response_active_file_info` (see 3.2.6)
 
 ---
 
-#### 4.1.7. `get_open_files`
+#### 3.1.7. `get_open_files`
 Requests a list of currently open files in VS Code.
 
 *   **`type`**: `"request"`
 *   **`command`**: `"get_open_files"`
 *   **`payload`**: `{}`
-*   **VSCE Response**: `response_open_files` (see 4.2.7)
+*   **VSCE Response**: `response_open_files` (see 3.2.7)
 
 ---
 
-#### 4.1.8. `search_workspace`
+#### 3.1.8. `search_workspace`
 Requests a search for files and folders within the workspace.
 
 *   **`type`**: `"request"`
@@ -148,21 +143,21 @@ Requests a search for files and folders within the workspace.
       "workspaceFolderUri": "string | null" // Optional: URI of a specific workspace folder to search within. If null, search all.
     }
     ```
-*   **VSCE Response**: `response_search_workspace` (see 4.2.8)
+*   **VSCE Response**: `response_search_workspace` (see 3.2.8)
 
 ---
 
-#### 4.1.9. `check_workspace_trust`
+#### 3.1.9. `check_workspace_trust`
 Requests the trust state of the current VS Code workspace(s).
 
 *   **`type`**: `"request"`
 *   **`command`**: `"check_workspace_trust"`
 *   **`payload`**: `{}`
-*   **VSCE Response**: `response_workspace_trust` (see 4.2.9)
+*   **VSCE Response**: `response_workspace_trust` (see 3.2.9)
 
 ---
 
-#### 4.1.10. `get_filter_info`
+#### 3.1.10. `get_filter_info`
 Requests information about the active filter type (gitignore or default) for a workspace.
 
 *   **`type`**: `"request"`
@@ -173,17 +168,17 @@ Requests information about the active filter type (gitignore or default) for a w
       "workspaceFolderUri": "string | null" // URI of a specific workspace folder, or null for the (first) active one.
     }
     ```
-*   **VSCE Response**: `response_filter_info` (see 4.2.10)
+*   **VSCE Response**: `response_filter_info` (see 3.2.10)
 
 ---
 
-### 4.2. VSCE -> CE (Responses)
+### 3.2. VSCE -> CE (Responses)
 
 These messages are sent by the VS Code Extension in response to requests from the Chrome Extension. The `message_id` will match the `message_id` of the original request.
 
 ---
 
-#### 4.2.1. `response_generic_ack`
+#### 3.2.1. `response_generic_ack`
 Generic acknowledgment for simple requests.
 
 *   **`type`**: `"response"`
@@ -198,7 +193,7 @@ Generic acknowledgment for simple requests.
 
 ---
 
-#### 4.2.2. `response_file_tree`
+#### 3.2.2. `response_file_tree`
 Response to `get_file_tree`.
 
 *   **`type`**: `"response"`
@@ -226,7 +221,7 @@ Response to `get_file_tree`.
 
 ---
 
-#### 4.2.3. `response_file_content`
+#### 3.2.3. `response_file_content`
 Response to `get_file_content`.
 
 *   **`type`**: `"response"`
@@ -254,7 +249,7 @@ Response to `get_file_content`.
 
 ---
 
-#### 4.2.4. `response_folder_content`
+#### 3.2.4. `response_folder_content`
 Response to `get_folder_content`.
 
 *   **`type`**: `"response"`
@@ -282,7 +277,7 @@ Response to `get_folder_content`.
 
 ---
 
-#### 4.2.5. `response_entire_codebase`
+#### 3.2.5. `response_entire_codebase`
 Response to `get_entire_codebase`.
 
 *   **`type`**: `"response"`
@@ -310,7 +305,7 @@ Response to `get_entire_codebase`.
 
 ---
 
-#### 4.2.6. `response_active_file_info`
+#### 3.2.6. `response_active_file_info`
 Response to `get_active_file_info`.
 
 *   **`type`**: `"response"`
@@ -331,7 +326,7 @@ Response to `get_active_file_info`.
 
 ---
 
-#### 4.2.7. `response_open_files`
+#### 3.2.7. `response_open_files`
 Response to `get_open_files`.
 
 *   **`type`**: `"response"`
@@ -357,7 +352,7 @@ Response to `get_open_files`.
 
 ---
 
-#### 4.2.8. `response_search_workspace`
+#### 3.2.8. `response_search_workspace`
 Response to `search_workspace`.
 
 *   **`type`**: `"response"`
@@ -386,7 +381,7 @@ Response to `search_workspace`.
 
 ---
 
-#### 4.2.9. `response_workspace_trust`
+#### 3.2.9. `response_workspace_trust`
 Response to `check_workspace_trust`.
 
 *   **`type`**: `"response"`
@@ -412,7 +407,7 @@ Response to `check_workspace_trust`.
 
 ---
 
-#### 4.2.10. `response_filter_info`
+#### 3.2.10. `response_filter_info`
 Response to `get_filter_info`.
 
 *   **`type`**: `"response"`
@@ -431,7 +426,7 @@ Response to `get_filter_info`.
 
 ---
 
-#### 4.2.11. `error_response` (General Error)
+#### 3.2.11. `error_response` (General Error)
 A generic error response if a more specific one isn't suitable, or for unhandled errors.
 
 *   **`type`**: `"error_response"`
@@ -447,13 +442,13 @@ A generic error response if a more specific one isn't suitable, or for unhandled
 
 ---
 
-### 4.3. VSCE -> CE (Pushes)
+### 3.3. VSCE -> CE (Pushes)
 
 These messages are initiated by the VS Code Extension and pushed to the Chrome Extension. They do not typically have a `message_id` unless they are a response to a long-polling request (not planned for V1).
 
 ---
 
-#### 4.3.1. `push_snippet`
+#### 3.3.1. `push_snippet`
 VSCE pushes a selected code snippet to the CE.
 
 *   **`type`**: `"push"`
@@ -480,7 +475,10 @@ VSCE pushes a selected code snippet to the CE.
 
 ---
 
-#### 4.3.2. `status_update`
+#### 3.3.2. `status_update`
+
+VSCE sends general status updates or asynchronous error notifications to CE. This includes updates on the IPC server's status, such as the port it successfully bound to after potential fallback attempts.
+
 VSCE sends general status updates or asynchronous error notifications to CE.
 
 *   **`type`**: `"push"`
@@ -498,7 +496,7 @@ VSCE sends general status updates or asynchronous error notifications to CE.
     }
     ```
 
-## 5. ContextBlockMetadata Structure
+## 4. ContextBlockMetadata Structure
 
 This object is included in VSCE responses when providing data that will be inserted into the LLM chat and requires a visual indicator in the CE.
 
@@ -530,13 +528,13 @@ This object is included in VSCE responses when providing data that will be inser
 }
 ```
 
-## 6. Error Handling Conventions
+## 5. Error Handling Conventions
 
 *   All `response` messages from VSCE should include a `success: boolean` field in their payload.
 *   If `success` is `false`, an `error: string` field in the payload should contain a human-readable error message.
 *   The `error_response` message type can be used for general errors or if the original command context is lost.
 *   The VSCE can also use `status_update` pushes with `statusType: 'error'` for asynchronous error reporting.
 
-## 7. Version History
+## 6. Version History
 
 *   **1.0 (2025-05-26):** Initial design.

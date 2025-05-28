@@ -26,7 +26,7 @@ The architecture adheres to principles outlined in the `<Guide_LLM_Context_Helpe
 
 The ContextWeaver consists of two main components:
 
-*   **VS Code Extension (VSCE):** Runs within Visual Studio Code, responsible for accessing project data, file system operations, and hosting the IPC server.
+*   **VS Code Extension (VSCE):** Runs within Visual Studio Code, responsible for accessing project data, file system operations, and hosting the IPC server with port fallback capabilities.
 *   **Chrome Extension (CE):** Runs within the Google Chrome browser, responsible for the user interface (floating panel, context indicators), interacting with LLM web pages, and acting as the IPC client.
 
 These components communicate via an Inter-Plugin Communication (IPC) mechanism.
@@ -74,7 +74,7 @@ This structure allows for:
 *   **Responsibilities:**
     *   **Data Provider:** Accessing and providing file/folder structures, file content, and search results from the active VS Code workspace(s).
     *   **Filtering Logic:** Applying `.gitignore` rules or default filters to exclude irrelevant content.
-    *   **IPC Server:** Hosting a local server (e.g., WebSocket) to listen for requests from the CE. Handles authentication and message routing.
+    *   **IPC Server:** Hosting a local server (WebSocket) to listen for requests from the CE. Includes port fallback mechanism and message routing.
     *   **Snippet Handling:** Capturing selected code snippets and pushing them to the CE.
     *   **Workspace Management:** Handling multi-root workspaces and respecting VS Code's Workspace Trust feature.
 *   **Key Modules (Planned/Conceptual):**
@@ -112,9 +112,9 @@ This structure allows for:
 
 ### 4.3. Inter-Plugin Communication (IPC)
 
-*   **Mechanism:** WebSocket connection over `localhost`.
+*   **Mechanism:** WebSocket connection over `localhost`, with port fallback if the default port is in use.
 *   **Protocol:** JSON-based messages. (Detailed message schemas are defined in the `docs/IPC_Protocol_Design.md` document).
-*   **Authentication:** Shared secret token.
+*   **Authentication:** Removed. Relies on `localhost` binding for security.
 *   **Key Data Flows:**
     *   CE requests project data (file tree, file content, search) from VSCE.
     *   VSCE responds with data or error messages.
@@ -144,7 +144,7 @@ This structure allows for:
 ## 7. Security Considerations
 
 *   IPC server in VSCE binds only to `localhost`.
-*   Shared secret token for IPC authentication.
+*   IPC authentication via shared secret token has been removed. Security relies on `localhost` binding.
 *   VSCE respects Workspace Trust.
 *   CE content scripts operate with necessary but minimal permissions.
 

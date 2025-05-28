@@ -86,12 +86,8 @@
     <input type="number" id="ipcPort" name="ipcPort" min="1024" max="65535">
   </div>
 
-  <div>
-    <label for="ipcToken">VS Code IPC Token:</label>
-    <input type="text" id="ipcToken" name="ipcToken" placeholder="Enter shared secret token">
-  </div>
-
   <button id="saveSettings">Save Settings</button>
+  <button id="connectIPC" style="margin-left: 10px;">Connect/Reconnect to VS Code</button>
   <div id="saveStatusMessage" class="status"></div>
   <div id="connectionStatusMessage" class="status" style="margin-top: 10px;"></div>
 
