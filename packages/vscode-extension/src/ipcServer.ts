@@ -7,7 +7,7 @@
 
 import WebSocket, { WebSocketServer } from 'ws'; // Import WebSocketServer as WebSocket.Server
 import * as vscode from 'vscode'; // Ensure vscode is imported if not already for OutputChannel type
-import { generateFileTree, readFileContent, FileContentResult } from './fileSystemService';
+import { generateFileTree, readFileContent, FileContentResult, getFolderContents, FolderContentResult } from './fileSystemService';
 import { v4 as uuidv4 } from 'uuid'; // For generating unique message IDs if needed by server
 
 // Import types from the IPC_Protocol_Design.md (assuming they will be in a shared types file later)
@@ -168,8 +168,10 @@ export class IPCServer {
             case 'get_file_content':
                 this.handleGetFileContent(client, payload, message_id);
                 break;
-            // Add stubs for other request handlers
             case 'get_folder_content':
+                this.handleGetFolderContent(client, payload, message_id);
+                break;
+            // Add stubs for other request handlers
             case 'get_entire_codebase':
             case 'get_active_file_info':
             case 'get_open_files':
@@ -250,7 +252,7 @@ export class IPCServer {
             }
 
             const { fileTreeString, rootPath, workspaceFolderName, actualWorkspaceFolderUri } = fileTreeResult;
-            
+
             const metadata = {
                 unique_block_id: uuidv4(), // Using uuidv4 for unique ID
                 content_source_id: `${actualWorkspaceFolderUri.toString()}::file_tree`,
@@ -277,6 +279,55 @@ export class IPCServer {
             this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error generating file tree for ${requestedWorkspaceFolderUriString || 'active workspace'}: ${error.message}`);
             console.error(LOG_PREFIX_SERVER + `Error generating file tree:`, error);
             this.sendError(client.ws, message_id, 'FILE_TREE_ERROR', `Internal server error while generating file tree: ${error.message}`);
+        }
+    }
+
+    private async handleGetFolderContent(client: Client, payload: any, message_id: string): Promise<void> {
+        const { folderPath } = payload;
+        if (!folderPath || typeof folderPath !== 'string') {
+            this.sendError(client.ws, message_id, 'INVALID_PAYLOAD', 'Missing or invalid folderPath in payload.');
+            return;
+        }
+
+        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Processing get_folder_content for: ${folderPath}`);
+
+        try {
+            const result: FolderContentResult | null = await getFolderContents(folderPath);
+
+            if (!result || result.error) {
+                const errorMessage = result?.error || 'Failed to get folder contents.';
+                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error getting folder content for ${folderPath}: ${errorMessage}`);
+                this.sendError(client.ws, message_id, 'FOLDER_CONTENT_ERROR', errorMessage);
+                return;
+            }
+
+            const metadata = {
+                unique_block_id: uuidv4(),
+                content_source_id: vscode.Uri.file(result.folderPath).toString(), // Normalized folder URI
+                type: "folder_content",
+                label: result.folderName,
+                workspaceFolderUri: result.workspaceFolderUri,
+                workspaceFolderName: result.workspaceFolderName
+            };
+
+            const responsePayload = {
+                success: true,
+                data: {
+                    // As per SRS 3.3.3, concatenatedContent already includes the <file_tree> and <file_contents> sections
+                    content: result.concatenatedContent,
+                    metadata: metadata
+                },
+                error: null,
+                folderPath: result.folderPath, // Send back the processed fsPath
+                filterType: 'default' // Placeholder, to be updated in P2T2 (Content Filtering Logic)
+            };
+            this.sendMessage(client.ws, 'response', 'response_folder_content', responsePayload, message_id);
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent folder content for ${result.folderPath} to ${client.ip}`);
+
+        } catch (error: any) {
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Unexpected error in handleGetFolderContent for ${folderPath}: ${error.message}`);
+            console.error(LOG_PREFIX_SERVER + `Unexpected error in handleGetFolderContent for ${folderPath}:`, error);
+            this.sendError(client.ws, message_id, 'FOLDER_CONTENT_UNEXPECTED_ERROR', `Internal server error while getting folder content: ${error.message}`);
         }
     }
 
@@ -331,7 +382,7 @@ export class IPCServer {
                 this.sendMessage(client.ws, 'response', 'response_file_content', responsePayload, message_id);
                 return;
             }
-            
+
             // Success, content is available
             const metadata = {
                 unique_block_id: uuidv4(),

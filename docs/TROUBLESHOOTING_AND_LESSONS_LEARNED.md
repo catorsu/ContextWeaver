@@ -7,7 +7,6 @@ This document records significant issues encountered during the development of t
 Each new entry should follow the format below:
 
 ---
-
 ## [YYYY-MM-DD] - [Brief, Descriptive Title of Issue or Lesson]
 
 **Phase/Task in Development Plan:** (e.g., Phase 3, Task 4 - Context Block Indicator Management)
@@ -30,7 +29,6 @@ Each new entry should follow the format below:
 *   (e.g., "Prevention: Add more specific unit tests for IPC message parsing.")
 
 ---
-
 ## 2025-05-27 - VSCE Fails to Activate When Debugging from Monorepo Root
 
 **Phase/Task in Development Plan:** Phase 1, Task 3 - VSCE - Basic Server Implementation
@@ -59,7 +57,6 @@ Each new entry should follow the format below:
 *   **Prevention:** Document the correct debugging procedure (opening the extension subfolder) in the project's `README.md` or a contributor's guide.
 
 ---
-
 ## 2025-05-27 - CE IPC Client Connection & UI Issues
 
 **Phase/Task in Development Plan:** Phase 1, Task 4 - CE - Basic Client Implementation
@@ -111,7 +108,6 @@ Each new entry should follow the format below:
 *   **Lesson 6 (Chrome Extension Reloading):** After making changes to HTML files or `manifest.json`, ensure the unpacked extension is fully reloaded in `chrome://extensions` for changes to take effect. Simple tab refreshes are not always sufficient.
 
 ---
-
 ## [2025-05-28] - IPC Simplification: Removal of Token Authentication and Port Fallback
 
 **Phase/Task in Development Plan:** Phase 1, Task 3 (VSCE - Basic Server Implementation), Phase 1, Task 4 (CE - Basic Client Implementation), and subsequent IPC-related tasks.
@@ -149,9 +145,7 @@ Each new entry should follow the format below:
 *   **Prevention:** Continuously evaluate security measures against actual threat models and user experience impact. Prioritize robust connection management and clear user feedback for background services.
 
 ---
-
 ## [2025-05-28] - VSCE Workspace API Returns Empty/Undefined in Extension Development Host
----
 
 **Phase/Task in Development Plan:** Phase 2, Task 1 - File System Data Provisioning (File Tree)
 
@@ -178,3 +172,32 @@ Each new entry should follow the format below:
 *   **Prevention (Testing):** Always ensure that the testing environment for VS Code extension features that interact with the workspace is the EDH window, properly configured with the desired open folders and trust settings.
 *   **Prevention (Logging):** When diagnosing workspace-related issues, log the direct output of `vscode.workspace.workspaceFolders` and `vscode.workspace.isTrusted` at the beginning of the relevant function to quickly ascertain the extension's view of the workspace state.
 *   **API Understanding:** `vscode.workspace.getWorkspaceFolder(uri)` returns a `WorkspaceFolder` if the given `uri` *exactly matches* the URI of one of the root folders in `vscode.workspace.workspaceFolders`. It does not resolve sub-folders to their parent root workspace folder.
+
+---
+## [2025-05-28] - Syntax Errors in .ts File After Appending Code with Escaped Literals via Tooling
+
+**Phase/Task in Development Plan:** Phase 2, Task 1 - File System Data Provisioning (Folder Content)
+
+**Problem Encountered:**
+*   **Symptoms:** After appending a new function (`getFolderContents`) to `fileSystemService.ts` using the `filesystem.write_file` tool (by concatenating existing content with new code as a string), the TypeScript compiler reported multiple syntax errors like "Invalid character," "Unterminated template literal," and subsequent "Module has no exported member" errors in files importing from it.
+*   **Context:** The new code block contained JavaScript template literals (using backticks `` ` ``) and string literals with newline characters (`\n`).
+*   **Initial Diagnosis/Hypothesis:** The string content provided to the `filesystem.write_file` tool for the new function had its backticks, backslashes, and newlines over-escaped (e.g., `\\\`` instead of `` ` ``, `\\\\n` instead of `\n`). This happened because the code was prepared as a string within the AI's context, potentially undergoing multiple layers of escaping before being passed to the tool.
+
+**Investigation & Iterations:**
+*   The `code_checker` tool confirmed syntax errors in `fileSystemService.ts`.
+*   Reading the file content after the problematic `write_file` call showed literal backslashes before backticks and within newline sequences (e.g., `console.log(\`[ContextWeaver...]\`);` appeared as `console.log(\\\`[ContextWeaver...]\\\`);` in the raw file).
+*   Initial attempts to fix this with `filesystem.edit_file` by targeting specific escaped sequences were complex and also prone to `oldText` mismatch errors if the file wasn't exactly as predicted.
+
+**Solution Implemented:**
+*   The most reliable solution was to provide the **entire, syntactically correct content** of `fileSystemService.ts` (including the new function with proper string and template literals) in a single, clean block and use `filesystem.write_file` to overwrite the problematic file. This ensured that no unintended escaping artifacts from the AI's string generation or tool interaction were present in the final `.ts` file.
+*   The user manually corrected the syntax errors in their local environment, confirming the approach.
+
+**Key Takeaway(s) / How to Avoid in Future:**
+*   **Lesson:** When using tools to write or edit source code files, especially with complex string literals, template literals, or special characters, be extremely cautious about how the string content is prepared and passed to the tool. Multiple layers of string escaping (one for the AI's internal representation, one for the tool's parameter format) can lead to literal escape characters being written into the code.
+*   **Prevention (Tool Usage):** For adding large, complex blocks of new code, it's often safer to:
+    1.  Have the AI generate the complete, clean code block as a distinct unit.
+    2.  Read the existing file content.
+    3.  Programmatically combine the existing content with the new, clean code block (e.g., simple string concatenation).
+    4.  Use `filesystem.write_file` to overwrite the entire file with the combined, correct content.
+    This avoids the brittleness of `filesystem.edit_file` for large additions and reduces the risk of escaping issues.
+*   **Prevention (Verification):** Always run a code checker or linter immediately after a tool modifies source code to catch such syntax issues early.

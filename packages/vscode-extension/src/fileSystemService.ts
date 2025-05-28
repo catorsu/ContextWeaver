@@ -22,7 +22,7 @@ const DEFAULT_EXCLUSIONS: string[] = [
   // Add more common ones if necessary
 ];
 
-interface FileTreeResult {
+export interface FileTreeResult {
   fileTreeString: string;
   rootPath: string;
   workspaceFolderName: string;
@@ -98,39 +98,23 @@ export async function generateFileTree(
   const rootName = targetWorkspaceFolder.name;
   const treeLines: string[] = [];
 
-  // The first line is the root path, normalized to forward slashes
-  // uri.path already uses forward slashes and includes the leading slash.
-  // For display like "C:/project/MyProject", we might want to remove leading slash if not a UNC path.
-  // However, the SRS example "C:/project/SmartInfo" implies it's fine.
-  // Let's use uri.fsPath for the initial display and then format it.
-  // For consistency with the SRS example, we'll format fsPath.
-  const displayRootPath = rootUri.fsPath.replace(/\\/g, '/'); // Normalize to forward slashes for display
+  const displayRootPath = rootUri.fsPath.replace(/\\/g, '/');
   treeLines.push(displayRootPath);
 
-  /**
-   * @description Recursively traverses a directory to build the file tree.
-   * @param {vscode.Uri} dirUri - The URI of the directory to traverse.
-   * @param {string} indentPrefix - The prefix string for the current indentation level.
-   * @returns {Promise<void>}
-   * @sideeffect Reads directory contents from the file system.
-   */
   async function traverse(dirUri: vscode.Uri, indentPrefix: string): Promise<void> {
     try {
       let entries = await vscode.workspace.fs.readDirectory(dirUri);
 
-      // Filter out excluded entries
       entries = entries.filter(([name, type]) => {
         if (DEFAULT_EXCLUSIONS.includes(name)) {
           return false;
         }
-        if (name.endsWith('.log') && DEFAULT_EXCLUSIONS.includes('*.log')) { // Simple check for *.log
+        if (name.endsWith('.log') && DEFAULT_EXCLUSIONS.includes('*.log')) {
           return false;
         }
-        // Add more sophisticated glob matching here when integrating full filterService
         return true;
       });
 
-      // Sort entries: folders first, then files, then alphabetically
       entries.sort(([nameA, typeA], [nameB, typeB]) => {
         if (typeA === vscode.FileType.Directory && typeB !== vscode.FileType.Directory) {
           return -1;
@@ -161,25 +145,23 @@ export async function generateFileTree(
 
   await traverse(rootUri, '');
 
-  const fileTreeString = `<file_tree>\\n${treeLines.join('\\n')}\\n</file_tree>`;
+  const fileTreeString = `<file_tree>\n${treeLines.join('\n')}\n</file_tree>`;
 
   return {
     fileTreeString,
-    rootPath: displayRootPath, // The path displayed as the root of the tree
+    rootPath: displayRootPath,
     workspaceFolderName: rootName,
     actualWorkspaceFolderUri: rootUri,
   };
 }
 
-// (At the end of the file, after the generateFileTree function and its interface)
-
 export interface FileContentResult {
   content: string | null;
-  filePath: string; // Normalized path for identification
-  fileName: string; // For label
+  filePath: string;
+  fileName: string;
   isBinary: boolean;
-  error?: string; // Optional error message if reading failed beyond binary skip
-  workspaceFolderUri?: string | null; // URI string
+  error?: string;
+  workspaceFolderUri?: string | null;
   workspaceFolderName?: string | null;
 }
 
@@ -196,7 +178,6 @@ export async function readFileContent(
   console.log(`[ContextWeaver FileSystemService] readFileContent called for: ${filePathOrUri}`);
   let fileUri: vscode.Uri;
   try {
-    // Check if it's already a URI string, otherwise assume it's a file path
     if (filePathOrUri.startsWith('file:///')) {
       fileUri = vscode.Uri.parse(filePathOrUri, true);
     } else {
@@ -213,15 +194,11 @@ export async function readFileContent(
     };
   }
 
-  const fileName = path.basename(fileUri.fsPath); // Use path.basename for simple name extraction
-
-  // Determine owning workspace folder
+  const fileName = path.basename(fileUri.fsPath);
   const owningWorkspaceFolder = vscode.workspace.getWorkspaceFolder(fileUri);
   const workspaceFolderUri = owningWorkspaceFolder?.uri.toString() ?? null;
   const workspaceFolderName = owningWorkspaceFolder?.name ?? null;
 
-  // Workspace Trust check (though individual file reads might be allowed in untrusted workspaces if they are open)
-  // For consistency with other operations, we'll check global trust.
   if (!vscode.workspace.isTrusted) {
     const msg = 'Workspace is not trusted. File content access restricted.';
     console.warn(`[ContextWeaver FileSystemService] ${msg} For file: ${fileUri.fsPath}`);
@@ -253,10 +230,6 @@ export async function readFileContent(
     }
 
     const rawContent = await vscode.workspace.fs.readFile(fileUri);
-
-    // FR-VSCE-002: "Binary files shall be silently skipped."
-    // We will rely on TextDecoder failing for non-UTF-8 files.
-    // Optionally, add a list of known binary extensions for a faster path.
     const knownBinaryExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.exe', '.dll', '.o', '.so', '.wasm', '.zip', '.gz', '.pdf', '.obj', '.bin'];
     const fileExtension = path.extname(fileName).toLowerCase();
 
@@ -272,26 +245,24 @@ export async function readFileContent(
       };
     }
 
-    // Attempt to decode as UTF-8
     try {
       const decodedContent = new TextDecoder('utf-8', { fatal: true }).decode(rawContent);
       console.log(`[ContextWeaver FileSystemService] Successfully read and decoded file: ${fileUri.fsPath}`);
       return {
         content: decodedContent,
-        filePath: fileUri.fsPath, // fsPath is fine for internal use here
+        filePath: fileUri.fsPath,
         fileName,
         isBinary: false,
         workspaceFolderUri,
         workspaceFolderName,
       };
     } catch (decodingError: any) {
-      // If UTF-8 decoding fails, treat as binary/unreadable
       console.warn(`[ContextWeaver FileSystemService] UTF-8 decoding failed for ${fileUri.fsPath}, treating as unreadable. Error: ${decodingError.message}`);
       return {
         content: null,
         filePath: fileUri.fsPath,
         fileName,
-        isBinary: true, // Mark as binary due to decoding failure
+        isBinary: true,
         error: `File is not valid UTF-8 or contains unreadable characters.`,
         workspaceFolderUri,
         workspaceFolderName,
@@ -309,10 +280,186 @@ export async function readFileContent(
       content: null,
       filePath: fileUri.fsPath,
       fileName,
-      isBinary: false, // Could be other errors than binary
+      isBinary: false,
       error: errorMessage,
       workspaceFolderUri,
       workspaceFolderName,
     };
   }
+}
+
+export interface FolderContentResult {
+  concatenatedContent: string;
+  fileTreeString: string;
+  folderPath: string;
+  folderName: string;
+  error?: string;
+  workspaceFolderUri?: string | null;
+  workspaceFolderName?: string | null;
+}
+
+interface FileInfo {
+  path: string;
+  name: string;
+  content?: string;
+  languageId?: string;
+}
+
+/**
+ * @description Reads and concatenates content of all text files within a specified folder
+ * and its subfolders, respecting default exclusions. Also generates a file tree for the folder.
+ * @param {string} folderPathOrUri - The absolute path or URI string of the folder.
+ * @returns {Promise<FolderContentResult | null>} A promise that resolves to an object containing
+ * the concatenated content and file tree, or null if an error occurs.
+ * @sideeffect Reads from the file system.
+ */
+export async function getFolderContents(
+  folderPathOrUri: string
+): Promise<FolderContentResult | null> {
+  console.log(`[ContextWeaver FileSystemService] getFolderContents called for: ${folderPathOrUri}`);
+  let folderUri: vscode.Uri;
+  try {
+    if (folderPathOrUri.startsWith('file:///')) {
+      folderUri = vscode.Uri.parse(folderPathOrUri, true);
+    } else {
+      folderUri = vscode.Uri.file(folderPathOrUri);
+    }
+  } catch (e: any) {
+    console.error(`[ContextWeaver FileSystemService] Invalid folder path or URI: ${folderPathOrUri}`, e);
+    return {
+      concatenatedContent: '',
+      fileTreeString: '',
+      folderPath: folderPathOrUri,
+      folderName: path.basename(folderPathOrUri),
+      error: `Invalid folder path or URI: ${e.message}`,
+      workspaceFolderUri: null,
+      workspaceFolderName: null,
+    };
+  }
+
+  const folderName = path.basename(folderUri.fsPath);
+  const owningWorkspaceFolder = vscode.workspace.getWorkspaceFolder(folderUri);
+
+  if (!vscode.workspace.isTrusted) {
+    const msg = 'Workspace is not trusted. Folder content access restricted.';
+    console.warn(`[ContextWeaver FileSystemService] ${msg} For folder: ${folderUri.fsPath}`);
+    return {
+      concatenatedContent: '',
+      fileTreeString: '',
+      folderPath: folderUri.fsPath,
+      folderName,
+      error: msg,
+      workspaceFolderUri: owningWorkspaceFolder?.uri.toString() ?? null,
+      workspaceFolderName: owningWorkspaceFolder?.name ?? null,
+    };
+  }
+
+  try {
+    const stat = await vscode.workspace.fs.stat(folderUri);
+    if (stat.type !== vscode.FileType.Directory) {
+      const msg = 'Path does not point to a directory.';
+      console.warn(`[ContextWeaver FileSystemService] ${msg} Path: ${folderUri.fsPath}`);
+      return {
+        concatenatedContent: '',
+        fileTreeString: '',
+        folderPath: folderUri.fsPath,
+        folderName,
+        error: msg,
+        workspaceFolderUri: owningWorkspaceFolder?.uri.toString() ?? null,
+        workspaceFolderName: owningWorkspaceFolder?.name ?? null,
+      };
+    }
+  } catch (e: any) {
+    console.error(`[ContextWeaver FileSystemService] Error stating folder ${folderUri.fsPath}:`, e);
+    return {
+      concatenatedContent: '',
+      fileTreeString: '',
+      folderPath: folderUri.fsPath,
+      folderName,
+      error: `Error accessing folder: ${e.message}`,
+      workspaceFolderUri: owningWorkspaceFolder?.uri.toString() ?? null,
+      workspaceFolderName: owningWorkspaceFolder?.name ?? null,
+    };
+  }
+
+  const collectedFileInfos: FileInfo[] = [];
+  const treeLines: string[] = [folderName];
+
+  async function collectFilesAndBuildTreeRecursive(currentDirUri: vscode.Uri, indentPrefix: string): Promise<void> {
+    let entries;
+    try {
+      entries = await vscode.workspace.fs.readDirectory(currentDirUri);
+    } catch (e: any) {
+      console.error(`[ContextWeaver FileSystemService] Error reading directory ${currentDirUri.fsPath} in getFolderContents:`, e);
+      treeLines.push(`${indentPrefix}└── [Error reading directory: ${path.basename(currentDirUri.fsPath)}]`);
+      return; // Return void, as declared
+    }
+
+    entries = entries.filter(([name, _type]) => {
+      if (DEFAULT_EXCLUSIONS.includes(name)) return false;
+      if (name.endsWith('.log') && DEFAULT_EXCLUSIONS.includes('*.log')) return false;
+      return true;
+    });
+
+    entries.sort(([nameA, typeA], [nameB, typeB]) => {
+      if (typeA === vscode.FileType.Directory && typeB !== vscode.FileType.Directory) return -1;
+      if (typeA !== vscode.FileType.Directory && typeB === vscode.FileType.Directory) return 1;
+      return nameA.localeCompare(nameB);
+    });
+
+    for (let i = 0; i < entries.length; i++) {
+      const [name, type] = entries[i];
+      const entryUri = vscode.Uri.joinPath(currentDirUri, name);
+
+      const isLast = i === entries.length - 1;
+      const entryPrefix = isLast ? '└── ' : '├── ';
+      treeLines.push(`${indentPrefix}${entryPrefix}${name}`);
+
+      if (type === vscode.FileType.File) {
+        const fileData = await readFileContent(entryUri.toString());
+        if (!fileData.isBinary && fileData.content !== null) {
+          let langId = path.extname(name).substring(1).toLowerCase();
+          if (langId === 'js') langId = 'javascript';
+          else if (langId === 'py') langId = 'python';
+          else if (langId === 'md') langId = 'markdown';
+          else if (langId === 'json') langId = 'json';
+          else if (langId === 'ts') langId = 'typescript';
+          else if (!langId) langId = 'plaintext';
+
+          collectedFileInfos.push({
+            path: entryUri.fsPath,
+            name: name,
+            content: fileData.content,
+            languageId: langId,
+          });
+        }
+      } else if (type === vscode.FileType.Directory) {
+        const newIndentPrefix = indentPrefix + (isLast ? '    ' : '│   ');
+        await collectFilesAndBuildTreeRecursive(entryUri, newIndentPrefix);
+      }
+    }
+  }
+
+  await collectFilesAndBuildTreeRecursive(folderUri, '');
+
+  let concatenatedFileContentsString = '';
+  for (const fileInfo of collectedFileInfos) {
+    const displayPath = fileInfo.path.replace(/\\/g, '/');
+    concatenatedFileContentsString += `file: ${displayPath}\n\`\`\`${fileInfo.languageId || ''}\n${fileInfo.content}\n\`\`\`\n\n`;
+  }
+  concatenatedFileContentsString = concatenatedFileContentsString.trimEnd();
+
+  const folderTreeString = `<file_tree>\n${treeLines.join('\n')}\n</file_tree>`;
+  const fileContentsBlock = `<file_contents>\n${concatenatedFileContentsString}\n</file_contents>`;
+
+  const fullContentForLlm = `${folderTreeString}\n\n${fileContentsBlock}`;
+
+  return {
+    concatenatedContent: fullContentForLlm,
+    fileTreeString: folderTreeString,
+    folderPath: folderUri.fsPath,
+    folderName: folderName,
+    workspaceFolderUri: owningWorkspaceFolder?.uri.toString() ?? null,
+    workspaceFolderName: owningWorkspaceFolder?.name ?? null,
+  };
 }
