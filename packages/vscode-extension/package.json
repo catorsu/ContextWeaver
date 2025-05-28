@@ -43,7 +43,6 @@
           "default": 30001,
           "description": "Port for IPC communication with the ContextWeaver Chrome Extension."
         }
-
       }
     }
   },
@@ -54,19 +53,19 @@
     "lint": "eslint src --ext ts"
   },
   "dependencies": {
-    "ws": "^8.17.0",
+    "ignore": "^5.3.1",
     "uuid": "^9.0.1",
-    "ignore": "^5.3.1"
+    "ws": "^8.17.0"
   },
   "devDependencies": {
+    "@types/node": "18.x",
+    "@types/uuid": "^9.0.8",
     "@types/vscode": "^1.80.0",
     "@types/ws": "^8.5.10",
-    "@types/uuid": "^9.0.8",
-    "@types/node": "18.x",
-    "typescript": "^5.3.3",
-    "eslint": "^8.56.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.56.0",
+    "typescript": "^5.3.3",
     "vscode-test": "^1.5.0"
   }
 }

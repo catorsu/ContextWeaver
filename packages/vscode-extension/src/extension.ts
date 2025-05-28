@@ -9,12 +9,14 @@ import * as vscode from 'vscode';
 import { IPCServer } from './ipcServer';
 import { SearchService } from './searchService';
 import { SnippetService, SnippetPayload } from './snippetService';
+import { WorkspaceService } from './workspaceService'; // Added import
 
 const EXTENSION_ID = 'contextweaver'; // For settings and prefixing
 const LOG_PREFIX = '[ContextWeaver] ';
 let outputChannel: vscode.OutputChannel;
 let ipcServer: IPCServer | null = null;
 let snippetService: SnippetService;
+let workspaceService: WorkspaceService; // Added declaration
 
 /**
  * @description This method is called when your extension is activated.
@@ -27,12 +29,15 @@ export function activate(context: vscode.ExtensionContext) {
     outputChannel.appendLine(LOG_PREFIX + 'Activating extension...');
     console.log(LOG_PREFIX + 'VSCE is now active.'); // Keep console log for debug console visibility too
 
+    // Initialize services
+    workspaceService = new WorkspaceService(outputChannel); // Instantiate WorkspaceService
+    const searchService = new SearchService(outputChannel, workspaceService); // Pass outputChannel and workspaceService to SearchService
+
     // Retrieve configuration for IPC
-    const configuration = vscode.workspace.getConfiguration(EXTENSION_ID); // Use constant
-    const port = configuration.get('ipc.port', 30001); // Default to 30001
-    // Token configuration has been removed.
-    const searchService = new SearchService(); // Instantiate SearchService
-    ipcServer = new IPCServer(port, context, outputChannel, searchService); // Pass outputChannel and searchService
+    const configuration = vscode.workspace.getConfiguration(EXTENSION_ID);
+    const port = configuration.get('ipc.port', 30001);
+
+    ipcServer = new IPCServer(port, context, outputChannel, searchService, workspaceService); // Pass workspaceService
     ipcServer.start();
 
     snippetService = new SnippetService(outputChannel);

@@ -82,7 +82,7 @@ This structure allows for:
     *   `fileSystemService.ts`: Handles all interactions with the file system (reading files, listing directories, traversing structures).
     *   `filterService.ts`: Implements `.gitignore` parsing and default filtering logic.
     *   `searchService.ts`: Provides file/folder search capabilities within the workspace.
-    *   `workspaceService.ts`: Manages information about open workspace folders and trust status.
+    *   `workspaceService.ts`: Centralizes logic for interacting with the VS Code workspace. It provides information about open workspace folders (including multi-root scenarios), their URIs, names, and the overall workspace trust state. It's used by other services to ensure operations are performed on trusted and valid workspaces.
     *   `snippetService.ts`: Responsible for preparing snippet data (selected text, file path, line numbers, language ID, and associated metadata) when triggered by the user. It does not directly handle IPC sending but provides the data to `extension.ts` for dispatch.
     *   `extension.ts`: The main entry point for the VSCE, responsible for activating and coordinating modules.
 *   **Technology Stack:**

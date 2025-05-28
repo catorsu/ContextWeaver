@@ -59,7 +59,7 @@ Requests the file and folder hierarchy for a specified workspace or the active o
 *   **`payload`**:
     ```json
     {
-      "workspaceFolderUri": "string | null" // URI of a specific workspace folder in a multi-root setup, or null for the (first) active one.
+      "workspaceFolderUri": "string | null" // URI of a specific workspace folder. If null and multiple workspace folders are open, an AMBIGUOUS_WORKSPACE error will be returned. If null and only one folder is open, that folder will be used.
     }
     ```
 *   **VSCE Response**: `response_file_tree` (see 3.2.2)
@@ -89,9 +89,11 @@ Requests the concatenated content of all files within a specified folder (respec
 *   **`payload`**:
     ```json
     {
-      "folderPath": "string" // Normalized, absolute path to the folder
+      "folderPath": "string", // Normalized, absolute path to the folder
+      "workspaceFolderUri": "string" // URI of the workspace folder this folderPath belongs to. Required.
     }
     ```
+    The `workspaceFolderUri` is required to correctly contextualize the `folderPath` and apply appropriate filters.
 *   **VSCE Response**: `response_folder_content` (see 3.2.4)
 
 ---
@@ -170,6 +172,16 @@ Requests information about the active filter type (gitignore or default) for a w
     }
     ```
 *   **VSCE Response**: `response_filter_info` (see 3.2.10)
+
+---
+
+#### 3.1.11. `get_workspace_details`
+Requests details about the currently open workspace(s), including their trust state. This replaces the need for `check_workspace_trust`.
+
+*   **`type`**: `"request"`
+*   **`command`**: `"get_workspace_details"`
+*   **`payload`**: `{}`
+*   **VSCE Response**: `response_workspace_details` (see 3.2.12)
 
 ---
 
@@ -428,7 +440,33 @@ Response to `get_filter_info`.
 
 ---
 
-#### 3.2.11. `error_response` (General Error)
+#### 3.2.11. `response_workspace_details`
+Response to `get_workspace_details`.
+
+*   **`type`**: `"response"`
+*   **`command`**: `"response_workspace_details"`
+*   **`payload`**:
+    ```json
+    {
+      "success": "boolean",
+      "data": { // Present if success is true
+        "isTrusted": "boolean", // Overall trust status of the VS Code workspace environment
+        "workspaceFolders": [ // Array of open workspace folders. Null if no workspace is open.
+          {
+            "uri": "string", // URI of the workspace folder
+            "name": "string", // Name of the workspace folder
+            "isTrusted": "boolean" // Reflects the overall workspace trust status for this folder
+          }
+          // ... more folders if multi-root
+        ] | null
+      } | null,
+      "error": "string | null" // Present if success is false
+    }
+    ```
+
+---
+
+#### 3.2.12. `error_response` (General Error)
 A generic error response if a more specific one isn't suitable, or for unhandled errors.
 
 *   **`type`**: `"error_response"`
@@ -536,6 +574,22 @@ This object is included in VSCE responses when providing data that will be inser
 *   If `success` is `false`, an `error: string` field in the payload should contain a human-readable error message.
 *   The `error_response` message type can be used for general errors or if the original command context is lost.
 *   The VSCE can also use `status_update` pushes with `statusType: 'error'` for asynchronous error reporting.
+
+**Common Error Codes (sent in `errorCode` field of `error_response` or specific responses):**
+*   `INVALID_PAYLOAD`: Request payload was missing required fields or had invalid values.
+*   `UNSUPPORTED_PROTOCOL_VERSION`: Client's protocol version is not supported.
+*   `UNKNOWN_COMMAND`: The requested command is not recognized.
+*   `INTERNAL_SERVER_ERROR`: An unexpected error occurred on the server.
+*   `WORKSPACE_NOT_TRUSTED`: The VS Code workspace is not trusted by the user.
+*   `NO_WORKSPACE_OPEN`: No workspace folder is currently open in VS Code.
+*   `WORKSPACE_FOLDER_NOT_FOUND`: A specified `workspaceFolderUri` does not match any open workspace folder.
+*   `AMBIGUOUS_WORKSPACE`: An operation requires a single workspace folder context (e.g., via `workspaceFolderUri` in payload), but multiple folders are open and no specific one was provided.
+*   `FILE_TREE_GENERATION_FAILED`: Error during file tree generation.
+*   `FILE_CONTENT_ERROR`: Error reading specific file content.
+*   `FOLDER_CONTENT_ERROR`: Error reading content of a folder.
+*   `CODEBASE_CONTENT_ERROR`: Error reading content for the entire codebase.
+*   `SEARCH_ERROR`: Error during a workspace search operation.
+*   `INVALID_PATH`: A provided path (e.g. folder path for `get_folder_content`) is invalid or not within the specified workspace.
 
 ## 6. Version History
 

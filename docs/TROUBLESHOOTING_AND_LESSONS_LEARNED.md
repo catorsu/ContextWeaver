@@ -231,3 +231,4 @@ Each new entry should follow the format below:
 *   **Prevention/Best Practice:** For features involving asynchronous pushes from server to client, consider creating a minimal test client early in the development of the server-side push logic to facilitate iterative testing and debugging. This helps decouple the development of the sender and receiver to some extent.
 
 ---
+<!-- New troubleshooting entries should be added below this comment -->

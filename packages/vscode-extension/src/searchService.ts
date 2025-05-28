@@ -7,9 +7,12 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { Ignore } from 'ignore'; 
-import { parseGitignore } from './fileSystemService';
+import { parseGitignore } from './fileSystemService'; // Assuming this is still needed for gitignore logic
+import { WorkspaceService } from './workspaceService'; // Added
 
-// Copied from fileSystemService.ts (IGNORE_PATTERNS_DEFAULT)
+const LOG_PREFIX_SEARCH_SERVICE = '[ContextWeaver SearchService] ';
+
+// Default ignore patterns (can be kept or potentially centralized if WorkspaceService provides them)
 const LOCAL_IGNORE_PATTERNS_DEFAULT = [
   'node_modules/', '.git/', '.vscode/', 'dist/', 'build/', '*.log',
   '__pycache__/', '.DS_Store', '*.pyc', '*.pyo', '*.swp', '*.bak', '*.tmp',
@@ -32,14 +35,22 @@ export interface SearchResult {
   type: 'file' | 'folder';
   uri: string; 
   content_source_id: string; 
-  workspaceFolderUri: string | null;
-  workspaceFolderName: string | null;
+  workspaceFolderUri: string; // Changed to non-nullable, should always be present
+  workspaceFolderName: string; // Changed to non-nullable
   filterTypeApplied?: 'gitignore' | 'default';
 }
 
 export class SearchService {
+  private outputChannel: vscode.OutputChannel;
+  private workspaceService: WorkspaceService;
 
-  // Copied and adapted from fileSystemService.ts's getPathIgnoreInfo
+  constructor(outputChannel: vscode.OutputChannel, workspaceService: WorkspaceService) {
+    this.outputChannel = outputChannel;
+    this.workspaceService = workspaceService;
+    this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + 'Initialized');
+  }
+
+  // getPathIgnoreInfoInternal can remain largely the same, or be moved to fileSystemService if fully duplicated
   private static getPathIgnoreInfoInternal(
     relativePath: string,
     name: string,
@@ -49,37 +60,28 @@ export class SearchService {
   ): { ignored: boolean; filterTypeApplied: 'gitignore' | 'default' } {
     if (gitignoreFilter) {
       let pathToCheck = relativePath;
-      // The 'ignore' library expects paths to not start with './' for its matching.
-      // It also handles directory matching (e.g. 'node_modules/') correctly against 'node_modules'.
       if (pathToCheck.startsWith('./')) {
         pathToCheck = pathToCheck.substring(2);
       }
       
       if (gitignoreFilter.ignores(pathToCheck)) {
-        // console.log(`[ContextWeaver SearchService] Ignoring (gitignore): '${pathToCheck}' (orig relPath: '${relativePath}')`);
         return { ignored: true, filterTypeApplied: 'gitignore' };
       }
-      // The 'ignore' library itself handles directory patterns (ending with /) correctly.
-      // No need for an explicit check with an added slash if the library is used as intended.
       return { ignored: false, filterTypeApplied: 'gitignore' };
     } else {
-      // Default patterns logic
       for (const pattern of defaultIgnorePatterns) {
         const cleanPatternName = pattern.endsWith('/') ? pattern.slice(0, -1) : pattern;
 
-        if (pattern.endsWith('/')) { // Directory pattern like 'node_modules/'
+        if (pattern.endsWith('/')) { 
           if (isDirectory && (name === cleanPatternName || relativePath === cleanPatternName || relativePath.startsWith(cleanPatternName + '/'))) {
-            // console.log(`[ContextWeaver SearchService] Ignoring (default pattern - dir): '${relativePath}' due to '${pattern}'`);
             return { ignored: true, filterTypeApplied: 'default' };
           }
-        } else if (pattern.startsWith('*.')) { // Extension pattern like '*.log'
+        } else if (pattern.startsWith('*.')) { 
           if (!isDirectory && name.endsWith(pattern.substring(1))) {
-            // console.log(`[ContextWeaver SearchService] Ignoring (default pattern - ext): '${relativePath}' due to '${pattern}'`);
             return { ignored: true, filterTypeApplied: 'default' };
           }
-        } else { // Exact name pattern like '.DS_Store' or '.gitignore'
+        } else { 
           if (name === pattern) {
-            // console.log(`[ContextWeaver SearchService] Ignoring (default pattern - exact name): '${relativePath}' due to '${pattern}'`);
             return { ignored: true, filterTypeApplied: 'default' };
           }
         }
@@ -88,77 +90,69 @@ export class SearchService {
     }
   }
 
-  constructor() {
-    console.log('[ContextWeaver SearchService] Initialized');
-  }
 
   /**
    * @description Searches for files and folders within trusted workspace folders, applying .gitignore rules.
+   * Assumes workspace trust and existence of folders are pre-checked by the caller (IPCServer).
    * @param {string} query - The search query string.
-   * @param {vscode.Uri} [workspaceFolderToSearch] - Optional. If provided, search only within this workspace folder. Otherwise, search all trusted workspace folders.
+   * @param {vscode.Uri} [specificWorkspaceFolderUri] - Optional. If provided, search only within this workspace folder. Otherwise, search all trusted workspace folders.
    * @returns {Promise<SearchResult[]>} A promise that resolves to an array of search results.
    * @sideeffect Reads from the file system, including .gitignore files.
    */
-  public async search(query: string, workspaceFolderToSearch?: vscode.Uri): Promise<SearchResult[]> {
+  public async search(query: string, specificWorkspaceFolderUri?: vscode.Uri): Promise<SearchResult[]> {
     if (!query || query.trim() === '') {
       return [];
     }
 
     const allResults: SearchResult[] = [];
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-
-    if (!workspaceFolders || workspaceFolders.length === 0) {
-      console.log('[ContextWeaver SearchService] No workspace folders open.');
-      return [];
-    }
-
-    if (!vscode.workspace.isTrusted) {
-      console.warn('[ContextWeaver SearchService] Workspace is not trusted. Aborting search.');
-      return [];
-    }
-
-    const targetFolders: vscode.WorkspaceFolder[] = [];
-    if (workspaceFolderToSearch) {
-      const specificFolder = workspaceFolders.find(wf => wf.uri.toString() === workspaceFolderToSearch.toString());
-      if (specificFolder) {
-        targetFolders.push(specificFolder);
-      } else {
-        console.warn(`[ContextWeaver SearchService] Specified workspace folder URI not found: ${workspaceFolderToSearch.toString()}`);
-        return [];
-      }
+    // Workspace trust and existence of folders are pre-checked by IPCServer using WorkspaceService.
+    // We can directly use WorkspaceService here to get the folders to iterate over.
+    
+    const foldersToSearch: vscode.WorkspaceFolder[] = [];
+    if (specificWorkspaceFolderUri) {
+        const folder = this.workspaceService.getWorkspaceFolder(specificWorkspaceFolderUri);
+        if (folder) {
+            foldersToSearch.push(folder);
+        } else {
+            this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + `Warning: Specified workspace folder for search not found: ${specificWorkspaceFolderUri.toString()}`);
+            return []; // Or throw an error to be handled by IPCServer
+        }
     } else {
-      targetFolders.push(...workspaceFolders);
+        const allWorkspaceFolders = this.workspaceService.getWorkspaceFolders();
+        if (allWorkspaceFolders) {
+            foldersToSearch.push(...allWorkspaceFolders);
+        }
+    }
+
+    if (foldersToSearch.length === 0) {
+        this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + 'No workspace folders to search in.');
+        return [];
     }
     
-    // console.log(`[ContextWeaver SearchService] Searching for '${query}' in ${targetFolders.length} target folder(s).`);
+    this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + `Searching for '${query}' in ${foldersToSearch.length} target folder(s).`);
 
-    for (const folder of targetFolders) {
-      // console.log(`[ContextWeaver SearchService] Searching in folder: ${folder.uri.fsPath}`);
+    for (const folder of foldersToSearch) {
+      // Ensure the folder itself is trusted (though overall workspace trust is primary gate)
+      // This individual check might be redundant if ensureWorkspaceTrustedAndOpen covers all.
+      // For now, relying on the pre-check in IPCServer.
+      this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + `Searching in folder: ${folder.name} (${folder.uri.fsPath})`);
       try {
-        const gitignoreFilter = await parseGitignore(folder);
+        const gitignoreFilter = await parseGitignore(folder); // parseGitignore is workspace folder specific
         const folderResults = await this.findInDirectoryRecursive(folder.uri, query, folder, gitignoreFilter);
         allResults.push(...folderResults);
       } catch (error: any) {
-        console.error(`[ContextWeaver SearchService] Error searching in directory ${folder.uri.fsPath}:`, error);
+        this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + `Error searching in directory ${folder.uri.fsPath}: ${error.message}`);
+        console.error(LOG_PREFIX_SEARCH_SERVICE + `Error searching in directory ${folder.uri.fsPath}:`, error);
       }
     }
-    // console.log(`[ContextWeaver SearchService] Found ${allResults.length} results for query '${query}' after filtering.`);
+    this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + `Found ${allResults.length} results for query '${query}' after filtering.`);
     return allResults;
   }
 
-  /**
-   * @description Recursively finds files and folders matching the query within a directory, applying filters.
-   * @param {vscode.Uri} dirUri - The URI of the directory to search.
-   * @param {string} query - The search query string.
-   * @param {vscode.WorkspaceFolder} baseWorkspaceFolder - The root workspace folder this search belongs to.
-   * @param {Ignore | null} gitignoreFilter - The parsed .gitignore filter for the baseWorkspaceFolder.
-   * @returns {Promise<SearchResult[]>} A promise that resolves to an array of search results.
-   * @sideeffect Reads from the file system.
-   */
   private async findInDirectoryRecursive(
     dirUri: vscode.Uri, 
     query: string, 
-    baseWorkspaceFolder: vscode.WorkspaceFolder,
+    baseWorkspaceFolder: vscode.WorkspaceFolder, // This is the root for this particular search branch
     gitignoreFilter: Ignore | null
   ): Promise<SearchResult[]> {
     let results: SearchResult[] = [];
@@ -190,7 +184,7 @@ export class SearchService {
             name: name,
             type: (type === vscode.FileType.Directory) ? 'folder' : 'file',
             uri: entryUri.toString(),
-            content_source_id: entryUri.toString(),
+            content_source_id: entryUri.toString(), // Absolute URI is unique
             workspaceFolderUri: baseWorkspaceFolder.uri.toString(),
             workspaceFolderName: baseWorkspaceFolder.name,
             filterTypeApplied: ignoreInfo.filterTypeApplied
@@ -202,8 +196,9 @@ export class SearchService {
           results = results.concat(subDirResults);
         }
       }
-    } catch (error: any) { // Catch errors from readDirectory, e.g. permission denied
-      console.warn(`[ContextWeaver SearchService] Failed to read directory ${dirUri.fsPath}: ${error.message}`);
+    } catch (error: any) { 
+      this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + `Failed to read directory ${dirUri.fsPath}: ${error.message}`);
+      // console.warn(`[ContextWeaver SearchService] Failed to read directory ${dirUri.fsPath}: ${error.message}`);
     }
     return results;
   }

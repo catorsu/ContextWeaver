@@ -9,10 +9,11 @@ import * as path from 'path';
 import { TextDecoder } from 'util';
 import ignore, { Ignore } from 'ignore';
 
+// Default ignore patterns remain the same
 const IGNORE_PATTERNS_DEFAULT = [
   'node_modules/', '.git/', '.vscode/', 'dist/', 'build/', '*.log',
   '__pycache__/', '.DS_Store', '*.pyc', '*.pyo', '*.swp', '*.bak', '*.tmp',
-  '.gitignore', // Added .gitignore here
+  '.gitignore',
   '*.zip', '*.tar.gz', '*.rar', '*.7z', '*.exe', '*.dll', '*.obj', '*.o',
   '*.a', '*.lib', '*.so', '*.dylib', '*.ncb', '*.sdf', '*.suo', '*.pdb',
   '*.idb', '*.class', '*.jar', '*.mp3', '*.wav', '*.ogg', '*.mp4', '*.avi',
@@ -32,18 +33,18 @@ export async function parseGitignore(workspaceFolder: vscode.WorkspaceFolder): P
   try {
     const rawContent = await vscode.workspace.fs.readFile(gitignoreUri);
     const content = new TextDecoder('utf-8').decode(rawContent);
-    if (content.trim() === '') { // Handle empty .gitignore
-      console.log(`[ContextWeaver] .gitignore file found in ${workspaceFolder.name} but it is empty. Will use default ignore patterns for filtering.`);
+    if (content.trim() === '') {
+      console.log(`[ContextWeaver FileSystemService] .gitignore file found in ${workspaceFolder.name} but it is empty. Will use default ignore patterns for filtering.`);
       return null;
     }
     const ig = ignore().add(content);
-    console.log(`[ContextWeaver] Parsed .gitignore for ${workspaceFolder.name}`);
+    console.log(`[ContextWeaver FileSystemService] Parsed .gitignore for ${workspaceFolder.name}`);
     return ig;
   } catch (error: any) {
     if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
-      console.log(`[ContextWeaver] No .gitignore file found in ${workspaceFolder.name}. Will use default ignore patterns.`);
+      console.log(`[ContextWeaver FileSystemService] No .gitignore file found in ${workspaceFolder.name}. Will use default ignore patterns.`);
     } else {
-      console.error(`[ContextWeaver] Error reading or parsing .gitignore for ${workspaceFolder.name}: ${error.message}. Will use default ignore patterns.`);
+      console.error(`[ContextWeaver FileSystemService] Error reading or parsing .gitignore for ${workspaceFolder.name}: ${error.message}. Will use default ignore patterns.`);
     }
     return null;
   }
@@ -67,41 +68,38 @@ function getPathIgnoreInfo(
 ): { ignored: boolean; filterTypeApplied: 'gitignore' | 'default' } {
   if (gitignoreFilter) {
     let pathToCheck = relativePath;
-    // The 'ignore' library typically handles matching 'dir_name/' pattern against 'dir_name' path.
-    // Explicitly testing with a trailing slash for directories if the first check fails.
     if (gitignoreFilter.ignores(pathToCheck)) {
-      console.log(`[ContextWeaver] Ignoring (gitignore): '${pathToCheck}' (name: '${name}', isDir: ${isDirectory})`);
+      console.log(`[ContextWeaver FileSystemService] Ignoring (gitignore): '${pathToCheck}' (name: '${name}', isDir: ${isDirectory})`);
       return { ignored: true, filterTypeApplied: 'gitignore' };
     }
     if (isDirectory && !pathToCheck.endsWith('/')) {
       if (gitignoreFilter.ignores(pathToCheck + '/')) {
-        console.log(`[ContextWeaver] Ignoring (gitignore with added slash): '${pathToCheck + '/'}' (name: '${name}', isDir: ${isDirectory})`);
+        console.log(`[ContextWeaver FileSystemService] Ignoring (gitignore with added slash): '${pathToCheck + '/'}' (name: '${name}', isDir: ${isDirectory})`);
         return { ignored: true, filterTypeApplied: 'gitignore' };
       }
     }
     return { ignored: false, filterTypeApplied: 'gitignore' };
   } else {
-    // No .gitignore or it was empty/errored, use default patterns
     for (const pattern of defaultIgnorePatterns) {
       const cleanPatternName = pattern.replace(/\/$/, '');
 
       if (pattern.endsWith('/')) {
         if (isDirectory && (name === cleanPatternName || relativePath === cleanPatternName || relativePath.startsWith(cleanPatternName + '/'))) {
-          console.log(`[ContextWeaver] Ignoring (default pattern - dir): '${relativePath}' due to '${pattern}'`);
+          console.log(`[ContextWeaver FileSystemService] Ignoring (default pattern - dir): '${relativePath}' due to '${pattern}'`);
           return { ignored: true, filterTypeApplied: 'default' };
         }
       } else if (pattern.startsWith('*.')) {
         if (!isDirectory && name.endsWith(pattern.substring(1))) {
-          console.log(`[ContextWeaver] Ignoring (default pattern - ext): '${relativePath}' due to '${pattern}'`);
+          console.log(`[ContextWeaver FileSystemService] Ignoring (default pattern - ext): '${relativePath}' due to '${pattern}'`);
           return { ignored: true, filterTypeApplied: 'default' };
         }
       } else {
         if (name === pattern) {
-          console.log(`[ContextWeaver] Ignoring (default pattern - exact name): '${relativePath}' due to '${pattern}'`);
+          console.log(`[ContextWeaver FileSystemService] Ignoring (default pattern - exact name): '${relativePath}' due to '${pattern}'`);
           return { ignored: true, filterTypeApplied: 'default' };
         }
-        if (relativePath === pattern && name === pattern) {
-          console.log(`[ContextWeaver] Ignoring (default pattern - exact path): '${relativePath}' due to '${pattern}'`);
+        if (relativePath === pattern && name === pattern) { // Check for exact relative path match
+          console.log(`[ContextWeaver FileSystemService] Ignoring (default pattern - exact path): '${relativePath}' due to '${pattern}'`);
           return { ignored: true, filterTypeApplied: 'default' };
         }
       }
@@ -110,22 +108,27 @@ function getPathIgnoreInfo(
   }
 }
 
+/**
+ * @description Generates a textual representation of the file and folder hierarchy for a given workspace folder.
+ * Assumes workspaceFolder is valid and trusted.
+ * @param {vscode.WorkspaceFolder} workspaceFolder - The workspace folder to generate the tree for.
+ * @returns {Promise<{ tree: string, filterTypeApplied: 'gitignore' | 'default' } | string>} Object with tree string and filter type, or an error string.
+ */
 export async function getFileTree(workspaceFolder: vscode.WorkspaceFolder): Promise<{ tree: string, filterTypeApplied: 'gitignore' | 'default' } | string> {
-  if (!vscode.workspace.isTrusted) {
-    return 'Error: Workspace is not trusted. Cannot access file system.';
-  }
-  if (!workspaceFolder) {
-    return 'Error: No workspace folder is open.';
-  }
-
+  // Trust and existence of workspaceFolder is pre-checked by the caller (ipcServer)
   const gitignoreFilter = await parseGitignore(workspaceFolder);
   const actualFilterType = gitignoreFilter ? 'gitignore' : 'default';
 
-  const tree = await generateFileTreeText(workspaceFolder.uri, workspaceFolder.uri, '', gitignoreFilter);
-  return { tree: `${workspaceFolder.name}\n${tree}`.trim(), filterTypeApplied: actualFilterType };
+  try {
+    const tree = await generateFileTreeTextInternal(workspaceFolder.uri, workspaceFolder.uri, '', gitignoreFilter);
+    return { tree: `${workspaceFolder.name}\\n${tree}`.trim(), filterTypeApplied: actualFilterType };
+  } catch (error: any) {
+    console.error(`[ContextWeaver FileSystemService] Error in getFileTree for ${workspaceFolder.name}: ${error.message}`);
+    return `Error generating file tree for ${workspaceFolder.name}: ${error.message}`;
+  }
 }
 
-async function generateFileTreeText(dirUri: vscode.Uri, baseUri: vscode.Uri, prefix: string, gitignoreFilter: Ignore | null): Promise<string> {
+async function generateFileTreeTextInternal(dirUri: vscode.Uri, baseUri: vscode.Uri, prefix: string, gitignoreFilter: Ignore | null): Promise<string> {
   let treeString = '';
   try {
     const entries = await vscode.workspace.fs.readDirectory(dirUri);
@@ -138,7 +141,9 @@ async function generateFileTreeText(dirUri: vscode.Uri, baseUri: vscode.Uri, pre
     for (let i = 0; i < entries.length; i++) {
       const [name, type] = entries[i];
       const entryUri = vscode.Uri.joinPath(dirUri, name);
-      const relativePath = path.relative(baseUri.fsPath, entryUri.fsPath).replace(/\\/g, '/');
+      // Use toURI().toString() for consistent path separator for relative path calculation with ignore library
+      const relativePath = path.relative(baseUri.fsPath, entryUri.fsPath).replace(/\\\\/g, '/');
+
 
       const ignoreInfo = getPathIgnoreInfo(relativePath, name, (type === vscode.FileType.Directory), gitignoreFilter, IGNORE_PATTERNS_DEFAULT);
       if (ignoreInfo.ignored) {
@@ -149,51 +154,64 @@ async function generateFileTreeText(dirUri: vscode.Uri, baseUri: vscode.Uri, pre
       const newPrefix = prefix + (isLast ? '    ' : '│   ');
       const linePrefix = prefix + (isLast ? '└── ' : '├── ');
 
-      treeString += `${linePrefix}${name}\n`;
+      treeString += `${linePrefix}${name}\\n`;
 
       if (type === vscode.FileType.Directory) {
-        treeString += await generateFileTreeText(entryUri, baseUri, newPrefix, gitignoreFilter);
+        treeString += await generateFileTreeTextInternal(entryUri, baseUri, newPrefix, gitignoreFilter);
       }
     }
   } catch (error: any) {
-    console.error(`[ContextWeaver] Error reading directory ${dirUri.fsPath}: ${error.message}`);
-    treeString += `${prefix}└── Error reading directory: ${path.basename(dirUri.fsPath)}\n`;
+    console.error(`[ContextWeaver FileSystemService] Error reading directory ${dirUri.fsPath}: ${error.message}`);
+    treeString += `${prefix}└── Error reading directory: ${path.basename(dirUri.fsPath)}\\n`;
+    // Propagate error to be handled by the caller
+    throw new Error(`Failed to read directory ${dirUri.fsPath}: ${error.message}`);
   }
   return treeString;
 }
 
+/**
+ * @description Reads and provides the full UTF-8 text content of any specified file.
+ * Assumes workspace is trusted.
+ * @param {vscode.Uri} fileUri - The URI of the file to read.
+ * @returns {Promise<string | null>} The file content as a string, null if binary, or an error string.
+ */
 export async function getFileContent(fileUri: vscode.Uri): Promise<string | null> {
-  if (!vscode.workspace.isTrusted) {
-    console.warn(`[ContextWeaver] Workspace not trusted. Cannot access file: ${fileUri.fsPath}`);
-    return 'Error: Workspace is not trusted. Cannot access file system.';
-  }
+  // Trust is pre-checked by the caller (ipcServer)
   try {
     const fileData = await vscode.workspace.fs.readFile(fileUri);
-    const decoder = new TextDecoder('utf-8', { fatal: true });
+    const decoder = new TextDecoder('utf-8', { fatal: true }); // fatal: true will throw on invalid UTF-8
     try {
       const content = decoder.decode(fileData);
-      if (content.includes('\0\0\0')) {
-        console.log(`[ContextWeaver] Skipping binary file (heuristic): ${fileUri.fsPath}`);
+      // A more robust binary check might be needed, but this heuristic can catch some common cases.
+      // Checking for multiple null bytes is a common heuristic.
+      if (content.includes('\\0\\0\\0') || content.includes('\\uFFFD')) { // U+FFFD is replacement character
+        console.log(`[ContextWeaver FileSystemService] Skipping binary file (heuristic or decode error): ${fileUri.fsPath}`);
         return null;
       }
       return content;
-    } catch (decodeError) {
-      console.log(`[ContextWeaver] Skipping binary file (decode error): ${fileUri.fsPath}`);
+    } catch (decodeError: any) { // Catch decoding errors specifically
+      console.log(`[ContextWeaver FileSystemService] Skipping binary file (decode error for ${fileUri.fsPath}): ${decodeError.message}`);
       return null;
     }
   } catch (error: any) {
-    console.error(`[ContextWeaver] Error reading file ${fileUri.fsPath}: ${error.message}`);
-    return `Error reading file ${fileUri.fsPath}: ${error.message}`;
+    console.error(`[ContextWeaver FileSystemService] Error reading file ${fileUri.fsPath}: ${error.message}`);
+    // Return an error string that can be identified by the caller
+    return `Error: Reading file ${fileUri.fsPath} failed: ${error.message}`;
   }
 }
 
+/**
+ * @description Reads and concatenates the content of all text files within a specified folder (and its subfolders).
+ * Assumes workspaceFolder is valid and trusted.
+ * @param {vscode.Uri} folderUri - The URI of the folder.
+ * @param {vscode.WorkspaceFolder} workspaceFolder - The workspace folder containing the target folder.
+ * @returns {Promise<{ fileTree: string, concatenatedContent: string, filterTypeApplied: 'gitignore' | 'default' } | string>} Object with data or error string.
+ */
 export async function getFolderContents(
   folderUri: vscode.Uri,
   workspaceFolder: vscode.WorkspaceFolder
 ): Promise<{ fileTree: string, concatenatedContent: string, filterTypeApplied: 'gitignore' | 'default' } | string> {
-  if (!vscode.workspace.isTrusted) return 'Error: Workspace is not trusted. Cannot access file system.';
-  if (!workspaceFolder) return 'Error: No workspace folder is open.';
-
+  // Trust and existence of workspaceFolder is pre-checked by the caller (ipcServer)
   let concatenatedContent = '';
   const gitignoreFilter = await parseGitignore(workspaceFolder);
   const actualFilterType = gitignoreFilter ? 'gitignore' : 'default';
@@ -209,7 +227,7 @@ export async function getFolderContents(
 
       for (const [name, type] of entries) {
         const entryUri = vscode.Uri.joinPath(currentUri, name);
-        const relativeEntryPath = path.relative(workspaceFolder.uri.fsPath, entryUri.fsPath).replace(/\\/g, '/');
+        const relativeEntryPath = path.relative(workspaceFolder.uri.fsPath, entryUri.fsPath).replace(/\\\\/g, '/');
 
         const ignoreInfo = getPathIgnoreInfo(relativeEntryPath, name, (type === vscode.FileType.Directory), gitignoreFilter, IGNORE_PATTERNS_DEFAULT);
         if (ignoreInfo.ignored) {
@@ -218,9 +236,9 @@ export async function getFolderContents(
 
         if (type === vscode.FileType.File) {
           if (name === '.gitignore') {
-            console.log(`[ContextWeaver] Skipping content of .gitignore file: ${relativeEntryPath}`);
+            console.log(`[ContextWeaver FileSystemService] Skipping content of .gitignore file: ${relativeEntryPath}`);
           } else {
-            const fileContent = await getFileContent(entryUri);
+            const fileContent = await getFileContent(entryUri); // getFileContent now returns null for binary or error string
             if (fileContent && !fileContent.startsWith('Error:')) {
               let langId = 'text';
               const ext = path.extname(name);
@@ -231,7 +249,14 @@ export async function getFolderContents(
                 };
                 langId = langMap[ext.toLowerCase()] || 'text';
               }
-              concatenatedContent += `file: ${relativeEntryPath}\n\`\`\`${langId}\n${fileContent}\n\`\`\`\n\n`;
+              concatenatedContent += `file: ${relativeEntryPath}\\n\\` + `\`\`${langId}\\n${fileContent}\\n\\` + `\`\`\\n\\n`;
+            } else if (fileContent === null) {
+              // Binary file, already logged by getFileContent
+            } else {
+              // Error reading file, log it or append error message to concatenatedContent
+              console.warn(`[ContextWeaver FileSystemService] Skipping content of ${relativeEntryPath} due to read error: ${fileContent}`);
+              // Optionally append error to concatenatedContent if needed:
+              // concatenatedContent += `Error reading file ${relativeEntryPath}: ${fileContent}\\n\\n`;
             }
           }
         } else if (type === vscode.FileType.Directory) {
@@ -239,29 +264,37 @@ export async function getFolderContents(
         }
       }
     } catch (error: any) {
-      console.error(`[ContextWeaver] Error processing directory ${currentUri.fsPath}: ${error.message}`);
-      concatenatedContent += `Error processing directory ${currentUri.fsPath}: ${error.message}\n\n`;
+      console.error(`[ContextWeaver FileSystemService] Error processing directory ${currentUri.fsPath} for getFolderContents: ${error.message}`);
+      // Decide if this error should be part of concatenatedContent or throw
+      concatenatedContent += `Error processing directory ${path.basename(currentUri.fsPath)}: ${error.message}\\n\\n`;
     }
   }
 
-  await traverseAndProcess(folderUri);
-  const fileTree = await generateFileTreeText(folderUri, workspaceFolder.uri, '', gitignoreFilter);
+  try {
+    await traverseAndProcess(folderUri);
+    const fileTree = await generateFileTreeTextInternal(folderUri, workspaceFolder.uri, '', gitignoreFilter);
 
-  return {
-    fileTree,
-    concatenatedContent: concatenatedContent.trim(),
-    filterTypeApplied: actualFilterType
-  };
+    return {
+      fileTree,
+      concatenatedContent: concatenatedContent.trim(),
+      filterTypeApplied: actualFilterType
+    };
+  } catch (error: any) {
+    console.error(`[ContextWeaver FileSystemService] Top-level error in getFolderContents for ${folderUri.fsPath}: ${error.message}`);
+    return `Error getting contents for folder ${folderUri.fsPath}: ${error.message}`;
+  }
 }
 
+/**
+ * @description Reads and concatenates the content of all text files within a specified workspace folder.
+ * Assumes workspaceFolder is valid and trusted.
+ * @param {vscode.WorkspaceFolder} workspaceFolder - The workspace folder to process.
+ * @returns {Promise<{ fileTree: string, concatenatedContent: string, workspaceName: string, filterTypeApplied: 'gitignore' | 'default' } | string>} Object with data or error string.
+ */
 export async function getWorkspaceCodebaseContents(
-  workspaceFolderUri: vscode.Uri
+  workspaceFolder: vscode.WorkspaceFolder // Changed to accept WorkspaceFolder directly
 ): Promise<{ fileTree: string, concatenatedContent: string, workspaceName: string, filterTypeApplied: 'gitignore' | 'default' } | string> {
-  if (!vscode.workspace.isTrusted) return 'Error: Workspace is not trusted. Cannot access file system.';
-
-  const workspaceFolder = vscode.workspace.getWorkspaceFolder(workspaceFolderUri);
-  if (!workspaceFolder) return `Error: Workspace folder with URI ${workspaceFolderUri.toString()} not found or not open.`;
-
+  // Trust and existence of workspaceFolder is pre-checked by the caller (ipcServer)
   let concatenatedContent = '';
   const gitignoreFilter = await parseGitignore(workspaceFolder);
   const actualFilterType = gitignoreFilter ? 'gitignore' : 'default';
@@ -277,11 +310,8 @@ export async function getWorkspaceCodebaseContents(
 
       for (const [name, type] of entries) {
         const entryUri = vscode.Uri.joinPath(currentUri, name);
-        const relativeEntryPath = path.relative(workspaceFolder!.uri.fsPath, entryUri.fsPath).replace(/\\/g, '/');
+        const relativeEntryPath = path.relative(workspaceFolder.uri.fsPath, entryUri.fsPath).replace(/\\\\/g, '/');
 
-        // For top-level items in the workspace root, relativeEntryPath might be just the name if currentUri is workspaceFolder.uri.
-        // If currentUri is deeper, relativeEntryPath will be like 'subdir/name'.
-        // The getPathIgnoreInfo function expects paths relative to where .gitignore is (workspace root).
         const ignoreInfo = getPathIgnoreInfo(relativeEntryPath, name, (type === vscode.FileType.Directory), gitignoreFilter, IGNORE_PATTERNS_DEFAULT);
         if (ignoreInfo.ignored) {
           continue;
@@ -289,7 +319,7 @@ export async function getWorkspaceCodebaseContents(
 
         if (type === vscode.FileType.File) {
           if (name === '.gitignore') {
-            console.log(`[ContextWeaver] Skipping content of .gitignore file: ${relativeEntryPath}`);
+            console.log(`[ContextWeaver FileSystemService] Skipping content of .gitignore file: ${relativeEntryPath}`);
           } else {
             const fileContent = await getFileContent(entryUri);
             if (fileContent && !fileContent.startsWith('Error:')) {
@@ -302,7 +332,11 @@ export async function getWorkspaceCodebaseContents(
                 };
                 langId = langMap[ext.toLowerCase()] || 'text';
               }
-              concatenatedContent += `file: ${relativeEntryPath}\n\`\`\`${langId}\n${fileContent}\n\`\`\`\n\n`;
+              concatenatedContent += `file: ${relativeEntryPath}\\n\\` + `\`\`${langId}\\n${fileContent}\\n\\` + `\`\`\\n\\n`;
+            } else if (fileContent === null) {
+              // Binary file, already logged
+            } else {
+              console.warn(`[ContextWeaver FileSystemService] Skipping content of ${relativeEntryPath} for codebase due to read error: ${fileContent}`);
             }
           }
         } else if (type === vscode.FileType.Directory) {
@@ -310,17 +344,24 @@ export async function getWorkspaceCodebaseContents(
         }
       }
     } catch (error: any) {
-      console.error(`[ContextWeaver] Error processing directory ${currentUri.fsPath} for codebase: ${error.message}`);
+      console.error(`[ContextWeaver FileSystemService] Error processing directory ${currentUri.fsPath} for getWorkspaceCodebaseContents: ${error.message}`);
+      // Optionally append error to concatenatedContent or throw
+      concatenatedContent += `Error processing directory ${path.basename(currentUri.fsPath)} for codebase: ${error.message}\\n\\n`;
     }
   }
 
-  await traverseAndProcess(workspaceFolder.uri);
-  const fileTree = await generateFileTreeText(workspaceFolder.uri, workspaceFolder.uri, '', gitignoreFilter);
+  try {
+    await traverseAndProcess(workspaceFolder.uri);
+    const fileTree = await generateFileTreeTextInternal(workspaceFolder.uri, workspaceFolder.uri, '', gitignoreFilter);
 
-  return {
-    fileTree,
-    concatenatedContent: concatenatedContent.trim(),
-    workspaceName: workspaceFolder.name,
-    filterTypeApplied: actualFilterType
-  };
+    return {
+      fileTree,
+      concatenatedContent: concatenatedContent.trim(),
+      workspaceName: workspaceFolder.name,
+      filterTypeApplied: actualFilterType
+    };
+  } catch (error: any) {
+    console.error(`[ContextWeaver FileSystemService] Top-level error in getWorkspaceCodebaseContents for ${workspaceFolder.name}: ${error.message}`);
+    return `Error getting contents for workspace ${workspaceFolder.name}: ${error.message}`;
+  }
 }
