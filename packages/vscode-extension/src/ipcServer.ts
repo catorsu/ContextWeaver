@@ -7,13 +7,13 @@
 
 import WebSocket, { WebSocketServer } from 'ws';
 import * as vscode from 'vscode';
-import * as path from 'path'; // Added import for path
-// Corrected imports from fileSystemService
-import {
-    getFileTree,
-    getFileContent, // Corrected: was readFileContent
-    getFolderContents,
-    getWorkspaceCodebaseContents
+import * as path from 'path';
+import { 
+    getFileTree, 
+    getFileContent,
+    getFolderContents, 
+    getWorkspaceCodebaseContents,
+    // parseGitignore // Not directly needed by ipcServer, but its effect is reflected in filterType
 } from './fileSystemService';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -42,7 +42,7 @@ export class IPCServer {
     }
 
     public start(): void {
-        const MAX_PORT_RETRIES = 3;
+        const MAX_PORT_RETRIES = 3; // Try original port + 3 alternatives
         let currentPort = this.port;
         let attempts = 0;
 
@@ -64,7 +64,7 @@ export class IPCServer {
                 this.wss.on('connection', (ws: WebSocket, req) => {
                     const clientIp = req.socket.remoteAddress || 'unknown';
                     this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Client connected from ${clientIp}`);
-                    const client: Client = { ws, isAuthenticated: true, ip: clientIp };
+                    const client: Client = { ws, isAuthenticated: true, ip: clientIp }; // Token auth removed, client is authenticated on connect
                     this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Client from ${client.ip} authenticated (token auth removed).`);
                     this.clients.set(ws, client);
 
@@ -92,7 +92,7 @@ export class IPCServer {
                     if (error.code === 'EADDRINUSE' && attempts < MAX_PORT_RETRIES) {
                         this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Port ${portToTry} is in use. Attempting next port.`);
                         console.warn(LOG_PREFIX_SERVER + `Port ${portToTry} is in use. Attempting next port.`);
-                        if (this.wss) {
+                        if (this.wss) { // Clean up the failed server instance
                             this.wss.removeAllListeners();
                             this.wss.close();
                             this.wss = null;
@@ -113,13 +113,12 @@ export class IPCServer {
                     }
                 });
 
-            } catch (error: any) {
+            } catch (error: any) { // Catch synchronous errors from new WebSocketServer, though 'error' event is more common
                 this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Failed to create WebSocket server on port ${portToTry}: ${error.message}`);
                 console.error(LOG_PREFIX_SERVER + `Failed to create WebSocket server on port ${portToTry}:`, error);
                 vscode.window.showErrorMessage(`ContextWeaver: Exception while starting IPC Server on port ${portToTry}. Error: ${error.message}`);
             }
         };
-
         tryStartServer(currentPort);
     }
 
@@ -145,7 +144,7 @@ export class IPCServer {
             return;
         }
 
-        if (!client.isAuthenticated) {
+        if (!client.isAuthenticated) { 
             const msg = `Request type '${type}' command '${command}' from ${client.ip} blocked as client is not marked authenticated. This should not happen.`;
             this.outputChannel.appendLine('ERROR: ' + LOG_PREFIX_SERVER + msg);
             console.error(LOG_PREFIX_SERVER + msg);
@@ -189,7 +188,7 @@ export class IPCServer {
     private sendMessage(ws: WebSocket, type: string, command: string, payload: any, message_id?: string): void {
         const message = {
             protocol_version: "1.0",
-            message_id: message_id || uuidv4(),
+            message_id: message_id || uuidv4(), 
             type,
             command,
             payload
@@ -207,7 +206,7 @@ export class IPCServer {
             success: false,
             error: errorMessage,
             errorCode: errorCode,
-            originalCommand: null
+            originalCommand: null 
         };
         this.sendMessage(ws, 'error_response', 'error_response', errorPayload, original_message_id || uuidv4());
     }
@@ -230,7 +229,7 @@ export class IPCServer {
             try {
                 requestedWorkspaceFolderUri = vscode.Uri.parse(requestedWorkspaceFolderUriString, true);
             } catch (e: any) {
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Invalid workspaceFolderUri received: ${requestedWorkspaceFolderUriString}. Error: ${e.message}`);
+                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Invalid workspaceFolderUri for get_file_tree: ${requestedWorkspaceFolderUriString}. Error: ${e.message}`);
                 this.sendError(client.ws, message_id, 'INVALID_PAYLOAD', `Invalid workspaceFolderUri: ${e.message}`);
                 return;
             }
@@ -240,31 +239,34 @@ export class IPCServer {
         if (requestedWorkspaceFolderUri) {
             targetWorkspaceFolder = vscode.workspace.getWorkspaceFolder(requestedWorkspaceFolderUri);
             if (!targetWorkspaceFolder) {
-                this.sendError(client.ws, message_id, 'WORKSPACE_FOLDER_NOT_FOUND', `Workspace folder for URI ${requestedWorkspaceFolderUriString} not found.`);
-                return;
+                 this.sendError(client.ws, message_id, 'WORKSPACE_FOLDER_NOT_FOUND', `Workspace folder for URI ${requestedWorkspaceFolderUriString} not found.`);
+                 return;
             }
         } else if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
-            targetWorkspaceFolder = vscode.workspace.workspaceFolders[0];
+            targetWorkspaceFolder = vscode.workspace.workspaceFolders[0]; 
         }
 
         if (!targetWorkspaceFolder) {
-            this.sendError(client.ws, message_id, 'NO_WORKSPACE_OPEN', 'No workspace folder open or specified.');
+            this.sendError(client.ws, message_id, 'NO_WORKSPACE_OPEN', 'No workspace folder open or specified for get_file_tree.');
             return;
         }
-
+        
         try {
-            const fileTreeString = await getFileTree(targetWorkspaceFolder);
+            const result = await getFileTree(targetWorkspaceFolder); 
 
-            if (fileTreeString.startsWith('Error:')) {
-                this.sendError(client.ws, message_id, 'FILE_TREE_GENERATION_FAILED', fileTreeString);
+            if (typeof result === 'string' && result.startsWith('Error:')) { // Error string from getFileTree
+                this.sendError(client.ws, message_id, 'FILE_TREE_GENERATION_FAILED', result);
                 return;
             }
+            
+            const { tree: fileTreeString, filterTypeApplied } = result as { tree: string; filterTypeApplied: 'gitignore' | 'default' };
+
 
             const metadata = {
                 unique_block_id: uuidv4(),
                 content_source_id: `${targetWorkspaceFolder.uri.toString()}::file_tree`,
                 type: "file_tree",
-                label: "File Tree",
+                label: "File Tree", 
                 workspaceFolderUri: targetWorkspaceFolder.uri.toString(),
                 workspaceFolderName: targetWorkspaceFolder.name
             };
@@ -272,15 +274,15 @@ export class IPCServer {
             const responsePayload = {
                 success: true,
                 data: {
-                    fileTree: fileTreeString,
+                    fileTree: fileTreeString, 
                     metadata: metadata
                 },
                 error: null,
                 workspaceFolderUri: targetWorkspaceFolder.uri.toString(),
-                filterType: 'default'
+                filterType: filterTypeApplied 
             };
             this.sendMessage(client.ws, 'response', 'response_file_tree', responsePayload, message_id);
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent file tree for ${targetWorkspaceFolder.uri.toString()} to ${client.ip}`);
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent file tree for ${targetWorkspaceFolder.uri.toString()} (Filter: ${filterTypeApplied}) to ${client.ip}`);
 
         } catch (error: any) {
             this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error generating file tree for ${targetWorkspaceFolder.uri.toString()}: ${error.message}`);
@@ -288,7 +290,7 @@ export class IPCServer {
             this.sendError(client.ws, message_id, 'FILE_TREE_ERROR', `Internal server error while generating file tree: ${error.message}`);
         }
     }
-
+    
     private async handleGetFileContent(client: Client, payload: any, message_id: string): Promise<void> {
         const { filePath } = payload;
         if (!filePath || typeof filePath !== 'string') {
@@ -300,27 +302,27 @@ export class IPCServer {
 
         try {
             const fileUri = vscode.Uri.file(filePath);
-            const content = await getFileContent(fileUri); // Returns string | null, or error string
+            const content = await getFileContent(fileUri); 
 
             let workspaceFolder = vscode.workspace.getWorkspaceFolder(fileUri);
             let workspaceFolderName = workspaceFolder ? workspaceFolder.name : 'Unknown Workspace';
             let workspaceFolderUriString = workspaceFolder ? workspaceFolder.uri.toString() : null;
 
             if (typeof content === 'string' && content.startsWith('Error:')) {
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error reading file content for ${filePath}: ${content}`);
+                 this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error reading file content for ${filePath}: ${content}`);
                 const responsePayload = {
                     success: false, data: null, error: content, filePath, filterType: 'not_applicable'
                 };
                 this.sendMessage(client.ws, 'response', 'response_file_content', responsePayload, message_id);
                 return;
             }
-
+            
             const isBinary = content === null;
             const metadata = {
                 unique_block_id: uuidv4(),
                 content_source_id: fileUri.toString(),
                 type: "file_content",
-                label: path.basename(filePath), // Use path.basename
+                label: path.basename(filePath),
                 workspaceFolderUri: workspaceFolderUriString,
                 workspaceFolderName: workspaceFolderName
             };
@@ -357,7 +359,7 @@ export class IPCServer {
             this.sendError(client.ws, message_id, 'INVALID_PAYLOAD', 'Missing or invalid workspaceFolderUri in payload.');
             return;
         }
-
+        
         this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Processing get_folder_content for: ${folderPath} in workspace ${workspaceFolderUriString}`);
 
         try {
@@ -371,17 +373,19 @@ export class IPCServer {
 
             const result = await getFolderContents(targetFolderUri, workspaceFolder);
 
-            if (typeof result === 'string') {
+            if (typeof result === 'string') { 
                 this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error getting folder content for ${folderPath}: ${result}`);
                 this.sendError(client.ws, message_id, 'FOLDER_CONTENT_ERROR', result);
                 return;
             }
+            
+            const { fileTree, concatenatedContent, filterTypeApplied } = result;
 
             const metadata = {
                 unique_block_id: uuidv4(),
-                content_source_id: targetFolderUri.toString(),
+                content_source_id: targetFolderUri.toString(), 
                 type: "folder_content",
-                label: path.basename(folderPath), // Use path.basename
+                label: path.basename(folderPath),
                 workspaceFolderUri: workspaceFolder.uri.toString(),
                 workspaceFolderName: workspaceFolder.name
             };
@@ -389,16 +393,16 @@ export class IPCServer {
             const responsePayload = {
                 success: true,
                 data: {
-                    fileTree: result.fileTree,
-                    concatenatedContent: result.concatenatedContent,
+                    fileTree: fileTree,
+                    concatenatedContent: concatenatedContent,
                     metadata: metadata
                 },
                 error: null,
-                folderPath: folderPath,
-                filterType: 'default'
+                folderPath: folderPath, 
+                filterType: filterTypeApplied
             };
             this.sendMessage(client.ws, 'response', 'response_folder_content', responsePayload, message_id);
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent folder content for ${folderPath} to ${client.ip}`);
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent folder content for ${folderPath} (Filter: ${filterTypeApplied}) to ${client.ip}`);
 
         } catch (error: any) {
             this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Unexpected error in handleGetFolderContent for ${folderPath}: ${error.message}`);
@@ -422,34 +426,36 @@ export class IPCServer {
             const workspaceUri = vscode.Uri.parse(workspaceFolderUriString, true);
             const result = await getWorkspaceCodebaseContents(workspaceUri);
 
-            if (typeof result === 'string') {
+            if (typeof result === 'string') { 
                 this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error getting entire codebase for ${workspaceFolderUriString}: ${result}`);
                 this.sendError(client.ws, message_id, 'CODEBASE_CONTENT_ERROR', result);
                 return;
             }
+            
+            const { fileTree, concatenatedContent, workspaceName, filterTypeApplied } = result;
 
             const metadata = {
                 unique_block_id: uuidv4(),
                 content_source_id: `${workspaceUri.toString()}::codebase`,
                 type: "codebase_content",
-                label: `Entire Codebase - ${result.workspaceName}`,
+                label: `Entire Codebase - ${workspaceName}`,
                 workspaceFolderUri: workspaceUri.toString(),
-                workspaceFolderName: result.workspaceName
+                workspaceFolderName: workspaceName
             };
 
             const responsePayload = {
                 success: true,
                 data: {
-                    fileTree: result.fileTree,
-                    concatenatedContent: result.concatenatedContent,
+                    fileTree: fileTree, 
+                    concatenatedContent: concatenatedContent,
                     metadata: metadata
                 },
                 error: null,
                 workspaceFolderUri: workspaceUri.toString(),
-                filterType: 'default'
+                filterType: filterTypeApplied
             };
             this.sendMessage(client.ws, 'response', 'response_entire_codebase', responsePayload, message_id);
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent entire codebase content for ${result.workspaceName} to ${client.ip}`);
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent entire codebase content for ${workspaceName} (Filter: ${filterTypeApplied}) to ${client.ip}`);
 
         } catch (error: any) {
             this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Unexpected error in handleGetEntireCodebase for ${workspaceFolderUriString}: ${error.message}`);
@@ -468,7 +474,7 @@ export class IPCServer {
         };
         const responseCommand = commandMap[originalCommand] || `response_${originalCommand}`;
         let responseData: any = { message: `Placeholder data for ${originalCommand}` };
-
+        
         if (originalCommand === 'get_active_file_info') {
             responseData = { activeFilePath: "placeholder/active/file.ts", activeFileLabel: "file.ts", workspaceFolderUri: null, workspaceFolderName: null };
         } else if (originalCommand === 'get_open_files') {
@@ -486,7 +492,7 @@ export class IPCServer {
             data: responseData,
             error: null
         };
-        if (requestPayload.workspaceFolderUri) {
+         if (requestPayload.workspaceFolderUri) {
             fullResponsePayload.workspaceFolderUri = requestPayload.workspaceFolderUri;
         }
 
