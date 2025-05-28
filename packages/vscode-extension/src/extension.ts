@@ -7,6 +7,7 @@
 
 import * as vscode from 'vscode';
 import { IPCServer } from './ipcServer';
+import { SearchService } from './searchService';
 
 const EXTENSION_ID = 'contextweaver'; // For settings and prefixing
 const LOG_PREFIX = '[ContextWeaver] ';
@@ -28,7 +29,8 @@ export function activate(context: vscode.ExtensionContext) {
     const configuration = vscode.workspace.getConfiguration(EXTENSION_ID); // Use constant
     const port = configuration.get('ipc.port', 30001); // Default to 30001
     // Token configuration has been removed.
-    ipcServer = new IPCServer(port, context, outputChannel); // Pass outputChannel
+    const searchService = new SearchService(); // Instantiate SearchService
+    ipcServer = new IPCServer(port, context, outputChannel, searchService); // Pass outputChannel and searchService
     ipcServer.start();
 
     context.subscriptions.push(

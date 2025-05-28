@@ -15,6 +15,7 @@ import {
     getWorkspaceCodebaseContents,
     // parseGitignore // Not directly needed by ipcServer, but its effect is reflected in filterType
 } from './fileSystemService';
+import { SearchService, SearchResult } from './searchService';
 import { v4 as uuidv4 } from 'uuid';
 
 const LOG_PREFIX_SERVER = '[ContextWeaver IPCServer] ';
@@ -30,14 +31,16 @@ interface Client {
 export class IPCServer {
     private wss: WebSocketServer | null = null;
     private clients: Map<WebSocket, Client> = new Map();
+    private searchService: SearchService;
     private readonly port: number;
     private readonly extensionContext: vscode.ExtensionContext;
     private outputChannel: vscode.OutputChannel;
 
-    constructor(port: number, context: vscode.ExtensionContext, outputChannelInstance: vscode.OutputChannel) {
+    constructor(port: number, context: vscode.ExtensionContext, outputChannelInstance: vscode.OutputChannel, searchServiceInstance: SearchService) {
         this.port = port;
         this.extensionContext = context;
         this.outputChannel = outputChannelInstance;
+        this.searchService = searchServiceInstance;
         this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Initialized with port ${port}.`);
     }
 
@@ -173,10 +176,13 @@ export class IPCServer {
                 break;
             case 'get_active_file_info':
             case 'get_open_files':
-            case 'search_workspace':
+            // case 'search_workspace': // Handled separately now
             case 'check_workspace_trust':
             case 'get_filter_info':
                 this.sendPlaceholderResponse(client, command, payload, message_id);
+                break;
+            case 'search_workspace':
+                this.handleSearchWorkspace(client, payload, message_id);
                 break;
             default:
                 this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Unknown command '${command}' from ${client.ip}.`);
@@ -461,6 +467,48 @@ export class IPCServer {
             this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Unexpected error in handleGetEntireCodebase for ${workspaceFolderUriString}: ${error.message}`);
             console.error(LOG_PREFIX_SERVER + `Unexpected error in handleGetEntireCodebase for ${workspaceFolderUriString}:`, error);
             this.sendError(client.ws, message_id, 'CODEBASE_CONTENT_UNEXPECTED_ERROR', `Internal server error while getting entire codebase content: ${error.message}`);
+        }
+    }
+
+    private async handleSearchWorkspace(client: Client, payload: any, message_id: string): Promise<void> {
+        const { query, workspaceFolderUri: workspaceFolderUriString } = payload;
+
+        if (typeof query !== 'string') { // Query can be empty, but must be a string
+            this.sendError(client.ws, message_id, 'INVALID_PAYLOAD', 'Missing or invalid query in payload.');
+            return;
+        }
+
+        let workspaceFolderToSearch: vscode.Uri | undefined = undefined;
+        if (workspaceFolderUriString && typeof workspaceFolderUriString === 'string') {
+            try {
+                workspaceFolderToSearch = vscode.Uri.parse(workspaceFolderUriString, true);
+            } catch (e: any) {
+                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Invalid workspaceFolderUri for search_workspace: ${workspaceFolderUriString}. Error: ${e.message}`);
+                this.sendError(client.ws, message_id, 'INVALID_PAYLOAD', `Invalid workspaceFolderUri: ${e.message}`);
+                return;
+            }
+        }
+        
+        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Processing search_workspace for query: "${query}" in workspace ${workspaceFolderUriString || 'all'}`);
+
+        try {
+            const results: SearchResult[] = await this.searchService.search(query, workspaceFolderToSearch);
+            
+            const responsePayload = {
+                success: true,
+                data: {
+                    results: results
+                },
+                error: null,
+                query: query
+            };
+            this.sendMessage(client.ws, 'response', 'response_search_workspace', responsePayload, message_id);
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent ${results.length} search results for query "${query}" to ${client.ip}`);
+
+        } catch (error: any) {
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error performing search for query "${query}": ${error.message}`);
+            console.error(LOG_PREFIX_SERVER + `Error performing search:`, error);
+            this.sendError(client.ws, message_id, 'SEARCH_ERROR', `Internal server error while performing search: ${error.message}`);
         }
     }
 

@@ -52,8 +52,8 @@ This tracking system helps monitor progress and identify impediments during deve
         *   Implement fallback to a predefined set of default exclusion patterns if `.gitignore` is missing or malformed (for FR-VSCE-005). `[√]`
         *   Ensure the active filter set (project or default) can be reported to the CE. `[√]`
     3.  **Search Service Implementation** `[ ]`
-        *   Implement a service to search for files and folders within trusted workspace folders based on a query string (for FR-VSCE-006). `[ ]`
-        *   Ensure search results include necessary metadata for CE display and `content_source_id` generation. `[ ]`
+        *   Implement a service to search for files and folders within trusted workspace folders based on a query string (for FR-VSCE-006). `[√]`
+        *   Ensure search results include necessary metadata for CE display and `content_source_id` generation. `[√]`
     4.  **Snippet Sending Functionality** `[ ]`
         *   Implement the VS Code context menu item for initiating snippet sending (for FR-VSCE-007). `[ ]`
         *   Implement the logic to extract selected text, file path, line numbers, and language ID. `[ ]`
