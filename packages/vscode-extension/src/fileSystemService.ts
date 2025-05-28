@@ -73,12 +73,12 @@ export async function generateFileTree(
   if (!targetWorkspaceFolder) {
     // Log workspace folders AGAIN right before failing
     if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
-        console.log('[ContextWeaver FileSystemService] Final Check: vscode.workspace.workspaceFolders is STILL undefined or empty before returning null.');
+      console.log('[ContextWeaver FileSystemService] Final Check: vscode.workspace.workspaceFolders is STILL undefined or empty before returning null.');
     } else {
-        console.log('[ContextWeaver FileSystemService] Final Check: Workspace folders ARE available now, but target was not set. Folders:');
-        vscode.workspace.workspaceFolders.forEach(folder => {
-          console.log(`  - Name: ${folder.name}, URI: ${folder.uri.toString()}`);
-        });
+      console.log('[ContextWeaver FileSystemService] Final Check: Workspace folders ARE available now, but target was not set. Folders:');
+      vscode.workspace.workspaceFolders.forEach(folder => {
+        console.log(`  - Name: ${folder.name}, URI: ${folder.uri.toString()}`);
+      });
     }
     vscode.window.showErrorMessage('ContextWeaver: No suitable workspace folder found or specified.');
     console.log('[ContextWeaver FileSystemService] No targetWorkspaceFolder identified, returning null.');
@@ -124,7 +124,7 @@ export async function generateFileTree(
           return false;
         }
         if (name.endsWith('.log') && DEFAULT_EXCLUSIONS.includes('*.log')) { // Simple check for *.log
-            return false;
+          return false;
         }
         // Add more sophisticated glob matching here when integrating full filterService
         return true;
@@ -169,4 +169,150 @@ export async function generateFileTree(
     workspaceFolderName: rootName,
     actualWorkspaceFolderUri: rootUri,
   };
+}
+
+// (At the end of the file, after the generateFileTree function and its interface)
+
+export interface FileContentResult {
+  content: string | null;
+  filePath: string; // Normalized path for identification
+  fileName: string; // For label
+  isBinary: boolean;
+  error?: string; // Optional error message if reading failed beyond binary skip
+  workspaceFolderUri?: string | null; // URI string
+  workspaceFolderName?: string | null;
+}
+
+/**
+ * @description Reads the content of a specified file. Silently skips binary files.
+ * @param {string} filePathOrUri - The absolute path or URI string of the file to read.
+ * @returns {Promise<FileContentResult>} A promise that resolves to an object containing
+ * the file content or an error/status.
+ * @sideeffect Reads from the file system.
+ */
+export async function readFileContent(
+  filePathOrUri: string
+): Promise<FileContentResult> {
+  console.log(`[ContextWeaver FileSystemService] readFileContent called for: ${filePathOrUri}`);
+  let fileUri: vscode.Uri;
+  try {
+    // Check if it's already a URI string, otherwise assume it's a file path
+    if (filePathOrUri.startsWith('file:///')) {
+      fileUri = vscode.Uri.parse(filePathOrUri, true);
+    } else {
+      fileUri = vscode.Uri.file(filePathOrUri);
+    }
+  } catch (e: any) {
+    console.error(`[ContextWeaver FileSystemService] Invalid file path or URI: ${filePathOrUri}`, e);
+    return {
+      content: null,
+      filePath: filePathOrUri,
+      fileName: path.basename(filePathOrUri),
+      isBinary: false,
+      error: `Invalid file path or URI: ${e.message}`,
+    };
+  }
+
+  const fileName = path.basename(fileUri.fsPath); // Use path.basename for simple name extraction
+
+  // Determine owning workspace folder
+  const owningWorkspaceFolder = vscode.workspace.getWorkspaceFolder(fileUri);
+  const workspaceFolderUri = owningWorkspaceFolder?.uri.toString() ?? null;
+  const workspaceFolderName = owningWorkspaceFolder?.name ?? null;
+
+  // Workspace Trust check (though individual file reads might be allowed in untrusted workspaces if they are open)
+  // For consistency with other operations, we'll check global trust.
+  if (!vscode.workspace.isTrusted) {
+    const msg = 'Workspace is not trusted. File content access restricted.';
+    console.warn(`[ContextWeaver FileSystemService] ${msg} For file: ${fileUri.fsPath}`);
+    return {
+      content: null,
+      filePath: fileUri.fsPath,
+      fileName,
+      isBinary: false,
+      error: msg,
+      workspaceFolderUri,
+      workspaceFolderName,
+    };
+  }
+
+  try {
+    const stat = await vscode.workspace.fs.stat(fileUri);
+    if (stat.type !== vscode.FileType.File) {
+      const msg = 'Path does not point to a file.';
+      console.warn(`[ContextWeaver FileSystemService] ${msg} Path: ${fileUri.fsPath}`);
+      return {
+        content: null,
+        filePath: fileUri.fsPath,
+        fileName,
+        isBinary: false,
+        error: msg,
+        workspaceFolderUri,
+        workspaceFolderName,
+      };
+    }
+
+    const rawContent = await vscode.workspace.fs.readFile(fileUri);
+
+    // FR-VSCE-002: "Binary files shall be silently skipped."
+    // We will rely on TextDecoder failing for non-UTF-8 files.
+    // Optionally, add a list of known binary extensions for a faster path.
+    const knownBinaryExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.exe', '.dll', '.o', '.so', '.wasm', '.zip', '.gz', '.pdf', '.obj', '.bin'];
+    const fileExtension = path.extname(fileName).toLowerCase();
+
+    if (knownBinaryExtensions.includes(fileExtension)) {
+      console.log(`[ContextWeaver FileSystemService] Detected known binary file extension, skipping content: ${fileUri.fsPath}`);
+      return {
+        content: null,
+        filePath: fileUri.fsPath,
+        fileName,
+        isBinary: true,
+        workspaceFolderUri,
+        workspaceFolderName,
+      };
+    }
+
+    // Attempt to decode as UTF-8
+    try {
+      const decodedContent = new TextDecoder('utf-8', { fatal: true }).decode(rawContent);
+      console.log(`[ContextWeaver FileSystemService] Successfully read and decoded file: ${fileUri.fsPath}`);
+      return {
+        content: decodedContent,
+        filePath: fileUri.fsPath, // fsPath is fine for internal use here
+        fileName,
+        isBinary: false,
+        workspaceFolderUri,
+        workspaceFolderName,
+      };
+    } catch (decodingError: any) {
+      // If UTF-8 decoding fails, treat as binary/unreadable
+      console.warn(`[ContextWeaver FileSystemService] UTF-8 decoding failed for ${fileUri.fsPath}, treating as unreadable. Error: ${decodingError.message}`);
+      return {
+        content: null,
+        filePath: fileUri.fsPath,
+        fileName,
+        isBinary: true, // Mark as binary due to decoding failure
+        error: `File is not valid UTF-8 or contains unreadable characters.`,
+        workspaceFolderUri,
+        workspaceFolderName,
+      };
+    }
+
+  } catch (error: any) {
+    console.error(`[ContextWeaver FileSystemService] Error reading file ${fileUri.fsPath}:`, error);
+    let errorMessage = `Error reading file: ${error.message}`;
+    if (error instanceof vscode.FileSystemError) {
+      if (error.code === 'FileNotFound') errorMessage = 'File not found.';
+      else if (error.code === 'NoPermissions') errorMessage = 'Permission denied.';
+    }
+    return {
+      content: null,
+      filePath: fileUri.fsPath,
+      fileName,
+      isBinary: false, // Could be other errors than binary
+      error: errorMessage,
+      workspaceFolderUri,
+      workspaceFolderName,
+    };
+  }
 }

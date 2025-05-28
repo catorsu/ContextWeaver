@@ -7,7 +7,7 @@
 
 import WebSocket, { WebSocketServer } from 'ws'; // Import WebSocketServer as WebSocket.Server
 import * as vscode from 'vscode'; // Ensure vscode is imported if not already for OutputChannel type
-import { generateFileTree } from './fileSystemService';
+import { generateFileTree, readFileContent, FileContentResult } from './fileSystemService';
 import { v4 as uuidv4 } from 'uuid'; // For generating unique message IDs if needed by server
 
 // Import types from the IPC_Protocol_Design.md (assuming they will be in a shared types file later)
@@ -280,28 +280,87 @@ export class IPCServer {
         }
     }
 
-    private handleGetFileContent(client: Client, payload: any, message_id: string): void {
-        // FR-VSCE-002
-        const filePath = payload.filePath;
-        const metadata = {
-            unique_block_id: uuidv4(),
-            content_source_id: filePath, // Assuming filePath is already normalized URI
-            type: "file_content",
-            label: filePath.substring(filePath.lastIndexOf('/') + 1), // Basic filename extraction
-            workspaceFolderUri: null, // TODO: Determine workspace folder from filePath in a more robust way
-            workspaceFolderName: null
-        };
-        const responsePayload = {
-            success: true,
-            data: {
-                content: `// Content of ${filePath} (Placeholder)\nconsole.log('Hello from ${filePath}');`,
-                metadata: metadata
-            },
-            error: null,
-            filePath: filePath,
-            filterType: 'not_applicable'
-        };
-        this.sendMessage(client.ws, 'response', 'response_file_content', responsePayload, message_id);
+    private async handleGetFileContent(client: Client, payload: any, message_id: string): Promise<void> {
+        const { filePath } = payload;
+        if (!filePath || typeof filePath !== 'string') {
+            this.sendError(client.ws, message_id, 'INVALID_PAYLOAD', 'Missing or invalid filePath in payload.');
+            return;
+        }
+
+        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Processing get_file_content for: ${filePath}`);
+
+        try {
+            const result: FileContentResult = await readFileContent(filePath);
+
+            if (result.error) {
+                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error reading file content for ${filePath}: ${result.error}`);
+                // Send a success:false response if there was an error actually reading or accessing the file
+                const responsePayload = {
+                    success: false,
+                    data: null,
+                    error: result.error,
+                    filePath: result.filePath,
+                    filterType: 'not_applicable'
+                };
+                this.sendMessage(client.ws, 'response', 'response_file_content', responsePayload, message_id);
+                return;
+            }
+
+            if (result.isBinary && result.content === null) {
+                // File is binary and was silently skipped as per FR-VSCE-002
+                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `File is binary, content skipped: ${filePath}`);
+                const metadata = {
+                    unique_block_id: uuidv4(),
+                    content_source_id: vscode.Uri.file(result.filePath).toString(), // Use URI string
+                    type: "file_content",
+                    label: result.fileName,
+                    workspaceFolderUri: result.workspaceFolderUri,
+                    workspaceFolderName: result.workspaceFolderName
+                };
+                const responsePayload = {
+                    success: true, // Operation of "getting file content" was successful, even if binary
+                    data: {
+                        content: null, // Explicitly null for binary
+                        isBinary: true, // Indicate it's binary
+                        metadata: metadata
+                    },
+                    error: null,
+                    filePath: result.filePath,
+                    filterType: 'not_applicable'
+                };
+                this.sendMessage(client.ws, 'response', 'response_file_content', responsePayload, message_id);
+                return;
+            }
+            
+            // Success, content is available
+            const metadata = {
+                unique_block_id: uuidv4(),
+                content_source_id: vscode.Uri.file(result.filePath).toString(), // Use URI string
+                type: "file_content",
+                label: result.fileName,
+                workspaceFolderUri: result.workspaceFolderUri,
+                workspaceFolderName: result.workspaceFolderName
+            };
+
+            const responsePayload = {
+                success: true,
+                data: {
+                    content: result.content,
+                    isBinary: false, // Explicitly false
+                    metadata: metadata
+                },
+                error: null,
+                filePath: result.filePath,
+                filterType: 'not_applicable' // As per IPC doc for single file
+            };
+            this.sendMessage(client.ws, 'response', 'response_file_content', responsePayload, message_id);
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent file content for ${result.filePath} to ${client.ip}`);
+
+        } catch (error: any) {
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Unexpected error in handleGetFileContent for ${filePath}: ${error.message}`);
+            console.error(LOG_PREFIX_SERVER + `Unexpected error in handleGetFileContent for ${filePath}:`, error);
+            this.sendError(client.ws, message_id, 'FILE_CONTENT_ERROR', `Internal server error while getting file content: ${error.message}`);
+        }
     }
 
     private sendPlaceholderResponse(client: Client, originalCommand: string, requestPayload: any, message_id: string): void {
