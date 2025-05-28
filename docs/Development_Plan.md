@@ -40,7 +40,7 @@ This tracking system helps monitor progress and identify impediments during deve
 **Phase 2: VS Code Extension - Core Logic Implementation** `[ ]`
 *   **Goal:** Implement all data provision and service functionalities within the VSCE.
 *   **Key Tasks:**
-    1.  **File System Data Provisioning** `[ ]`
+    1.  **File System Data Provisioning** `[√]`
         *   Implement logic to generate a textual representation of the file and folder hierarchy for a given workspace/folder (for FR-VSCE-001). `[√]`
         *   Implement logic to read and provide the full UTF-8 text content of specified files, including silent skipping of binary files (for FR-VSCE-002). `[√]`
         *   Implement logic to read and concatenate content of all text files within a specified folder and its subfolders (for FR-VSCE-003). `[√]`
@@ -51,13 +51,13 @@ This tracking system helps monitor progress and identify impediments during deve
         *   Apply parsed `.gitignore` rules to exclude files/folders from content provision operations (e.g., `get_folder_content`, `get_entire_codebase` once integrated). `[√]`
         *   Implement fallback to a predefined set of default exclusion patterns if `.gitignore` is missing or malformed (for FR-VSCE-005). `[√]`
         *   Ensure the active filter set (project or default) can be reported to the CE. `[√]`
-    3.  **Search Service Implementation** `[ ]`
+    3.  **Search Service Implementation** `[√]`
         *   Implement a service to search for files and folders within trusted workspace folders based on a query string (for FR-VSCE-006). `[√]`
         *   Ensure search results include necessary metadata for CE display and `content_source_id` generation. `[√]`
-    4.  **Snippet Sending Functionality** `[ ]`
-        *   Implement the VS Code context menu item for initiating snippet sending (for FR-VSCE-007). `[ ]`
-        *   Implement the logic to extract selected text, file path, line numbers, and language ID. `[ ]`
-        *   Implement the IPC mechanism to push snippet data (including indicator metadata) to the registered active CE target. `[ ]`
+    4.  **Snippet Sending Functionality** `[√]`
+        *   Implement the VS Code context menu item for initiating snippet sending (for FR-VSCE-007). `[√]`
+        *   Implement the logic to extract selected text, file path, line numbers, and language ID. `[√]`
+        *   Implement the IPC mechanism to push snippet data (including indicator metadata) to the registered active CE target. `[√]`
     5.  **Workspace and State Management** `[ ]`
         *   Implement support for multi-root workspaces, ensuring data from different folders is distinguishable and `content_source_id`s are unique (for FR-VSCE-008). `[ ]`
         *   Integrate Workspace Trust checks before any file system access (for FR-VSCE-009). `[ ]`

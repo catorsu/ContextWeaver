@@ -19,8 +19,22 @@
       {
         "command": "contextweaver.helloWorld",
         "title": "ContextWeaver: Hello World"
+      },
+      {
+        "command": "contextweaver.sendSnippet",
+        "title": "ContextWeaver: Send Snippet to LLM Context",
+        "category": "ContextWeaver"
       }
     ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "contextweaver.sendSnippet",
+          "when": "editorHasSelection && editorTextFocus",
+          "group": "navigation@5"
+        }
+      ]
+    },
     "configuration": {
       "title": "ContextWeaver",
       "properties": {

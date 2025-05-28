@@ -548,6 +548,22 @@ export class IPCServer {
         this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent placeholder response for ${originalCommand} to ${client.ip}`);
     }
 
+    /**
+     * @description Retrieves the activeLLMTabId from the first client that has one registered.
+     * For V1, assumes a single or primary CE target.
+     * @returns {number | undefined} The tab ID or undefined if no active target is found.
+     */
+    public getPrimaryTargetTabId(): number | undefined {
+        for (const client of this.clients.values()) {
+            if (client.isAuthenticated && client.activeLLMTabId !== undefined) {
+                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Found primary target tab ID: ${client.activeLLMTabId}`);
+                return client.activeLLMTabId;
+            }
+        }
+        this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'No primary target tab ID found among connected clients.');
+        return undefined;
+    }
+
     public pushSnippetToTarget(targetTabId: number, snippetData: any): void {
         let targetClient: Client | null = null;
         for (const client of this.clients.values()) {

@@ -83,7 +83,7 @@ This structure allows for:
     *   `filterService.ts`: Implements `.gitignore` parsing and default filtering logic.
     *   `searchService.ts`: Provides file/folder search capabilities within the workspace.
     *   `workspaceService.ts`: Manages information about open workspace folders and trust status.
-    *   `snippetService.ts`: Handles the "Send snippet to LLM context" command.
+    *   `snippetService.ts`: Responsible for preparing snippet data (selected text, file path, line numbers, language ID, and associated metadata) when triggered by the user. It does not directly handle IPC sending but provides the data to `extension.ts` for dispatch.
     *   `extension.ts`: The main entry point for the VSCE, responsible for activating and coordinating modules.
 *   **Technology Stack:**
     *   TypeScript

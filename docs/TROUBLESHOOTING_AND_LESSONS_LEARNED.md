@@ -201,3 +201,33 @@ Each new entry should follow the format below:
     4.  Use `filesystem.write_file` to overwrite the entire file with the combined, correct content.
     This avoids the brittleness of `filesystem.edit_file` for large additions and reduces the risk of escaping issues.
 *   **Prevention (Verification):** Always run a code checker or linter immediately after a tool modifies source code to catch such syntax issues early.
+
+---
+## [2025-05-28] - Testing VSCE IPC Push Functionality with a Simple WebSocket Client
+
+**Phase/Task in Development Plan:** Phase 2, Task 4 - Snippet Sending Functionality
+
+**Problem Encountered:**
+*   **Symptoms:** Needed to verify that the VSCE correctly prepares and pushes messages (e.g., `push_snippet`) to a connected and registered Chrome Extension (CE) client, even if the CE's receiving end for that specific message isn't fully implemented yet.
+*   **Context:** Implementing IPC push features where the VSCE initiates the message without a direct prior request from the CE for that specific push.
+*   **Initial Diagnosis/Hypothesis:** A lightweight, standalone WebSocket client could simulate the CE's basic connection and registration behavior to act as a target for VSCE push messages.
+
+**Investigation & Iterations:**
+*   Designed a simple Node.js script (`test-client.js`) using the `ws` and `uuid` packages.
+*   The script connects to the VSCE IPC WebSocket server.
+*   Upon connection, it sends a `register_active_target` message to the VSCE, mimicking the CE's behavior when an LLM tab becomes active. This provides the VSCE with a `targetTabId`.
+*   The script listens for incoming messages and logs them, specifically looking for the `push_snippet` message.
+
+**Solution Implemented:**
+*   Created `test-client.js` and a corresponding `package.json` in a separate directory (`C:\project\TestWSClient`).
+*   The VSCE was run in the Extension Development Host.
+*   The `test-client.js` was run via `npm start`.
+*   After the test client registered itself, the "Send Snippet to LLM Context" command was triggered in the VSCE.
+*   The test client successfully received and logged the `push_snippet` message, confirming the VSCE's sending logic and data formatting.
+
+**Key Takeaway(s) / How to Avoid in Future:**
+*   **Lesson (IPC Push Testing):** When developing features where the VSCE pushes data to the CE (like snippets or status updates), a simple external WebSocket client script is an effective way to test the VSCE's sending logic in isolation before the CE's receiving and UI handling parts are complete.
+*   **Lesson (Client Simulation):** The test client should mimic essential CE behaviors, such as sending `register_active_target`, to ensure the VSCE can correctly identify and communicate with the intended target.
+*   **Prevention/Best Practice:** For features involving asynchronous pushes from server to client, consider creating a minimal test client early in the development of the server-side push logic to facilitate iterative testing and debugging. This helps decouple the development of the sender and receiver to some extent.
+
+---
