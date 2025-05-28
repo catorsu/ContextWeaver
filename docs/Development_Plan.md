@@ -63,8 +63,8 @@ This tracking system helps monitor progress and identify impediments during deve
         *   Integrate Workspace Trust checks before any file system access (for FR-VSCE-009). `[√]`
         *   Implement logic to detect and report "no project open" state via IPC. `[√]`
     6.  **IPC Integration and Metadata Generation** `[ ]`
-        *   Replace all stub IPC handlers in the VSCE server with the actual core logic implementations. `[ ]`
-        *   Ensure all data responses to the CE include the required metadata for context block indicators (`unique_block_id`, `content_source_id`, `type`, `label`) as per FR-IPC-005. `[ ]`
+        *   Replace all stub IPC handlers in the VSCE server with the actual core logic implementations. `[√]`
+        *   Ensure all data responses to the CE include the required metadata for context block indicators (`unique_block_id`, `content_source_id`, `type`, `label`) as per FR-IPC-005. `[√]`
     7.  **VSCE Unit and Integration Testing** `[ ]`
         *   Develop unit tests for individual modules (filtering, search, data extraction). `[ ]`
         *   Develop integration tests for IPC endpoints using a mock client. `[ ]`

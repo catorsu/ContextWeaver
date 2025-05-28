@@ -9,6 +9,7 @@ import WebSocket, { WebSocketServer } from 'ws';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import {
+    parseGitignore, // Added
     getFileTree,
     getFileContent,
     getFolderContents,
@@ -206,14 +207,14 @@ export class IPCServer {
             case 'search_workspace':
                 this.handleSearchWorkspace(client, payload, message_id);
                 break;
-            // Placeholder commands that might need more specific handling or WorkspaceService integration
             case 'get_active_file_info':
+                this.handleGetActiveFileInfo(client, message_id);
+                break;
             case 'get_open_files':
+                this.handleGetOpenFiles(client, message_id);
+                break;
             case 'get_filter_info':
-                // For these, ensureWorkspaceTrustedAndOpen has run.
-                // They might need specific workspace folder context if not about "all" open files/active file.
-                // For now, keeping placeholder, but they are candidates for WorkspaceService integration.
-                this.sendPlaceholderResponse(client, command, payload, message_id);
+                this.handleGetFilterInfo(client, payload, message_id);
                 break;
             case 'check_workspace_trust': // This command is now effectively handled by get_workspace_details
                 this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Command 'check_workspace_trust' is deprecated. Use 'get_workspace_details'.`);
@@ -614,37 +615,128 @@ export class IPCServer {
         }
     }
 
-    private sendPlaceholderResponse(client: Client, originalCommand: string, requestPayload: any, message_id: string): void {
-        const commandMap: { [key: string]: string } = {
-            'get_active_file_info': 'response_active_file_info',
-            'get_open_files': 'response_open_files',
-            // 'search_workspace': 'response_search_workspace', // Handled by actual implementation
-            // 'check_workspace_trust': 'response_workspace_trust', // Handled by get_workspace_details
-            'get_filter_info': 'response_filter_info',
-        };
-        const responseCommand = commandMap[originalCommand] || `response_${originalCommand}`;
-        let responseData: any = { message: `Placeholder data for ${originalCommand}` };
 
-        // Simplified placeholder data, actual implementation would use WorkspaceService
-        if (originalCommand === 'get_active_file_info') {
-            responseData = { activeFilePath: "placeholder/active/file.ts", activeFileLabel: "file.ts", workspaceFolderUri: null, workspaceFolderName: null };
-        } else if (originalCommand === 'get_open_files') {
-            responseData = { openFiles: [{ path: "placeholder/open/file1.ts", name: "file1.ts", workspaceFolderUri: null, workspaceFolderName: null }] };
-        } else if (originalCommand === 'get_filter_info') {
-            responseData = { filterType: 'default', workspaceFolderUri: null };
+
+
+    // Method to be added to IPCServer class
+    private async handleGetActiveFileInfo(client: Client, message_id: string): Promise<void> {
+        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Processing get_active_file_info for ${client.ip}`);
+        try {
+            // ensureWorkspaceTrustedAndOpen has already run.
+            const editor = vscode.window.activeTextEditor;
+            if (!editor) {
+                this.sendError(client.ws, message_id, 'NO_ACTIVE_EDITOR', 'No active text editor found.');
+                return;
+            }
+            const document = editor.document;
+            if (document.isUntitled || document.uri.scheme !== 'file') {
+                this.sendError(client.ws, message_id, 'INVALID_ACTIVE_FILE', 'Active file is untitled or not a file on disk.');
+                return;
+            }
+
+            const filePath = document.uri.fsPath;
+            const fileName = path.basename(filePath);
+            const workspaceFolder = this.workspaceService.getWorkspaceFolder(document.uri);
+
+            const responsePayload = {
+                success: true,
+                data: {
+                    activeFilePath: filePath,
+                    activeFileLabel: fileName,
+                    workspaceFolderUri: workspaceFolder ? workspaceFolder.uri.toString() : null,
+                    workspaceFolderName: workspaceFolder ? workspaceFolder.name : null,
+                },
+                error: null,
+            };
+            this.sendMessage(client.ws, 'response', 'response_active_file_info', responsePayload, message_id);
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent active file info for ${filePath} to ${client.ip}`);
+
+        } catch (error: any) {
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error in handleGetActiveFileInfo: ${error.message}`);
+            console.error(LOG_PREFIX_SERVER + `Error in handleGetActiveFileInfo:`, error);
+            this.sendError(client.ws, message_id, 'INTERNAL_SERVER_ERROR', `Error getting active file info: ${error.message}`);
         }
+    }
 
-        let fullResponsePayload: any = {
-            success: true,
-            data: responseData,
-            error: null
-        };
-        if (requestPayload && requestPayload.workspaceFolderUri) { // Check if requestPayload exists
-            fullResponsePayload.workspaceFolderUri = requestPayload.workspaceFolderUri;
+    // Method to be added to IPCServer class
+    private async handleGetOpenFiles(client: Client, message_id: string): Promise<void> {
+        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Processing get_open_files for ${client.ip}`);
+        try {
+            // ensureWorkspaceTrustedAndOpen has already run.
+            const openFilesData: Array<{ path: string; name: string; workspaceFolderUri: string | null; workspaceFolderName: string | null }> = [];
+            const openDocuments = vscode.workspace.textDocuments;
+            const trustedWorkspaceFolders = this.workspaceService.getWorkspaceFolders();
+
+            if (!trustedWorkspaceFolders || trustedWorkspaceFolders.length === 0) {
+                const responsePayload = { success: true, data: { openFiles: [] }, error: null };
+                this.sendMessage(client.ws, 'response', 'response_open_files', responsePayload, message_id);
+                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent empty open files list (no workspace folders or untrusted) to ${client.ip}`);
+                return;
+            }
+
+            for (const doc of openDocuments) {
+                if (!doc.isUntitled && doc.uri.scheme === 'file') {
+                    const owningFolder = this.workspaceService.getWorkspaceFolder(doc.uri);
+                    if (owningFolder && trustedWorkspaceFolders.some(wf => wf.uri.toString() === owningFolder.uri.toString())) {
+                        openFilesData.push({
+                            path: doc.uri.fsPath,
+                            name: path.basename(doc.uri.fsPath),
+                            workspaceFolderUri: owningFolder.uri.toString(),
+                            workspaceFolderName: owningFolder.name,
+                        });
+                    }
+                }
+            }
+
+            const responsePayload = {
+                success: true,
+                data: {
+                    openFiles: openFilesData,
+                },
+                error: null,
+            };
+            this.sendMessage(client.ws, 'response', 'response_open_files', responsePayload, message_id);
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent ${openFilesData.length} open files to ${client.ip}`);
+
+        } catch (error: any) {
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error in handleGetOpenFiles: ${error.message}`);
+            console.error(LOG_PREFIX_SERVER + `Error in handleGetOpenFiles:`, error);
+            this.sendError(client.ws, message_id, 'INTERNAL_SERVER_ERROR', `Error getting open files: ${error.message}`);
         }
+    }
 
-        this.sendMessage(client.ws, 'response', responseCommand, fullResponsePayload, message_id);
-        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent placeholder response for ${originalCommand} to ${client.ip}`);
+    // Method to be added to IPCServer class
+    private async handleGetFilterInfo(client: Client, payload: any, message_id: string): Promise<void> {
+        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Processing get_filter_info for ${client.ip}. Payload: ${JSON.stringify(payload)}`);
+        try {
+            // ensureWorkspaceTrustedAndOpen has already run.
+            const targetWorkspaceFolder = await this.getTargetWorkspaceFolder(client, payload.workspaceFolderUri, 'get_filter_info', message_id);
+
+            if (!targetWorkspaceFolder) {
+                // Error already sent by getTargetWorkspaceFolder or ensureWorkspaceTrustedAndOpen
+                return;
+            }
+
+            const gitignoreFilter = await parseGitignore(targetWorkspaceFolder); // from fileSystemService
+            const filterType = gitignoreFilter ? 'gitignore' : 'default';
+
+            const responsePayload = {
+                success: true,
+                data: {
+                    filterType: filterType,
+                    workspaceFolderUri: targetWorkspaceFolder.uri.toString(),
+                },
+                error: null,
+            };
+            this.sendMessage(client.ws, 'response', 'response_filter_info', responsePayload, message_id);
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent filter info (${filterType}) for ${targetWorkspaceFolder.name} to ${client.ip}`);
+
+        } catch (error: any) {
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error in handleGetFilterInfo: ${error.message}`);
+            console.error(LOG_PREFIX_SERVER + `Error in handleGetFilterInfo:`, error);
+            const errorCode = error instanceof WorkspaceServiceError ? error.code : 'INTERNAL_SERVER_ERROR';
+            this.sendError(client.ws, message_id, errorCode, `Error getting filter info: ${error.message}`);
+        }
     }
 
     public getPrimaryTargetTabId(): number | undefined {
