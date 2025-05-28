@@ -224,14 +224,15 @@ The target users are software developers and other technical users who:
     *   The content, along with metadata for its indicator  (type: "folder_content", label: folder name, unique_block_id, `content_source_id`: normalized folder URI/path), shall be provided to the CE.
 
 *   **FR-VSCE-004: Data Provider - Entire Codebase Content:**
-    *   The VSCE shall be able to read and concatenate the content of all text files within the active workspace folder(s).
+    *   The VSCE shall be able to read and concatenate the content of all text files within a **specified active workspace folder** (identified by its URI in the IPC request).
     *   This operation shall respect filtering rules (see FR-VSCE-005).
     *   The order of file concatenation shall be consistent.
-    *   The content, along with metadata for its indicator (type: "codebase_content", label: "Entire Codebase", unique_block_id, `content_source_id`: e.g., `project_root_uri + "::codebase"`), shall be provided to the CE.
+    *   The content, along with metadata for its indicator (type: "codebase_content", label: `"Entire Codebase - [folder name]"` (where `[folder name]` is the name of the specified workspace folder), unique_block_id, `content_source_id`: `specified_workspaceFolderUri.toString() + "::codebase"`), shall be provided to the CE.
+    *   This operation is triggered by an IPC request that includes the URI of the target workspace folder.
 
 *   **FR-VSCE-005: Filtering Logic:**
     *   The VSCE shall attempt to read and parse the `.gitignore` file from the root of each workspace folder.
-    *   If a root `.gitignore` is found and parseable, its rules (relative to that workspace folder's root) shall be used to exclude files/folders from operations like "Insert Entire Codebase" or "Insert Folder Content".
+    *   For V1, operations like "Insert Entire Codebase" or "Insert Folder Content" will initially use a predefined set of default exclusion patterns (e.g., `node_modules/`, `venv/`, `.git/`). Full `.gitignore` parsing and application for these operations is planned for a subsequent task (Phase 2, Task 2). The VSCE shall report to the CE which filter set (project's `.gitignore` or default) is active for a given operation/workspace.
     *   If a `.gitignore` file is missing or malformed for a workspace folder, the VSCE shall use a predefined set of default exclusion patterns (e.g., `node_modules/`, `venv/`, `.git/`, `dist/`, `build/`, `*.log`, `__pycache__/`).
     *   The VSCE shall report to the CE which filter set (project's `.gitignore` or default) is active for a given operation/workspace.
 
@@ -275,12 +276,12 @@ The target users are software developers and other technical users who:
     *   This button shall provide immediate feedback on the reconnection attempt status.
 
 *   **FR-IPC-004: Data Exchange - CE to VSCE:**
-    *   Requests for file tree, file content, folder content, entire codebase content, search queries.
+    *   Requests for file tree, file content, folder content, entire codebase content (including the URI of the specific target workspace folder), search queries.
     *   Registration of an "active LLM context target" (e.g., tab ID) by the CE.
 
 *   **FR-IPC-005: Data Exchange - VSCE to CE:**
     *   Responses containing:
-        *   The requested data.
+        *   The requested data. For 'entire codebase' requests, the response pertains only to the single workspace folder specified in the request.
         *   **[NEW-MOD]** Metadata for each data block intended for insertion, including:
             *   `unique_block_id`: A unique identifier for this specific *instance* of inserted content.
             *   `content_source_id`: A canonical identifier for the *source* of the content (e.g., normalized file/folder path, special ID for tree/codebase) used for duplicate checking.

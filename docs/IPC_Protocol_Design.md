@@ -104,9 +104,10 @@ Requests the concatenated content of all files in a workspace (respecting filter
 *   **`payload`**:
     ```json
     {
-      "workspaceFolderUri": "string | null" // URI of a specific workspace folder, or null.
+      "workspaceFolderUri": "string" // URI of the specific workspace folder (required)
     }
     ```
+    The `workspaceFolderUri` field is required and specifies the URI of the workspace folder for which the entire codebase content is requested.
 *   **VSCE Response**: `response_entire_codebase` (see 3.2.5)
 
 ---
@@ -287,19 +288,20 @@ Response to `get_entire_codebase`.
     {
       "success": "boolean",
       "data": { // Present if success is true
-        "content": "string", // Concatenated content of all files in workspace
+        "fileTree": "string", // Textual representation of the file tree for the specified workspace folder
+        "concatenatedContent": "string", // Concatenated content of all files in the specified workspace folder
         "metadata": { // ContextBlockMetadata object
           "unique_block_id": "string",
-          "content_source_id": "string", // e.g., "workspace_uri::codebase"
+          "content_source_id": "string", // e.g., "uri_of_specified_workspace_folder::codebase"
           "type": "codebase_content",
-          "label": "Entire Codebase",
-          "workspaceFolderUri": "string | null",
-          "workspaceFolderName": "string | null"
+          "label": "string", // e.g., "Entire Codebase - [folder_name]"
+          "workspaceFolderUri": "string", // URI of the processed workspace folder
+          "workspaceFolderName": "string" // Name of the processed workspace folder
         }
       } | null,
       "error": "string | null", // Present if success is false
       "workspaceFolderUri": "string | null",
-      "filterType": "'gitignore' | 'default' | 'none'"
+      "filterType": "'gitignore' | 'default' | 'none'" // For V1 of get_entire_codebase, this will be 'default' as full .gitignore parsing for this command is deferred.
     }
     ```
 

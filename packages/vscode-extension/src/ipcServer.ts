@@ -5,17 +5,19 @@
  * @module ContextWeaver/VSCE
  */
 
-import WebSocket, { WebSocketServer } from 'ws'; // Import WebSocketServer as WebSocket.Server
-import * as vscode from 'vscode'; // Ensure vscode is imported if not already for OutputChannel type
-import { generateFileTree, readFileContent, FileContentResult, getFolderContents, FolderContentResult } from './fileSystemService';
-import { v4 as uuidv4 } from 'uuid'; // For generating unique message IDs if needed by server
+import WebSocket, { WebSocketServer } from 'ws';
+import * as vscode from 'vscode';
+import * as path from 'path'; // Added import for path
+// Corrected imports from fileSystemService
+import {
+    getFileTree,
+    getFileContent, // Corrected: was readFileContent
+    getFolderContents,
+    getWorkspaceCodebaseContents
+} from './fileSystemService';
+import { v4 as uuidv4 } from 'uuid';
 
-// Import types from the IPC_Protocol_Design.md (assuming they will be in a shared types file later)
-// For now, we'll define simplified versions or use 'any'
-// import { Message, ContextBlockMetadata, RequestPayload, ResponsePayload, PushPayload } from '../../shared/src/ipcTypes'; 
-// TODO: Create shared types in packages/shared/src/ipcTypes.ts
-
-const LOG_PREFIX_SERVER = '[ContextWeaver IPCServer] '; // Specific prefix for server logs
+const LOG_PREFIX_SERVER = '[ContextWeaver IPCServer] ';
 
 interface Client {
     ws: WebSocket;
@@ -40,7 +42,7 @@ export class IPCServer {
     }
 
     public start(): void {
-        const MAX_PORT_RETRIES = 3; // Try original port + 3 alternatives
+        const MAX_PORT_RETRIES = 3;
         let currentPort = this.port;
         let attempts = 0;
 
@@ -62,7 +64,7 @@ export class IPCServer {
                 this.wss.on('connection', (ws: WebSocket, req) => {
                     const clientIp = req.socket.remoteAddress || 'unknown';
                     this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Client connected from ${clientIp}`);
-                    const client: Client = { ws, isAuthenticated: true, ip: clientIp }; // Token auth removed, client is authenticated on connect
+                    const client: Client = { ws, isAuthenticated: true, ip: clientIp };
                     this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Client from ${client.ip} authenticated (token auth removed).`);
                     this.clients.set(ws, client);
 
@@ -90,7 +92,7 @@ export class IPCServer {
                     if (error.code === 'EADDRINUSE' && attempts < MAX_PORT_RETRIES) {
                         this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Port ${portToTry} is in use. Attempting next port.`);
                         console.warn(LOG_PREFIX_SERVER + `Port ${portToTry} is in use. Attempting next port.`);
-                        if (this.wss) { // Clean up the failed server instance
+                        if (this.wss) {
                             this.wss.removeAllListeners();
                             this.wss.close();
                             this.wss = null;
@@ -111,7 +113,7 @@ export class IPCServer {
                     }
                 });
 
-            } catch (error: any) { // Catch synchronous errors from new WebSocketServer, though 'error' event is more common
+            } catch (error: any) {
                 this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Failed to create WebSocket server on port ${portToTry}: ${error.message}`);
                 console.error(LOG_PREFIX_SERVER + `Failed to create WebSocket server on port ${portToTry}:`, error);
                 vscode.window.showErrorMessage(`ContextWeaver: Exception while starting IPC Server on port ${portToTry}. Error: ${error.message}`);
@@ -143,9 +145,7 @@ export class IPCServer {
             return;
         }
 
-        // Token-based authentication has been removed.
-        // All connected clients are considered authenticated for message processing.
-        if (!client.isAuthenticated) { // Should always be true now due to change in 'connection' handler
+        if (!client.isAuthenticated) {
             const msg = `Request type '${type}' command '${command}' from ${client.ip} blocked as client is not marked authenticated. This should not happen.`;
             this.outputChannel.appendLine('ERROR: ' + LOG_PREFIX_SERVER + msg);
             console.error(LOG_PREFIX_SERVER + msg);
@@ -153,11 +153,9 @@ export class IPCServer {
             return;
         }
 
-
         this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Received command '${command}' of type '${type}' from ${client.ip}. Payload: ${JSON.stringify(payload)}`);
         console.log(LOG_PREFIX_SERVER + `Received command '${command}' of type '${type}' from ${client.ip}. Payload:`, payload);
 
-        // Route message to appropriate handler
         switch (command) {
             case 'register_active_target':
                 this.handleRegisterActiveTarget(client, payload, message_id);
@@ -171,8 +169,9 @@ export class IPCServer {
             case 'get_folder_content':
                 this.handleGetFolderContent(client, payload, message_id);
                 break;
-            // Add stubs for other request handlers
             case 'get_entire_codebase':
+                this.handleGetEntireCodebase(client, payload, message_id);
+                break;
             case 'get_active_file_info':
             case 'get_open_files':
             case 'search_workspace':
@@ -190,10 +189,9 @@ export class IPCServer {
     private sendMessage(ws: WebSocket, type: string, command: string, payload: any, message_id?: string): void {
         const message = {
             protocol_version: "1.0",
-            message_id: message_id || uuidv4(), // Generate new ID if not a response
+            message_id: message_id || uuidv4(),
             type,
             command,
-            // No token in server -> client messages
             payload
         };
         try {
@@ -209,7 +207,7 @@ export class IPCServer {
             success: false,
             error: errorMessage,
             errorCode: errorCode,
-            originalCommand: null // Could be populated if we parse it before erroring
+            originalCommand: null
         };
         this.sendMessage(ws, 'error_response', 'error_response', errorPayload, original_message_id || uuidv4());
     }
@@ -218,9 +216,7 @@ export class IPCServer {
         this.sendMessage(client.ws, 'response', 'response_generic_ack', { success, message }, message_id);
     }
 
-    // --- Stub Handlers ---
     private handleRegisterActiveTarget(client: Client, payload: any, message_id: string): void {
-        // FR-IPC-004: Registration of an "active LLM context target"
         client.activeLLMTabId = payload.tabId;
         client.activeLLMHost = payload.llmHost;
         this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Registered active target for client ${client.ip}: TabID ${payload.tabId}, Host ${payload.llmHost}`);
@@ -228,7 +224,6 @@ export class IPCServer {
     }
 
     private async handleGetFileTree(client: Client, payload: any, message_id: string): Promise<void> {
-        // FR-VSCE-001
         const requestedWorkspaceFolderUriString = payload.workspaceFolderUri;
         let requestedWorkspaceFolderUri: vscode.Uri | null = null;
         if (requestedWorkspaceFolderUriString) {
@@ -241,93 +236,56 @@ export class IPCServer {
             }
         }
 
-        try {
-            const fileTreeResult = await generateFileTree(requestedWorkspaceFolderUri);
-
-            if (!fileTreeResult) {
-                // Error messages are handled within generateFileTree (e.g., untrusted workspace, no folder)
-                // Send a generic error or a more specific one based on why it might be null
-                this.sendError(client.ws, message_id, 'FILE_TREE_GENERATION_FAILED', 'Failed to generate file tree. Workspace might be untrusted or not open.');
+        let targetWorkspaceFolder: vscode.WorkspaceFolder | undefined;
+        if (requestedWorkspaceFolderUri) {
+            targetWorkspaceFolder = vscode.workspace.getWorkspaceFolder(requestedWorkspaceFolderUri);
+            if (!targetWorkspaceFolder) {
+                this.sendError(client.ws, message_id, 'WORKSPACE_FOLDER_NOT_FOUND', `Workspace folder for URI ${requestedWorkspaceFolderUriString} not found.`);
                 return;
             }
-
-            const { fileTreeString, rootPath, workspaceFolderName, actualWorkspaceFolderUri } = fileTreeResult;
-
-            const metadata = {
-                unique_block_id: uuidv4(), // Using uuidv4 for unique ID
-                content_source_id: `${actualWorkspaceFolderUri.toString()}::file_tree`,
-                type: "file_tree",
-                label: "File Tree", // As per IPC_Protocol_Design.md
-                workspaceFolderUri: actualWorkspaceFolderUri.toString(),
-                workspaceFolderName: workspaceFolderName
-            };
-
-            const responsePayload = {
-                success: true,
-                data: {
-                    fileTree: fileTreeString, // This already includes <file_tree> tags
-                    metadata: metadata
-                },
-                error: null,
-                workspaceFolderUri: actualWorkspaceFolderUri.toString(),
-                filterType: 'default' // Placeholder, to be updated in P2T2
-            };
-            this.sendMessage(client.ws, 'response', 'response_file_tree', responsePayload, message_id);
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent file tree for ${actualWorkspaceFolderUri.toString()} to ${client.ip}`);
-
-        } catch (error: any) {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error generating file tree for ${requestedWorkspaceFolderUriString || 'active workspace'}: ${error.message}`);
-            console.error(LOG_PREFIX_SERVER + `Error generating file tree:`, error);
-            this.sendError(client.ws, message_id, 'FILE_TREE_ERROR', `Internal server error while generating file tree: ${error.message}`);
+        } else if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+            targetWorkspaceFolder = vscode.workspace.workspaceFolders[0];
         }
-    }
 
-    private async handleGetFolderContent(client: Client, payload: any, message_id: string): Promise<void> {
-        const { folderPath } = payload;
-        if (!folderPath || typeof folderPath !== 'string') {
-            this.sendError(client.ws, message_id, 'INVALID_PAYLOAD', 'Missing or invalid folderPath in payload.');
+        if (!targetWorkspaceFolder) {
+            this.sendError(client.ws, message_id, 'NO_WORKSPACE_OPEN', 'No workspace folder open or specified.');
             return;
         }
 
-        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Processing get_folder_content for: ${folderPath}`);
-
         try {
-            const result: FolderContentResult | null = await getFolderContents(folderPath);
+            const fileTreeString = await getFileTree(targetWorkspaceFolder);
 
-            if (!result || result.error) {
-                const errorMessage = result?.error || 'Failed to get folder contents.';
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error getting folder content for ${folderPath}: ${errorMessage}`);
-                this.sendError(client.ws, message_id, 'FOLDER_CONTENT_ERROR', errorMessage);
+            if (fileTreeString.startsWith('Error:')) {
+                this.sendError(client.ws, message_id, 'FILE_TREE_GENERATION_FAILED', fileTreeString);
                 return;
             }
 
             const metadata = {
                 unique_block_id: uuidv4(),
-                content_source_id: vscode.Uri.file(result.folderPath).toString(), // Normalized folder URI
-                type: "folder_content",
-                label: result.folderName,
-                workspaceFolderUri: result.workspaceFolderUri,
-                workspaceFolderName: result.workspaceFolderName
+                content_source_id: `${targetWorkspaceFolder.uri.toString()}::file_tree`,
+                type: "file_tree",
+                label: "File Tree",
+                workspaceFolderUri: targetWorkspaceFolder.uri.toString(),
+                workspaceFolderName: targetWorkspaceFolder.name
             };
 
             const responsePayload = {
                 success: true,
                 data: {
-                    // As per SRS 3.3.3, concatenatedContent already includes the <file_tree> and <file_contents> sections
-                    content: result.concatenatedContent,
+                    fileTree: fileTreeString,
                     metadata: metadata
                 },
                 error: null,
-                folderPath: result.folderPath, // Send back the processed fsPath
-                filterType: 'default' // Placeholder, to be updated in P2T2 (Content Filtering Logic)
+                workspaceFolderUri: targetWorkspaceFolder.uri.toString(),
+                filterType: 'default'
             };
-            this.sendMessage(client.ws, 'response', 'response_folder_content', responsePayload, message_id);
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent folder content for ${result.folderPath} to ${client.ip}`);
+            this.sendMessage(client.ws, 'response', 'response_file_tree', responsePayload, message_id);
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent file tree for ${targetWorkspaceFolder.uri.toString()} to ${client.ip}`);
 
         } catch (error: any) {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Unexpected error in handleGetFolderContent for ${folderPath}: ${error.message}`);
-            console.error(LOG_PREFIX_SERVER + `Unexpected error in handleGetFolderContent for ${folderPath}:`, error);
-            this.sendError(client.ws, message_id, 'FOLDER_CONTENT_UNEXPECTED_ERROR', `Internal server error while getting folder content: ${error.message}`);
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error generating file tree for ${targetWorkspaceFolder.uri.toString()}: ${error.message}`);
+            console.error(LOG_PREFIX_SERVER + `Error generating file tree:`, error);
+            this.sendError(client.ws, message_id, 'FILE_TREE_ERROR', `Internal server error while generating file tree: ${error.message}`);
         }
     }
 
@@ -341,71 +299,45 @@ export class IPCServer {
         this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Processing get_file_content for: ${filePath}`);
 
         try {
-            const result: FileContentResult = await readFileContent(filePath);
+            const fileUri = vscode.Uri.file(filePath);
+            const content = await getFileContent(fileUri); // Returns string | null, or error string
 
-            if (result.error) {
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error reading file content for ${filePath}: ${result.error}`);
-                // Send a success:false response if there was an error actually reading or accessing the file
+            let workspaceFolder = vscode.workspace.getWorkspaceFolder(fileUri);
+            let workspaceFolderName = workspaceFolder ? workspaceFolder.name : 'Unknown Workspace';
+            let workspaceFolderUriString = workspaceFolder ? workspaceFolder.uri.toString() : null;
+
+            if (typeof content === 'string' && content.startsWith('Error:')) {
+                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error reading file content for ${filePath}: ${content}`);
                 const responsePayload = {
-                    success: false,
-                    data: null,
-                    error: result.error,
-                    filePath: result.filePath,
-                    filterType: 'not_applicable'
+                    success: false, data: null, error: content, filePath, filterType: 'not_applicable'
                 };
                 this.sendMessage(client.ws, 'response', 'response_file_content', responsePayload, message_id);
                 return;
             }
 
-            if (result.isBinary && result.content === null) {
-                // File is binary and was silently skipped as per FR-VSCE-002
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `File is binary, content skipped: ${filePath}`);
-                const metadata = {
-                    unique_block_id: uuidv4(),
-                    content_source_id: vscode.Uri.file(result.filePath).toString(), // Use URI string
-                    type: "file_content",
-                    label: result.fileName,
-                    workspaceFolderUri: result.workspaceFolderUri,
-                    workspaceFolderName: result.workspaceFolderName
-                };
-                const responsePayload = {
-                    success: true, // Operation of "getting file content" was successful, even if binary
-                    data: {
-                        content: null, // Explicitly null for binary
-                        isBinary: true, // Indicate it's binary
-                        metadata: metadata
-                    },
-                    error: null,
-                    filePath: result.filePath,
-                    filterType: 'not_applicable'
-                };
-                this.sendMessage(client.ws, 'response', 'response_file_content', responsePayload, message_id);
-                return;
-            }
-
-            // Success, content is available
+            const isBinary = content === null;
             const metadata = {
                 unique_block_id: uuidv4(),
-                content_source_id: vscode.Uri.file(result.filePath).toString(), // Use URI string
+                content_source_id: fileUri.toString(),
                 type: "file_content",
-                label: result.fileName,
-                workspaceFolderUri: result.workspaceFolderUri,
-                workspaceFolderName: result.workspaceFolderName
+                label: path.basename(filePath), // Use path.basename
+                workspaceFolderUri: workspaceFolderUriString,
+                workspaceFolderName: workspaceFolderName
             };
 
             const responsePayload = {
                 success: true,
                 data: {
-                    content: result.content,
-                    isBinary: false, // Explicitly false
+                    content: isBinary ? null : content,
+                    isBinary: isBinary,
                     metadata: metadata
                 },
                 error: null,
-                filePath: result.filePath,
-                filterType: 'not_applicable' // As per IPC doc for single file
+                filePath: filePath,
+                filterType: 'not_applicable'
             };
             this.sendMessage(client.ws, 'response', 'response_file_content', responsePayload, message_id);
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent file content for ${result.filePath} to ${client.ip}`);
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent file content for ${filePath} (Binary: ${isBinary}) to ${client.ip}`);
 
         } catch (error: any) {
             this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Unexpected error in handleGetFileContent for ${filePath}: ${error.message}`);
@@ -414,11 +346,120 @@ export class IPCServer {
         }
     }
 
+    private async handleGetFolderContent(client: Client, payload: any, message_id: string): Promise<void> {
+        const { folderPath, workspaceFolderUri: workspaceFolderUriString } = payload;
+
+        if (!folderPath || typeof folderPath !== 'string') {
+            this.sendError(client.ws, message_id, 'INVALID_PAYLOAD', 'Missing or invalid folderPath in payload.');
+            return;
+        }
+        if (!workspaceFolderUriString || typeof workspaceFolderUriString !== 'string') {
+            this.sendError(client.ws, message_id, 'INVALID_PAYLOAD', 'Missing or invalid workspaceFolderUri in payload.');
+            return;
+        }
+
+        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Processing get_folder_content for: ${folderPath} in workspace ${workspaceFolderUriString}`);
+
+        try {
+            const targetFolderUri = vscode.Uri.file(folderPath);
+            const workspaceFolder = vscode.workspace.getWorkspaceFolder(vscode.Uri.parse(workspaceFolderUriString, true));
+
+            if (!workspaceFolder) {
+                this.sendError(client.ws, message_id, 'WORKSPACE_FOLDER_NOT_FOUND', `Workspace folder for URI ${workspaceFolderUriString} not found.`);
+                return;
+            }
+
+            const result = await getFolderContents(targetFolderUri, workspaceFolder);
+
+            if (typeof result === 'string') {
+                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error getting folder content for ${folderPath}: ${result}`);
+                this.sendError(client.ws, message_id, 'FOLDER_CONTENT_ERROR', result);
+                return;
+            }
+
+            const metadata = {
+                unique_block_id: uuidv4(),
+                content_source_id: targetFolderUri.toString(),
+                type: "folder_content",
+                label: path.basename(folderPath), // Use path.basename
+                workspaceFolderUri: workspaceFolder.uri.toString(),
+                workspaceFolderName: workspaceFolder.name
+            };
+
+            const responsePayload = {
+                success: true,
+                data: {
+                    fileTree: result.fileTree,
+                    concatenatedContent: result.concatenatedContent,
+                    metadata: metadata
+                },
+                error: null,
+                folderPath: folderPath,
+                filterType: 'default'
+            };
+            this.sendMessage(client.ws, 'response', 'response_folder_content', responsePayload, message_id);
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent folder content for ${folderPath} to ${client.ip}`);
+
+        } catch (error: any) {
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Unexpected error in handleGetFolderContent for ${folderPath}: ${error.message}`);
+            console.error(LOG_PREFIX_SERVER + `Unexpected error in handleGetFolderContent for ${folderPath}:`, error);
+            this.sendError(client.ws, message_id, 'FOLDER_CONTENT_UNEXPECTED_ERROR', `Internal server error while getting folder content: ${error.message}`);
+        }
+    }
+
+    private async handleGetEntireCodebase(client: Client, payload: any, message_id: string): Promise<void> {
+        const { workspaceFolderUri: workspaceFolderUriString } = payload;
+
+        if (!workspaceFolderUriString || typeof workspaceFolderUriString !== 'string') {
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Invalid or missing workspaceFolderUri for get_entire_codebase from ${client.ip}.`);
+            this.sendError(client.ws, message_id, 'INVALID_PAYLOAD', 'Missing or invalid workspaceFolderUri in payload.');
+            return;
+        }
+
+        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Processing get_entire_codebase for workspace: ${workspaceFolderUriString}`);
+
+        try {
+            const workspaceUri = vscode.Uri.parse(workspaceFolderUriString, true);
+            const result = await getWorkspaceCodebaseContents(workspaceUri);
+
+            if (typeof result === 'string') {
+                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error getting entire codebase for ${workspaceFolderUriString}: ${result}`);
+                this.sendError(client.ws, message_id, 'CODEBASE_CONTENT_ERROR', result);
+                return;
+            }
+
+            const metadata = {
+                unique_block_id: uuidv4(),
+                content_source_id: `${workspaceUri.toString()}::codebase`,
+                type: "codebase_content",
+                label: `Entire Codebase - ${result.workspaceName}`,
+                workspaceFolderUri: workspaceUri.toString(),
+                workspaceFolderName: result.workspaceName
+            };
+
+            const responsePayload = {
+                success: true,
+                data: {
+                    fileTree: result.fileTree,
+                    concatenatedContent: result.concatenatedContent,
+                    metadata: metadata
+                },
+                error: null,
+                workspaceFolderUri: workspaceUri.toString(),
+                filterType: 'default'
+            };
+            this.sendMessage(client.ws, 'response', 'response_entire_codebase', responsePayload, message_id);
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent entire codebase content for ${result.workspaceName} to ${client.ip}`);
+
+        } catch (error: any) {
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Unexpected error in handleGetEntireCodebase for ${workspaceFolderUriString}: ${error.message}`);
+            console.error(LOG_PREFIX_SERVER + `Unexpected error in handleGetEntireCodebase for ${workspaceFolderUriString}:`, error);
+            this.sendError(client.ws, message_id, 'CODEBASE_CONTENT_UNEXPECTED_ERROR', `Internal server error while getting entire codebase content: ${error.message}`);
+        }
+    }
+
     private sendPlaceholderResponse(client: Client, originalCommand: string, requestPayload: any, message_id: string): void {
-        // Generic placeholder for other commands
         const commandMap: { [key: string]: string } = {
-            'get_folder_content': 'response_folder_content',
-            'get_entire_codebase': 'response_entire_codebase',
             'get_active_file_info': 'response_active_file_info',
             'get_open_files': 'response_open_files',
             'search_workspace': 'response_search_workspace',
@@ -426,30 +467,9 @@ export class IPCServer {
             'get_filter_info': 'response_filter_info',
         };
         const responseCommand = commandMap[originalCommand] || `response_${originalCommand}`;
-
         let responseData: any = { message: `Placeholder data for ${originalCommand}` };
 
-        const metadata = { // Generic metadata
-            unique_block_id: uuidv4(),
-            content_source_id: `${requestPayload?.workspaceFolderUri || requestPayload?.folderPath || requestPayload?.filePath || 'placeholder_source'}::${originalCommand}`,
-            type: originalCommand.replace('get_', ''),
-            label: `Placeholder for ${originalCommand}`,
-            workspaceFolderUri: requestPayload?.workspaceFolderUri,
-            workspaceFolderName: null // Simplified
-        };
-
-        // More detailed placeholder data based on actual response structures
-        if (originalCommand === 'get_folder_content') {
-            responseData = {
-                content: `Placeholder content for folder ${requestPayload?.folderPath}`,
-                metadata: metadata
-            };
-        } else if (originalCommand === 'get_entire_codebase') {
-            responseData = {
-                content: `Placeholder content for entire codebase (workspace: ${requestPayload?.workspaceFolderUri || 'active'})`,
-                metadata: metadata
-            };
-        } else if (originalCommand === 'get_active_file_info') {
+        if (originalCommand === 'get_active_file_info') {
             responseData = { activeFilePath: "placeholder/active/file.ts", activeFileLabel: "file.ts", workspaceFolderUri: null, workspaceFolderName: null };
         } else if (originalCommand === 'get_open_files') {
             responseData = { openFiles: [{ path: "placeholder/open/file1.ts", name: "file1.ts", workspaceFolderUri: null, workspaceFolderName: null }] };
@@ -461,30 +481,19 @@ export class IPCServer {
             responseData = { filterType: 'default', workspaceFolderUri: null };
         }
 
-        // Construct the full response payload structure
-        let fullResponsePayload: any;
-        if (['get_folder_content', 'get_entire_codebase'].includes(originalCommand)) {
-            fullResponsePayload = {
-                success: true,
-                data: responseData,
-                error: null,
-                filterType: 'default'
-            };
-            if (requestPayload.folderPath) fullResponsePayload.folderPath = requestPayload.folderPath;
-            if (requestPayload.workspaceFolderUri) fullResponsePayload.workspaceFolderUri = requestPayload.workspaceFolderUri;
-        } else {
-            fullResponsePayload = {
-                success: true,
-                data: responseData,
-                error: null
-            };
+        let fullResponsePayload: any = {
+            success: true,
+            data: responseData,
+            error: null
+        };
+        if (requestPayload.workspaceFolderUri) {
+            fullResponsePayload.workspaceFolderUri = requestPayload.workspaceFolderUri;
         }
 
         this.sendMessage(client.ws, 'response', responseCommand, fullResponsePayload, message_id);
         this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent placeholder response for ${originalCommand} to ${client.ip}`);
     }
 
-    // Method to push snippets (will be called by snippetService.ts later)
     public pushSnippetToTarget(targetTabId: number, snippetData: any): void {
         let targetClient: Client | null = null;
         for (const client of this.clients.values()) {
@@ -501,11 +510,9 @@ export class IPCServer {
         } else {
             this.outputChannel.appendLine(LOG_PREFIX_SERVER + `WARN: No authenticated client found for targetTabId ${targetTabId} to push snippet.`);
             console.warn(LOG_PREFIX_SERVER + `No authenticated client found for targetTabId ${targetTabId} to push snippet.`);
-            // Optionally, inform the user via VS Code UI if the snippet couldn't be sent
             vscode.window.showWarningMessage("ContextWeaver: Could not send snippet. No active, authenticated Chrome tab found.");
         }
     }
-
 
     public stop(): void {
         if (this.wss) {

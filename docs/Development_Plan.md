@@ -44,10 +44,11 @@ This tracking system helps monitor progress and identify impediments during deve
         *   Implement logic to generate a textual representation of the file and folder hierarchy for a given workspace/folder (for FR-VSCE-001). `[√]`
         *   Implement logic to read and provide the full UTF-8 text content of specified files, including silent skipping of binary files (for FR-VSCE-002). `[√]`
         *   Implement logic to read and concatenate content of all text files within a specified folder and its subfolders (for FR-VSCE-003). `[√]`
-        *   Implement logic to read and concatenate content of all text files within the entire active workspace folder(s) (for FR-VSCE-004). `[ ]`
+        *   Implement logic to read and concatenate content of all text files within a **specified active workspace folder** (identified by URI in the IPC request, for FR-VSCE-004). `[√]`
+        *   Initial implementation will use default ignore patterns; full `.gitignore` integration for this feature is part of Task 2 (Content Filtering Logic). `[√]`
     2.  **Content Filtering Logic** `[ ]`
         *   Implement parsing of the root `.gitignore` file for each workspace folder. `[ ]`
-        *   Apply parsed `.gitignore` rules to exclude files/folders from content provision operations. `[ ]`
+        *   Apply parsed `.gitignore` rules to exclude files/folders from content provision operations (e.g., `get_folder_content`, `get_entire_codebase` once integrated). `[ ]`
         *   Implement fallback to a predefined set of default exclusion patterns if `.gitignore` is missing or malformed (for FR-VSCE-005). `[ ]`
         *   Ensure the active filter set (project or default) can be reported to the CE. `[ ]`
     3.  **Search Service Implementation** `[ ]`
