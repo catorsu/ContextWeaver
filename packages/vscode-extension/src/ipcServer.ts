@@ -7,6 +7,7 @@
 
 import WebSocket, { WebSocketServer } from 'ws'; // Import WebSocketServer as WebSocket.Server
 import * as vscode from 'vscode'; // Ensure vscode is imported if not already for OutputChannel type
+import { generateFileTree } from './fileSystemService';
 import { v4 as uuidv4 } from 'uuid'; // For generating unique message IDs if needed by server
 
 // Import types from the IPC_Protocol_Design.md (assuming they will be in a shared types file later)
@@ -224,28 +225,59 @@ export class IPCServer {
         this.sendGenericAck(client, message_id, true, "Target registered successfully.");
     }
 
-    private handleGetFileTree(client: Client, payload: any, message_id: string): void {
+    private async handleGetFileTree(client: Client, payload: any, message_id: string): Promise<void> {
         // FR-VSCE-001
-        const workspaceFolderUri = payload.workspaceFolderUri || vscode.workspace.workspaceFolders?.[0]?.uri.toString();
-        const metadata = {
-            unique_block_id: uuidv4(),
-            content_source_id: `${workspaceFolderUri || 'unknown_workspace'}::file_tree`,
-            type: "file_tree",
-            label: "File Tree",
-            workspaceFolderUri: workspaceFolderUri,
-            workspaceFolderName: workspaceFolderUri ? vscode.workspace.getWorkspaceFolder(vscode.Uri.parse(workspaceFolderUri))?.name : null
-        };
-        const responsePayload = {
-            success: true,
-            data: {
-                fileTree: "C:/project/ContextWeaver\n├── backend\n│   └── api\n└── README.md (Placeholder)",
-                metadata: metadata
-            },
-            error: null,
-            workspaceFolderUri: workspaceFolderUri,
-            filterType: 'default' // Placeholder
-        };
-        this.sendMessage(client.ws, 'response', 'response_file_tree', responsePayload, message_id);
+        const requestedWorkspaceFolderUriString = payload.workspaceFolderUri;
+        let requestedWorkspaceFolderUri: vscode.Uri | null = null;
+        if (requestedWorkspaceFolderUriString) {
+            try {
+                requestedWorkspaceFolderUri = vscode.Uri.parse(requestedWorkspaceFolderUriString, true);
+            } catch (e: any) {
+                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Invalid workspaceFolderUri received: ${requestedWorkspaceFolderUriString}. Error: ${e.message}`);
+                this.sendError(client.ws, message_id, 'INVALID_PAYLOAD', `Invalid workspaceFolderUri: ${e.message}`);
+                return;
+            }
+        }
+
+        try {
+            const fileTreeResult = await generateFileTree(requestedWorkspaceFolderUri);
+
+            if (!fileTreeResult) {
+                // Error messages are handled within generateFileTree (e.g., untrusted workspace, no folder)
+                // Send a generic error or a more specific one based on why it might be null
+                this.sendError(client.ws, message_id, 'FILE_TREE_GENERATION_FAILED', 'Failed to generate file tree. Workspace might be untrusted or not open.');
+                return;
+            }
+
+            const { fileTreeString, rootPath, workspaceFolderName, actualWorkspaceFolderUri } = fileTreeResult;
+            
+            const metadata = {
+                unique_block_id: uuidv4(), // Using uuidv4 for unique ID
+                content_source_id: `${actualWorkspaceFolderUri.toString()}::file_tree`,
+                type: "file_tree",
+                label: "File Tree", // As per IPC_Protocol_Design.md
+                workspaceFolderUri: actualWorkspaceFolderUri.toString(),
+                workspaceFolderName: workspaceFolderName
+            };
+
+            const responsePayload = {
+                success: true,
+                data: {
+                    fileTree: fileTreeString, // This already includes <file_tree> tags
+                    metadata: metadata
+                },
+                error: null,
+                workspaceFolderUri: actualWorkspaceFolderUri.toString(),
+                filterType: 'default' // Placeholder, to be updated in P2T2
+            };
+            this.sendMessage(client.ws, 'response', 'response_file_tree', responsePayload, message_id);
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent file tree for ${actualWorkspaceFolderUri.toString()} to ${client.ip}`);
+
+        } catch (error: any) {
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error generating file tree for ${requestedWorkspaceFolderUriString || 'active workspace'}: ${error.message}`);
+            console.error(LOG_PREFIX_SERVER + `Error generating file tree:`, error);
+            this.sendError(client.ws, message_id, 'FILE_TREE_ERROR', `Internal server error while generating file tree: ${error.message}`);
+        }
     }
 
     private handleGetFileContent(client: Client, payload: any, message_id: string): void {

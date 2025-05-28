@@ -33,7 +33,7 @@ This tracking system helps monitor progress and identify impediments during deve
         *   Implement the client-side of the agreed-upon authentication mechanism. `[√]`
         *   Create stub functions to send all defined IPC messages and log/handle placeholder responses. `[√]`
     5.  **Initial "Handshake" Test** `[√]`
-        *   Implement a simple "status" or "ping" request/response flow to verify basic IPC connectivity and authentication between the fully stubbed VSCE server and CE client. `[ ]`
+        *   Implement a simple "status" or "ping" request/response flow to verify basic IPC connectivity and authentication between the fully stubbed VSCE server and CE client. `[√]`
 
 ---
 
@@ -41,7 +41,7 @@ This tracking system helps monitor progress and identify impediments during deve
 *   **Goal:** Implement all data provision and service functionalities within the VSCE.
 *   **Key Tasks:**
     1.  **File System Data Provisioning** `[ ]`
-        *   Implement logic to generate a textual representation of the file and folder hierarchy for a given workspace/folder (for FR-VSCE-001). `[ ]`
+        *   Implement logic to generate a textual representation of the file and folder hierarchy for a given workspace/folder (for FR-VSCE-001). `[√]`
         *   Implement logic to read and provide the full UTF-8 text content of specified files, including silent skipping of binary files (for FR-VSCE-002). `[ ]`
         *   Implement logic to read and concatenate content of all text files within a specified folder and its subfolders (for FR-VSCE-003). `[ ]`
         *   Implement logic to read and concatenate content of all text files within the entire active workspace folder(s) (for FR-VSCE-004). `[ ]`

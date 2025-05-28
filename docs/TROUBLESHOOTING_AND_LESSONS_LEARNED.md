@@ -42,8 +42,8 @@ Each new entry should follow the format below:
 
 **Investigation & Iterations:**
 *   Initially, errors appeared in the main VS Code's Developer Tools Console related to the root `package.json`:
-    1.  `property \`engines\` is mandatory and must be of type \`object\``
-    2.  `property \`engines.vscode\` is mandatory and must be of type \`string\``
+    1.  property `engines` is mandatory and must be of type `object`
+    2.  property `engines.vscode` is mandatory and must be of type `string`
 *   Attempts were made to fix the root `package.json` by adding these fields. While these specific errors were resolved, the extension still did not show signs of activation (no logs in its Output Channel).
 *   The user suggested changing the debugging context by opening the `packages/vscode-extension` folder directly as the root in VS Code and then launching the debugger (F5).
 *   Upon doing this, the extension activated correctly, and logs appeared in the dedicated Output Channel and Debug Console.
@@ -111,7 +111,6 @@ Each new entry should follow the format below:
 *   **Lesson 6 (Chrome Extension Reloading):** After making changes to HTML files or `manifest.json`, ensure the unpacked extension is fully reloaded in `chrome://extensions` for changes to take effect. Simple tab refreshes are not always sufficient.
 
 ---
-<!-- New entries should be added below this line, following the format above. -->
 
 ## [2025-05-28] - IPC Simplification: Removal of Token Authentication and Port Fallback
 
@@ -148,3 +147,34 @@ Each new entry should follow the format below:
 *   **Lesson 2 (Port Conflict Resolution):** Implementing a small range of port fallback attempts makes the VSCE more resilient to common `EADDRINUSE` errors, improving the out-of-the-box experience. Clear user notification about the active port is essential.
 *   **Lesson 3 (User Control for Connectivity):** Providing a manual "Reconnect" button in the CE's options page empowers users to troubleshoot connection issues without needing to restart extensions or VS Code, enhancing the overall user experience.
 *   **Prevention:** Continuously evaluate security measures against actual threat models and user experience impact. Prioritize robust connection management and clear user feedback for background services.
+
+---
+
+## [2025-05-28] - VSCE Workspace API Returns Empty/Undefined in Extension Development Host
+---
+
+**Phase/Task in Development Plan:** Phase 2, Task 1 - File System Data Provisioning (File Tree)
+
+**Problem Encountered:**
+*   **Symptoms:** During testing of the `get_file_tree` IPC command, the VS Code Extension (VSCE) consistently returned an error: "Failed to generate file tree. Workspace might be untrusted or not open." Debug logs within `fileSystemService.ts` revealed that `vscode.workspace.workspaceFolders` was always `undefined` or empty, and `vscode.workspace.getWorkspaceFolder(uri)` returned `undefined` even for valid URIs of open folders. This occurred despite the workspace being trusted (`vscode.workspace.isTrusted` was `true`).
+*   **Context:** Testing was initially performed by launching the VSCE debugger (F5), which opens a new "Extension Development Host" (EDH) window. The test workspace/folders were open in the *main* VS Code window where the extension code was being developed, not in the EDH window.
+*   **Initial Diagnosis/Hypothesis:** Potential timing issue with extension activation, or a misunderstanding of how `vscode.workspace.getWorkspaceFolder(uri)` functions with sub-folder URIs vs. root folder URIs.
+
+**Investigation & Iterations:**
+*   Added detailed logging to `fileSystemService.ts` to inspect the values of `vscode.workspace.workspaceFolders`, `vscode.workspace.isTrusted`, and the return value of `vscode.workspace.getWorkspaceFolder(uri)` at various points.
+*   The logs consistently showed `vscode.workspace.workspaceFolders` as empty within the context of the running extension, even when folders were open in the main VS Code window.
+*   User clarified their testing setup: they were opening folders in the main VS Code window, not the EDH window where the extension was actually running.
+*   User further clarified their multi-root workspace setup in the EDH window:
+    1.  `C:\project\ContextWeaver\packages\vscode-extension` (opened first)
+    2.  `C:\project\ContextWeaver` (added to workspace)
+*   This clarified that `vscode.workspace.getWorkspaceFolder()` would only work if the URI passed to it was one of these *exact root URIs*.
+
+**Solution Implemented:**
+*   The core solution was a procedural change in testing: **All workspace operations (opening folders, adding to workspace, trusting workspace) must be performed within the "Extension Development Host" (EDH) window where the VSCE is actively running during a debug session.**
+*   No code changes were ultimately needed in `fileSystemService.ts` to fix this specific issue, as the API calls were behaving correctly given the (previously incorrect) testing environment. The detailed logging helped confirm the environment mismatch.
+
+**Key Takeaway(s) / How to Avoid in Future:**
+*   **Lesson:** VS Code extension APIs related to the workspace (e.g., `vscode.workspace.workspaceFolders`, `vscode.workspace.getWorkspaceFolder()`, `vscode.workspace.isTrusted`) operate on the state of the "Extension Development Host" (EDH) window, not the VS Code window where the extension's source code is being developed.
+*   **Prevention (Testing):** Always ensure that the testing environment for VS Code extension features that interact with the workspace is the EDH window, properly configured with the desired open folders and trust settings.
+*   **Prevention (Logging):** When diagnosing workspace-related issues, log the direct output of `vscode.workspace.workspaceFolders` and `vscode.workspace.isTrusted` at the beginning of the relevant function to quickly ascertain the extension's view of the workspace state.
+*   **API Understanding:** `vscode.workspace.getWorkspaceFolder(uri)` returns a `WorkspaceFolder` if the given `uri` *exactly matches* the URI of one of the root folders in `vscode.workspace.workspaceFolders`. It does not resolve sub-folders to their parent root workspace folder.
