@@ -38,34 +38,79 @@ These components communicate via an Inter-Plugin Communication (IPC) mechanism.
 
 ContextWeaver will be developed within a single Git repository (monorepo) to facilitate management of shared code (e.g., IPC types) and coordinated development between the VS Code Extension and the Chrome Extension.
 
-The proposed top-level directory structure will be:
+The project follows this directory structure:
 
 ```
 ContextWeaver/
-├── .git/
-├── .vscode/                   # VS Code workspace settings
-├── docs/                      # Project documentation (SRS, Architecture, Dev Plan, etc.)
+├── .git/                      # Git version control metadata
+├── .vscode/                   # VS Code editor and workspace settings (partially gitignored)
+├── docs/                      # Project documentation
+│   ├── ARCHITECTURE.MD
+│   ├── Development_Plan.md
+│   ├── IPC_Protocol_Design.md
+│   ├── Software_Requirements_Specification.md
+│   └── TROUBLESHOOTING_AND_LESSONS_LEARNED.md
 ├── packages/
-│   ├── vscode-extension/      # Source code and build system for VSCE
-│   │   ├── src/
-│   │   ├── package.json
-│   │   └── tsconfig.json
-│   ├── chrome-extension/      # Source code and build system for CE
-│   │   ├── src/
-│   │   ├── manifest.json
-│   │   └── tsconfig.json
-│   └── shared/                # Shared code, e.g., IPC type definitions
-│       ├── src/
-│       └── tsconfig.json
-├── .gitignore
-├── package.json               # Root package.json for managing workspaces (e.g., with Yarn or Lerna)
-└── README.md
+│   ├── vscode-extension/      # VS Code Extension (VSCE)
+│   │   ├── node_modules/      # NPM dependencies (gitignored)
+│   │   ├── src/               # Source files for VSCE
+│   │   │   ├── extension.ts
+│   │   │   ├── fileSystemService.ts
+│   │   │   ├── ipcServer.ts
+│   │   │   ├── searchService.ts
+│   │   │   ├── snippetService.ts
+│   │   │   └── workspaceService.ts
+│   │   ├── tests/             # Tests for VSCE
+│   │   │   └── unit/
+│   │   │       ├── extensionCommandHandlers.test.ts
+│   │   │       ├── fileSystemService.test.ts
+│   │   │       ├── snippetService.test.ts
+│   │   │       └── workspaceService.test.ts
+│   │   ├── dist/              # Compiled output (gitignored)
+│   │   ├── .vscodeignore      # VSCE packaging ignore rules
+│   │   ├── .eslintrc.json     # ESLint configuration
+│   │   ├── jest.config.js     # Jest configuration
+│   │   ├── package.json       # NPM manifest
+│   │   └── tsconfig.json      # TypeScript configuration
+│   ├── chrome-extension/      # Chrome Extension (CE)
+│   │   ├── node_modules/      # NPM dependencies (gitignored)
+│   │   ├── src/               # Source files for CE
+│   │   │   ├── options.ts
+│   │   │   ├── popup.ts
+│   │   │   └── serviceWorker.ts
+│   │   ├── dist/              # Packaged output (gitignored)
+│   │   ├── images/            # Static image assets
+│   │   ├── .eslintrc.json     # ESLint configuration
+│   │   ├── manifest.json      # CE manifest
+│   │   ├── package.json       # NPM manifest
+│   │   ├── tsconfig.json      # TypeScript configuration
+│   │   ├── popup.html
+│   │   └── options.html
+│   └── shared/                # Shared code
+│       ├── node_modules/      # NPM dependencies (gitignored, if any)
+│       ├── src/               # Source files for shared code (currently empty)
+│       ├── dist/              # Compiled output (gitignored, if applicable)
+│       ├── package.json       # NPM manifest
+│       └── tsconfig.json      # TypeScript configuration
+├── .gitignore                 # Specifies gitignored files
+├── package.json               # Root NPM manifest (workspaces, common scripts)
+└── README.md                  # Project README
 ```
 
-This structure allows for:
-*   Independent build processes for each extension.
-*   A dedicated `shared` package for common code, easily imported by both extensions.
-*   Centralized management of development dependencies and scripts via the root `package.json` if using a workspace manager like Yarn Workspaces or Lerna (to be decided in build system setup).
+*(Note: This diagram aims to represent a comprehensive view of the project structure, including source code, key configuration files, and commonly generated directories like `node_modules/` and `dist/` (which are typically gitignored but essential for development and building). It omits OS-specific generated files and AI-development-environment-specific files like `.claude/` or `CLAUDE.md`. The exact contents of `src/` and `tests/` directories will evolve as development progresses and should be updated here accordingly.)*
+
+The diagram above outlines the ContextWeaver monorepo's primary source-controlled structure. Adherence to this structure achieves the following:
+
+*   **Modular Development:** Enables independent development, building, and testing for each core package (`vscode-extension`, `chrome-extension`, `shared`).
+*   **Code Reusability:** Consolidates shared code (IPC types, utilities, constants) in `packages/shared/` for use by all extensions, ensuring consistency and reducing duplication.
+*   **Centralized Control:** Utilizes the root `package.json` for managing project-wide dependencies and defining common operational scripts.
+
+**Documentation Mandate: Structural Updates**
+This `Version Control and Monorepo Structure` section (diagram and text) **MUST** be updated immediately if any of the following occur:
+    1.  Modification of the top-level directory layout.
+    2.  Addition, removal, or renaming of packages within `packages/`.
+    3.  Architecturally significant changes to a package's internal source organization or key configuration files.
+Accurate and current structural documentation is mandatory for project integrity and contributor clarity.
 
 ## 4. Component Breakdown
 

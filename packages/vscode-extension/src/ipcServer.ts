@@ -86,6 +86,7 @@ export class IPCServer {
 
                     ws.on('close', () => {
                         this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Client from ${client.ip} disconnected.`);
+                        ws.removeAllListeners();
                         this.clients.delete(ws);
                     });
 
@@ -93,6 +94,7 @@ export class IPCServer {
                         this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error on WebSocket connection from ${client.ip}: ${error.message}`);
                         console.error(LOG_PREFIX_SERVER + `Error on WebSocket connection from ${client.ip}:`, error);
                         if (this.clients.has(ws)) {
+                            ws.removeAllListeners();
                             this.clients.delete(ws);
                         }
                     });
@@ -138,7 +140,7 @@ export class IPCServer {
         let parsedMessage: any;
         try {
             parsedMessage = JSON.parse(message.toString());
-            if (typeof parsedMessage !== 'object' || parsedMessage === null) {
+            if (typeof parsedMessage !== 'object' || parsedMessage === null || Array.isArray(parsedMessage)) {
                 throw new Error("Message is not a valid JSON object.");
             }
         } catch (error: any) {
@@ -350,7 +352,8 @@ export class IPCServer {
             const responsePayload = {
                 success: true,
                 data: {
-                    fileTree: fileTreeString,
+                    tree: fileTreeString,
+                    filterTypeApplied: filterTypeApplied,
                     metadata: metadata
                 },
                 error: null,
@@ -479,7 +482,7 @@ export class IPCServer {
                 return;
             }
 
-            const { fileTree, concatenatedContent, filterTypeApplied } = result;
+            const { tree, filterTypeApplied } = result;
 
             const metadata = {
                 unique_block_id: uuidv4(),
@@ -493,8 +496,8 @@ export class IPCServer {
             const responsePayload = {
                 success: true,
                 data: {
-                    fileTree: fileTree,
-                    concatenatedContent: concatenatedContent,
+                    tree: tree,
+                    filterTypeApplied: filterTypeApplied,
                     metadata: metadata
                 },
                 error: null,
@@ -528,7 +531,7 @@ export class IPCServer {
                 return;
             }
 
-            const { fileTree, concatenatedContent, workspaceName, filterTypeApplied } = result;
+            const { tree, workspaceName, filterTypeApplied } = result;
 
             const metadata = {
                 unique_block_id: uuidv4(),
@@ -542,8 +545,8 @@ export class IPCServer {
             const responsePayload = {
                 success: true,
                 data: {
-                    fileTree: fileTree,
-                    concatenatedContent: concatenatedContent,
+                    tree: tree,
+                    filterTypeApplied: filterTypeApplied,
                     metadata: metadata
                 },
                 error: null,
@@ -774,10 +777,18 @@ export class IPCServer {
         if (this.wss) {
             this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'Stopping WebSocket server...');
             console.log(LOG_PREFIX_SERVER + 'Stopping WebSocket server...');
+            // Clean up all client event listeners and close connections
             this.clients.forEach(client => {
-                client.ws.close();
+                try {
+                    client.ws.removeAllListeners();
+                    client.ws.close();
+                } catch (err) {
+                    console.error(LOG_PREFIX_SERVER + 'Error cleaning up client:', err);
+                }
             });
             this.clients.clear();
+            // Clean up server event listeners before closing
+            this.wss.removeAllListeners();
             this.wss.close((err) => {
                 if (err) {
                     this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error closing WebSocket server: ${err.message}`);

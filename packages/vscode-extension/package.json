@@ -1,71 +1,76 @@
 {
-  "name": "contextweaver-vscode",
-  "displayName": "ContextWeaver VSCode",
-  "description": "VS Code component for ContextWeaver, providing project context to the Chrome extension.",
-  "version": "0.0.1",
-  "publisher": "YourPublisherName",
-  "engines": {
-    "vscode": "^1.80.0"
-  },
-  "categories": [
-    "Other"
-  ],
-  "activationEvents": [
-    "onStartupFinished"
-  ],
-  "main": "./dist/extension.js",
-  "contributes": {
-    "commands": [
-      {
-        "command": "contextweaver.helloWorld",
-        "title": "ContextWeaver: Hello World"
-      },
-      {
-        "command": "contextweaver.sendSnippet",
-        "title": "ContextWeaver: Send Snippet to LLM Context",
-        "category": "ContextWeaver"
-      }
-    ],
-    "menus": {
-      "editor/context": [
-        {
-          "command": "contextweaver.sendSnippet",
-          "when": "editorHasSelection && editorTextFocus",
-          "group": "navigation@5"
-        }
-      ]
+    "name": "contextweaver-vscode",
+    "displayName": "ContextWeaver VSCode",
+    "description": "VS Code component for ContextWeaver, providing project context to the Chrome extension.",
+    "version": "0.0.1",
+    "publisher": "YourPublisherName",
+    "engines": {
+        "vscode": "^1.80.0"
     },
-    "configuration": {
-      "title": "ContextWeaver",
-      "properties": {
-        "contextweaver.ipc.port": {
-          "type": "number",
-          "default": 30001,
-          "description": "Port for IPC communication with the ContextWeaver Chrome Extension."
+    "categories": [
+        "Other"
+    ],
+    "activationEvents": [
+        "onStartupFinished"
+    ],
+    "main": "./dist/extension.js",
+    "contributes": {
+        "commands": [
+            {
+                "command": "contextweaver.helloWorld",
+                "title": "ContextWeaver: Hello World"
+            },
+            {
+                "command": "contextweaver.sendSnippet",
+                "title": "ContextWeaver: Send Snippet to LLM Context",
+                "category": "ContextWeaver"
+            }
+        ],
+        "menus": {
+            "editor/context": [
+                {
+                    "command": "contextweaver.sendSnippet",
+                    "when": "editorHasSelection && editorTextFocus",
+                    "group": "navigation@5"
+                }
+            ]
+        },
+        "configuration": {
+            "title": "ContextWeaver",
+            "properties": {
+                "contextweaver.ipc.port": {
+                    "type": "number",
+                    "default": 30001,
+                    "description": "Port for IPC communication with the ContextWeaver Chrome Extension."
+                }
+            }
         }
-      }
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
+        "lint": "eslint src --ext ts",
+        "test": "jest",
+        "test:watch": "jest --watch"
+    },
+    "dependencies": {
+        "ignore": "^5.3.1",
+        "uuid": "^9.0.1",
+        "ws": "^8.17.0"
+    },
+    "devDependencies": {
+        "@types/jest": "^29.5.14",
+        "@types/node": "18.x",
+        "@types/uuid": "^9.0.8",
+        "@types/vscode": "^1.80.0",
+        "@types/ws": "^8.5.10",
+        "@typescript-eslint/eslint-plugin": "^7.0.0",
+        "@typescript-eslint/parser": "^7.0.0",
+        "eslint": "^8.56.0",
+        "jest": "^29.7.0",
+        "ts-jest": "^29.3.4",
+        "typescript": "^5.3.3",
+        "vscode-test": "^1.5.0"
     }
-  },
-  "scripts": {
-    "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
-    "lint": "eslint src --ext ts"
-  },
-  "dependencies": {
-    "ignore": "^5.3.1",
-    "uuid": "^9.0.1",
-    "ws": "^8.17.0"
-  },
-  "devDependencies": {
-    "@types/node": "18.x",
-    "@types/uuid": "^9.0.8",
-    "@types/vscode": "^1.80.0",
-    "@types/ws": "^8.5.10",
-    "@typescript-eslint/eslint-plugin": "^7.0.0",
-    "@typescript-eslint/parser": "^7.0.0",
-    "eslint": "^8.56.0",
-    "typescript": "^5.3.3",
-    "vscode-test": "^1.5.0"
-  }
 }
