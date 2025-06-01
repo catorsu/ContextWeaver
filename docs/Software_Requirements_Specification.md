@@ -113,12 +113,13 @@ The target users are software developers and other technical users who:
     *   The CE shall detect when the user types `@` in the chat input field of supported LLM web interfaces (e.g., Google AI Studio).
     *   Upon detection, a floating UI shall be displayed near the chat input.
 
-*   **FR-CE-002: Floating UI - Basic Options (No Search Query):**
+*   FR-CE-002: Floating UI - Basic Options (No Search Query):
     *   If `@` is typed followed by a space or end of input, the floating UI shall present the following primary options:
-        1.  "Insert Project File Directory Structure"
-        2.  "Insert Entire Codebase Content (Filtered)"
-        3.  "Insert Active File's Content" (from VS Code)
-        4.  "Insert Content of Currently Open Files" (from VS Code)
+        1.  "Insert Active File's Content" (from VS Code)
+        2.  "Insert Content of Currently Open Files" (from VS Code)
+    *   Additionally, for each detected workspace folder from VS Code, the UI shall present options such as:
+        1.  "File Tree" (for that workspace folder)
+        2.  "Full Codebase" (for that workspace folder)
 
 *   **FR-CE-003: Floating UI - Search Functionality (`@<search_query>`):**
     *   If non-whitespace characters are typed immediately after `@` (e.g., `@my_file`), the CE shall interpret this as a search query.
@@ -128,7 +129,7 @@ The target users are software developers and other technical users who:
 
 *   **FR-CE-004: Action - Insert Project File Directory Structure:**
     *   When selected, the CE shall check if a "File Tree" context block from the same project is already present. If so, it shall notify the user (e.g., "Project File Tree is already added.") and not proceed.
-    *   Otherwise, the CE shall request the complete file and folder hierarchy of the active VS Code project(s) from the VSCE.
+    *   Otherwise, the CE shall request the complete file and folder hierarchy for the selected VS Code workspace folder from the VSCE.
     *   The CE shall insert the received textual representation (formatted as per [3.3.1](#331-file-directory-structure-format)) into the LLM chat input and create a corresponding context block indicator (as per FR-CE-014).
 
 *   **FR-CE-005: Action - Insert Entire Codebase Content (Filtered):**
@@ -176,7 +177,7 @@ The target users are software developers and other technical users who:
 
 *   **FR-CE-013: Snippet Insertion from VS Code:**
     *   The CE (likely its service worker or a content script with an active WebSocket connection) shall listen for snippet data pushed from the VSCE.
-    *   Upon receiving snippet data targeted for its active LLM input context, the CE shall insert the snippet (formatted as per [3.3.4](#334-code-snippet-format)) into the LLM chat input.
+    *   Upon receiving snippet data targeted for its active LLM input context, the CE shall insert the snippet (formatted as per [3.3.3](#333-code-snippet-format)) into the LLM chat input.
     *   Snippet insertions are exempt from duplicate content checks. Each snippet sent from VS Code will create a new, distinct context block and indicator.
 
 *   **FR-CE-014: Context Block Indicator Display:**
@@ -185,7 +186,7 @@ The target users are software developers and other technical users who:
     *   Each indicator shall display:
         *   An icon visually representing the type of content (e.g., a generic tree icon for file tree, folder icon, file icon, snippet icon).
         *   A label:
-            *   For "Insert Project File Directory Structure": "File Tree"
+            *   For "Insert Project File Directory Structure": "File Tree - [WorkspaceFolderName]" (where [WorkspaceFolderName] is the name of the relevant workspace folder)
             *   For "Insert Entire Codebase Content": "Entire Codebase"
             *   For "Insert Active File's Content": The file name with extension (e.g., `auth.py`).
             *   For "Insert Content of Currently Open Files": One indicator per inserted file if multiple are selected from "Open Files".
@@ -210,7 +211,7 @@ The target users are software developers and other technical users who:
 
 *   **FR-VSCE-001: Data Provider - File System Structure:**
     *   The VSCE shall be able to traverse the active workspace folder(s) and generate a textual representation of the file and folder hierarchy.
-    *   This structure, along with metadata for its indicator (type: "file_tree", label: "File Tree", unique_block_id), shall be provided to the CE upon request.
+    *   This structure, along with metadata for its indicator (type: "file_tree", label: "File Tree - [WorkspaceFolderName]", unique_block_id, where [WorkspaceFolderName] is the name of the workspace folder), shall be provided to the CE upon request.
 
 *   **FR-VSCE-002: Data Provider - File Content:**
     *   The VSCE shall be able to read and provide the full UTF-8 text content of any specified file within the active workspace(s).
@@ -232,9 +233,10 @@ The target users are software developers and other technical users who:
 
 *   **FR-VSCE-005: Filtering Logic:**
     *   The VSCE shall attempt to read and parse the `.gitignore` file from the root of each workspace folder.
-    *   For V1, operations like "Insert Entire Codebase" or "Insert Folder Content" will initially use a predefined set of default exclusion patterns (e.g., `node_modules/`, `venv/`, `.git/`). Full `.gitignore` parsing and application for these operations is planned for a subsequent task (Phase 2, Task 2). The VSCE shall report to the CE which filter set (project's `.gitignore` or default) is active for a given operation/workspace.
-    *   If a `.gitignore` file is missing or malformed for a workspace folder, the VSCE shall use a predefined set of default exclusion patterns (e.g., `node_modules/`, `venv/`, `.git/`, `dist/`, `build/`, `*.log`, `__pycache__/`).
-    *   The VSCE shall report to the CE which filter set (project's `.gitignore` or default) is active for a given operation/workspace.
+    *   A predefined set of default exclusion patterns (e.g., `node_modules/`, `venv/`, `.git/`, `dist/`, `build/`, `*.log`, `__pycache__/`) is always applied first.
+    *   If a `.gitignore` file is found and parsed, its rules are applied in addition to the default patterns for operations like "Insert Entire Codebase" or "Insert Folder Content".
+    *   If a `.gitignore` file is missing, empty, or malformed for a workspace folder, only the default exclusion patterns are used.
+    *   The VSCE shall report to the CE which effective filter set (project's `.gitignore` rules augmenting default patterns, or only default patterns) is active for a given operation/workspace.
 
 *   **FR-VSCE-006: Search Service:**
     *   The VSCE shall provide a search service that accepts a query string from the CE.
@@ -334,64 +336,104 @@ The content inserted into the LLM chat input shall be wrapped in specific XML-li
     ```text
     <file_tree>
     C:/project/SmartInfo
-    ├── backend
-    │   └── api
-    │       ├── dependencies
-    │       │   ├── __init__.py
-    │       │   └── dependencies.py
-    │       ...
+    ├── src
+    │   ├── services
+    │   │   └── userService.ts
+    │   ├── config
+    │   │   └── settings.ts
+    │   └── utils.ts
     └── README.md
     </file_tree>
     ```
 
-*   **3.3.2. Single File Content Format:**
-    The inserted content shall be wrapped in `<file_contents>` tags. It shall include the file path and use Markdown code blocks with language identifiers, for example:
+*   **3.3.2. File, Folder, or Codebase Content Format:**
+    When inserting content from a single file, multiple files (e.g., from a folder), or the entire codebase, the content shall be wrapped in a single `<file_contents>` tag.
+    Within this tag, each file's content is represented by:
+    1.  A `File: <full_path_to_file>` line.
+    2.  The actual file content, enclosed in a Markdown code block with its determined language identifier (e.g., `javascript`, `python`, `plaintext`).
+
+    For multiple files (representing a folder or an entire codebase), these `File: ... ```<language_id> ... ``` ` blocks are concatenated sequentially within the single `<file_contents>` tag. The order of file content should ideally match a logical traversal (e.g., as in a file tree).
+
+    Example (representing content from a single file):
     ```text
     <file_contents>
-    file: C:/project/SmartInfo/backend/api/routers/auth.py
-    ```python
-    from fastapi import APIRouter
-    # ... file content ...
+    File: C:/project/SmartInfo/src/utils.ts
+    ```typescript
+    // Some utility functions
+    export function greet(name: string): string {
+      return `Hello, ${name}!`;
+    }
+
+    export const DEFAULT_TIMEOUT = 1000;
     ```
     </file_contents>
     ```
 
-*   **3.3.3. Folder/Entire Codebase Content Format:**
-    When inserting content from a folder or the entire codebase, the content shall be wrapped in `<folder_contents path="C:/path/to/folder">` (or `<codebase_contents>` for entire project). This shall contain:
-    1.  A `<file_tree>` section for the relevant scope (the folder or the entire project).
-    2.  A `<file_contents>` section concatenating the content of all included files. Each individual file's content within this concatenation should be prefixed by `file: <full_path_to_file>` and then wrapped in its own Markdown code block with the appropriate language identifier.
-    The order of file content shall match the order in the `<file_tree>` section.
-    Example for a folder:
+    Example (representing content from multiple files, e.g., a folder's content):
     ```text
-    <folder_contents path="C:/project/SmartInfo/backend/api/routers">
-    <file_tree>
-    ├── __init__.py
-    ├── auth.py
-    ...
-    </file_tree>
     <file_contents>
-    file: C:/project/SmartInfo/backend/api/routers/__init__.py
-    ```python
-    # ... content of __init__.py ...
-    ```
+    File: C:/project/SmartInfo/src/services/userService.ts
+    ```typescript
+    interface User {
+      id: number;
+      username: string;
+      email?: string;
+    }
 
-    file: C:/project/SmartInfo/backend/api/routers/auth.py
-    ```python
-    # ... content of auth.py ...
+    export class UserService {
+      private users: User[] = [];
+
+      addUser(user: User): void {
+        this.users.push(user);
+      }
+
+      getUser(id: number): User | undefined {
+        return this.users.find(u => u.id === id);
+      }
+    }
     ```
-    (other file contents)
+    File: C:/project/SmartInfo/src/config/settings.ts
+    ```typescript
+    export interface AppSettings {
+      apiUrl: string;
+      featureFlags: {
+        betaFeatureEnabled: boolean;
+      };
+    }
+
+    export const settings: AppSettings = {
+      apiUrl: "https://api.smartinfo.com/v1",
+      featureFlags: {
+        betaFeatureEnabled: true,
+      },
+    };
+    ```
     </file_contents>
-    </folder_contents>
     ```
 
-*   **3.3.4. Code Snippet Format:**
-    Inserted code snippets (from VS Code context menu) shall be wrapped in `<code_snippet>` tags. It shall include the file path, line numbers, and use Markdown code blocks with language identifiers, for example:
+*   **3.3.3. Code Snippet Format:**
+    Inserted code snippets (e.g., from a VS Code context menu selection) shall be wrapped in `<code_snippet>` tags.
+    Inside the `<code_snippet>` tag, the following information shall be included before the code block:
+    1.  `File: <full_path_to_file>`: The path to the source file.
+    2.  `lines: <start_line>-<end_line>`: The line numbers of the snippet.
+    Followed by the code snippet itself, enclosed in a Markdown code block with its determined language identifier (e.g., `javascript`, `python`, `plaintext`).
+
+    Example:
     ```text
     <code_snippet>
-    file: C:/project/SmartInfo/backend/api/routers/auth.py
-    lines: 10-20
-    ```python
-    # ... selected code snippet ...
+    File: C:/project/ContextWeaver/packages/chrome-extension/src/serviceWorker.ts
+    lines: 20-30
+    ```typescript
+    public async loadConfiguration(): Promise<void> {
+        try {
+            const result = await chrome.storage.sync.get(['ipcPort', 'ipcToken']);
+            this.port = result.ipcPort || 30001;
+            console.log(LOG_PREFIX_SW, `Configuration loaded: Port=${this.port}`);
+        } catch (error) {
+            console.error(LOG_PREFIX_SW, 'Error loading configuration:', error);
+            this.port = 30001;
+        }
+    }
     ```
     </code_snippet>
     ```
@@ -406,16 +448,16 @@ The content inserted into the LLM chat input shall be wrapped in specific XML-li
 
 *   **SEC-001: IPC Security:**
     *   The VSCE local server must bind only to `localhost`.
-    *   Communication between CE and VSCE must be authenticated using a shared secret/token mechanism configured by the user.
+    *   Token-based authentication has been removed. Communication relies on the inherent security of `localhost` binding, assuming no malicious processes are running on the user's machine attempting to spoof ContextWeaver IPC messages.
 *   **SEC-002: VS Code Workspace Trust:** The VSCE must respect VS Code's Workspace Trust feature and only access files in trusted workspaces. If a workspace is not trusted, an appropriate status should be communicated to the CE.
 *   **SEC-003: Data Handling:** No sensitive data beyond file paths and file content from the user's workspace should be transmitted or stored unnecessarily.
 
 #### 3.6. Error Handling and State Management
 
-*   **ERR-001: VS Code Not Running/Extension Disabled:** If the CE cannot connect to the VSCE server, it shall display a message like "无法连接到 VS Code。请确保 VS Code 正在运行，已安装配套扩展，并且已打开项目。" (Cannot connect to VS Code. Please ensure VS Code is running with the companion extension installed and a project is open.)
-*   **ERR-002: No Project Open in VS Code:** If the VSCE reports that no project/folder is open, the CE shall display "VS Code 中没有打开项目。请打开一个项目以使用此功能。" (No project open in VS Code. Please open a project to use this feature.)
+*   **ERR-001: VS Code Not Running/Extension Disabled:** If the CE cannot connect to the VSCE server, it shall display a clear message to the user indicating the connection failure and suggesting potential causes (e.g., "Cannot connect to VS Code. Please ensure VS Code is running, the ContextWeaver VSCE is enabled, and a project is open. Check extension settings if issues persist."). Actual messages are in English, e.g., "Could not connect to VS Code after [X] attempts. Please check settings."
+*   **ERR-002: No Project Open in VS Code:** If the VSCE reports that no project/folder is open (e.g., via a 'NO_WORKSPACE_OPEN' error code), the CE shall display a clear message to the user (e.g., "No project open in VS Code. Please open a project to use this feature." or the error message from VSCE like "No workspace folder is open. Please open a folder or workspace.").
 *   **ERR-003: `.gitignore` File Issues:**
-    *   If `.gitignore` is missing, the CE shall display a message like "未找到 .gitignore。将使用默认的过滤规则。" (No .gitignore found. Default filtering rules will be used.)
+    *   If `.gitignore` is missing, the VSCE will log this and use default rules. The CE shall indicate (e.g., via an icon or text in the UI as per UI-CE-003) that default filtering rules are in use, based on the 'filterType' received from VSCE.
     *   If `.gitignore` is malformed and VSCE falls back to default rules, the CE UI shall indicate that default filtering rules are in use (e.g., via an icon).
 *   **ERR-004: File Read Errors:** If the VSCE fails to read a specific file, it should skip the file and report the issue. The CE can then notify the user, e.g., "读取文件 [文件名] 时出错。该文件已被跳过。" (Error reading file [filename]. The file has been skipped.)
 *   **ERR-005: IPC Communication Failure:** If IPC fails during an operation, the CE should indicate: "与 VS Code 的通信丢失。操作可能未完成。" (Communication with VS Code lost. Operation may not have completed.)

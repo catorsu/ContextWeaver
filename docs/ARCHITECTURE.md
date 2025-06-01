@@ -42,8 +42,6 @@ The project follows this directory structure:
 
 ```
 ContextWeaver/
-├── .git/                      # Git version control metadata
-├── .vscode/                   # VS Code editor and workspace settings (partially gitignored)
 ├── docs/                      # Project documentation
 │   ├── ARCHITECTURE.MD
 │   ├── Development_Plan.md
@@ -52,7 +50,6 @@ ContextWeaver/
 │   └── TROUBLESHOOTING_AND_LESSONS_LEARNED.md
 ├── packages/
 │   ├── vscode-extension/      # VS Code Extension (VSCE)
-│   │   ├── node_modules/      # NPM dependencies (gitignored)
 │   │   ├── src/               # Source files for VSCE
 │   │   │   ├── extension.ts
 │   │   │   ├── fileSystemService.ts
@@ -61,24 +58,16 @@ ContextWeaver/
 │   │   │   ├── snippetService.ts
 │   │   │   └── workspaceService.ts
 │   │   ├── tests/             # Tests for VSCE
-│   │   │   └── unit/
-│   │   │       ├── extensionCommandHandlers.test.ts
-│   │   │       ├── fileSystemService.test.ts
-│   │   │       ├── snippetService.test.ts
-│   │   │       └── workspaceService.test.ts
-│   │   ├── dist/              # Compiled output (gitignored)
-│   │   ├── .vscodeignore      # VSCE packaging ignore rules
+│   │   │   └── unit/          #   - Unit test files (e.g., ipcServer.test.ts)
 │   │   ├── .eslintrc.json     # ESLint configuration
 │   │   ├── jest.config.js     # Jest configuration
 │   │   ├── package.json       # NPM manifest
 │   │   └── tsconfig.json      # TypeScript configuration
 │   ├── chrome-extension/      # Chrome Extension (CE)
-│   │   ├── node_modules/      # NPM dependencies (gitignored)
 │   │   ├── src/               # Source files for CE
 │   │   │   ├── options.ts
 │   │   │   ├── popup.ts
 │   │   │   └── serviceWorker.ts
-│   │   ├── dist/              # Packaged output (gitignored)
 │   │   ├── images/            # Static image assets
 │   │   ├── .eslintrc.json     # ESLint configuration
 │   │   ├── manifest.json      # CE manifest
@@ -87,9 +76,7 @@ ContextWeaver/
 │   │   ├── popup.html
 │   │   └── options.html
 │   └── shared/                # Shared code
-│       ├── node_modules/      # NPM dependencies (gitignored, if any)
 │       ├── src/               # Source files for shared code (currently empty)
-│       ├── dist/              # Compiled output (gitignored, if applicable)
 │       ├── package.json       # NPM manifest
 │       └── tsconfig.json      # TypeScript configuration
 ├── .gitignore                 # Specifies gitignored files
@@ -124,8 +111,7 @@ Accurate and current structural documentation is mandatory for project integrity
     *   **Workspace Management:** Handling multi-root workspaces and respecting VS Code's Workspace Trust feature.
 *   **Key Modules (Planned/Conceptual):**
     *   `ipcServer.ts`: Manages the WebSocket server, connection handling, authentication, and message deserialization/serialization.
-    *   `fileSystemService.ts`: Handles all interactions with the file system (reading files, listing directories, traversing structures).
-    *   `filterService.ts`: Implements `.gitignore` parsing and default filtering logic.
+    *   `fileSystemService.ts`: Handles all interactions with the file system (reading files, listing directories, traversing structures). It also includes logic for `.gitignore` parsing and applying default/gitignore-based filtering rules.
     *   `searchService.ts`: Provides file/folder search capabilities within the workspace.
     *   `workspaceService.ts`: Centralizes logic for interacting with the VS Code workspace. It provides information about open workspace folders (including multi-root scenarios), their URIs, names, and the overall workspace trust state. It's used by other services to ensure operations are performed on trusted and valid workspaces.
     *   `snippetService.ts`: Responsible for preparing snippet data (selected text, file path, line numbers, language ID, and associated metadata) when triggered by the user. It does not directly handle IPC sending but provides the data to `extension.ts` for dispatch.
@@ -144,11 +130,9 @@ Accurate and current structural documentation is mandatory for project integrity
     *   **IPC Client:** Connecting to the VSCE server, sending requests, and handling responses.
     *   **State Management:** Managing the state of active context blocks and duplicate content prevention.
 *   **Key Modules (Planned/Conceptual):**
-    *   `contentScript.ts`: Injected into LLM web pages to handle UI triggers, DOM manipulation for the floating panel and indicators, and communication with the service worker.
-    *   `serviceWorker.ts` (or `background.ts` if Manifest V2 features are needed, though V3 is preferred): Manages the IPC client connection to VSCE, handles messages from content scripts, and potentially maintains some background state.
-    *   `uiManager.ts` (or similar, could be part_of `contentScript.ts`): Specifically handles the creation, display, and logic of the floating UI and context block indicators.
-    *   `ipcClient.ts`: Encapsulates the logic for connecting to and communicating with the VSCE IPC server.
-    *   `storageService.ts`: Manages any persistent settings for the CE (e.g., IPC token, port).
+    *   `contentScript.ts`: Injected into LLM web pages to handle UI triggers, DOM manipulation, creation, display, and logic of the floating UI panel and context block indicators. It also communicates with the service worker for data fetching.
+    *   `serviceWorker.ts`: Manages the IPC client connection to VSCE (via an internal `IPCClient` class which also handles loading its configuration like port from `chrome.storage.sync`), handles messages from content scripts (acting as a bridge to VSCE), and potentially maintains some background state.
+    *   `options.ts`: Handles the logic for the extension's options page, including saving settings like the IPC port to `chrome.storage.sync`.
 *   **Technology Stack:**
     *   TypeScript/JavaScript
     *   Chrome Extension APIs (Content Scripts, Service Workers, Storage, etc.)
@@ -185,6 +169,8 @@ Accurate and current structural documentation is mandatory for project integrity
     *   **Rationale:** Simplifies initial implementation complexity, aligning with SRS 1.2. Future versions may support subdirectory `.gitignore` files.
 *   **[YYYY-MM-DD] Decision:** Adopt a monorepo structure.
     *   **Rationale:** Simplifies management of shared code (e.g., IPC type definitions), versioning, and coordinated development and issue tracking between the VS Code Extension and Chrome Extension components.
+*   **[2025-05-28] Decision:** Removed token-based authentication for IPC.
+    *   **Rationale:** Simplified user setup and reduced friction. Security relies on the VSCE server binding exclusively to `localhost`, mitigating external access risks. The risk from other local malicious software was deemed acceptable for V1 given the nature of data exchanged. (See `TROUBLESHOOTING_AND_LESSONS_LEARNED.md` entry `[2025-05-28] - IPC Simplification...`)
 
 ## 7. Security Considerations
 

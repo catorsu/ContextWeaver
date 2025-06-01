@@ -33,30 +33,32 @@ export async function parseGitignore(workspaceFolder: vscode.WorkspaceFolder): P
     const rawContent = await vscode.workspace.fs.readFile(gitignoreUri);
     const content = new TextDecoder('utf-8').decode(rawContent);
     if (content.trim() === '') {
-      console.log(`[ContextWeaver FileSystemService] .gitignore file found in ${workspaceFolder.name} but it is empty. Will use default ignore patterns for filtering.`);
-      return null;
+      console.log(`[ContextWeaver FileSystemService] .gitignore file found in ${workspaceFolder.name} but it is empty. Default patterns will still apply.`);
+      return ignore(); // Return an empty ignore instance
     }
     const ig = ignore().add(content);
     console.log(`[ContextWeaver FileSystemService] Parsed .gitignore for ${workspaceFolder.name}`);
     return ig;
   } catch (error: any) {
     if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
-      console.log(`[ContextWeaver FileSystemService] No .gitignore file found in ${workspaceFolder.name}. Will use default ignore patterns.`);
+      console.log(`[ContextWeaver FileSystemService] No .gitignore file found in ${workspaceFolder.name}. Default patterns will apply.`);
     } else {
-      console.error(`[ContextWeaver FileSystemService] Error reading or parsing .gitignore for ${workspaceFolder.name}: ${error.message}. Will use default ignore patterns.`);
+      console.error(`[ContextWeaver FileSystemService] Error reading or parsing .gitignore for ${workspaceFolder.name}: ${error.message}. Default patterns will still apply.`);
     }
     return null;
   }
 }
 
 /**
- * @description Helper function to check if a path should be ignored based on gitignore or default patterns.
- * @param {string} relativePath - Path relative to the workspace root (e.g., 'src/file.ts', 'node_modules').
- * @param {string} name - The base name of the file or folder (e.g., 'file.ts', 'node_modules').
+ * @description Helper function to check if a path should be ignored.
+ * Default patterns are always checked. If a .gitignore filter is provided, it's checked afterwards.
+ * @param {string} relativePath - Path relative to the workspace root.
+ * @param {string} name - The base name of the file or folder.
  * @param {boolean} isDirectory - True if the entry is a directory.
- * @param {Ignore | null} gitignoreFilter - Parsed .gitignore filter.
+ * @param {Ignore | null} gitignoreFilter - Parsed .gitignore filter. Can be an empty filter.
  * @param {readonly string[]} defaultIgnorePatterns - Default patterns.
- * @returns {{ ignored: boolean; filterTypeApplied: 'gitignore' | 'default' }}
+ * @returns {{ ignored: boolean; filterSource: 'default' | 'gitignore' | 'none' }}
+ *           'filterSource' indicates what caused the ignore, or 'none' if not ignored.
  */
 function getPathIgnoreInfo(
   relativePath: string,
@@ -64,48 +66,47 @@ function getPathIgnoreInfo(
   isDirectory: boolean,
   gitignoreFilter: Ignore | null,
   defaultIgnorePatterns: readonly string[]
-): { ignored: boolean; filterTypeApplied: 'gitignore' | 'default' } {
-  if (gitignoreFilter) {
-    let pathToCheck = relativePath;
-    // Normalize path: remove leading './' if present, as 'ignore' library might expect paths without it
-    // or to ensure consistency with how patterns are written in .gitignore files.
-    if (pathToCheck.startsWith('./')) {
-      pathToCheck = pathToCheck.substring(2);
-    }
+): { ignored: boolean; filterSource: 'default' | 'gitignore' | 'none' } {
+  // Normalize to use forward slashes and ensure directory patterns end with a slash
+  const normalizedRelativePath = relativePath.replace(/\\/g, '/');
+  const pathToCheck = isDirectory && !normalizedRelativePath.endsWith('/') ? `${normalizedRelativePath}/` : normalizedRelativePath;
 
-    const isIgnored = gitignoreFilter.ignores(pathToCheck) || (isDirectory && !pathToCheck.endsWith('/') && gitignoreFilter.ignores(pathToCheck + '/'));
-    if (isIgnored) {
-      console.log(`[ContextWeaver FileSystemService] Ignoring (gitignore): '${pathToCheck}' (name: '${name}', isDir: ${isDirectory})`);
-    }
-    return { ignored: isIgnored, filterTypeApplied: 'gitignore' };
-  } else {
-    for (const pattern of defaultIgnorePatterns) {
-      const cleanPatternName = pattern.replace(/\/$/, '');
+  for (const pattern of defaultIgnorePatterns) {
+    const isDirPattern = pattern.endsWith('/');
+    const cleanPattern = isDirPattern ? pattern.slice(0, -1) : pattern;
 
-      if (pattern.endsWith('/')) {
-        if (isDirectory && (name === cleanPatternName || relativePath === cleanPatternName || relativePath.startsWith(cleanPatternName + '/'))) {
-          console.log(`[ContextWeaver FileSystemService] Ignoring (default pattern - dir): '${relativePath}' due to '${pattern}'`);
-          return { ignored: true, filterTypeApplied: 'default' };
-        }
-      } else if (pattern.startsWith('*.')) {
-        if (!isDirectory && name.endsWith(pattern.substring(1))) {
-          console.log(`[ContextWeaver FileSystemService] Ignoring (default pattern - ext): '${relativePath}' due to '${pattern}'`);
-          return { ignored: true, filterTypeApplied: 'default' };
-        }
-      } else {
-        if (name === pattern) {
-          console.log(`[ContextWeaver FileSystemService] Ignoring (default pattern - exact name): '${relativePath}' due to '${pattern}'`);
-          return { ignored: true, filterTypeApplied: 'default' };
-        }
-        if (relativePath === pattern && name === pattern) { // Check for exact relative path match
-          console.log(`[ContextWeaver FileSystemService] Ignoring (default pattern - exact path): '${relativePath}' due to '${pattern}'`);
-          return { ignored: true, filterTypeApplied: 'default' };
-        }
+    if (isDirPattern) { // Pattern targets a directory
+      if (isDirectory && (name === cleanPattern || normalizedRelativePath === cleanPattern || normalizedRelativePath.startsWith(cleanPattern + '/'))) {
+        return { ignored: true, filterSource: 'default' };
+      }
+    } else if (pattern.startsWith('*.')) { // Pattern targets an extension
+      if (!isDirectory && name.endsWith(pattern.substring(1))) {
+        return { ignored: true, filterSource: 'default' };
+      }
+    } else { // Pattern targets a specific file/folder name
+      if (name === pattern) {
+        return { ignored: true, filterSource: 'default' };
       }
     }
-    return { ignored: false, filterTypeApplied: 'default' };
   }
+
+  if (gitignoreFilter) {
+    // The 'ignore' library expects paths relative to the .gitignore file (workspace root)
+    // It handles directory matching (e.g. `dist/` vs `dist`) internally.
+    let gitignorePath = normalizedRelativePath;
+    if (gitignorePath.startsWith('./')) {
+      gitignorePath = gitignorePath.substring(2);
+    }
+    // For directories, check with and without trailing slash for comprehensive matching by 'ignore'
+    const isGitignored = gitignoreFilter.ignores(gitignorePath) ||
+      (isDirectory && !gitignorePath.endsWith('/') && gitignoreFilter.ignores(gitignorePath + '/'));
+    if (isGitignored) {
+      return { ignored: true, filterSource: 'gitignore' };
+    }
+  }
+  return { ignored: false, filterSource: 'none' };
 }
+
 
 /**
  * @description Generates a textual representation of the file and folder hierarchy for a given workspace folder.
@@ -114,13 +115,19 @@ function getPathIgnoreInfo(
  * @returns {Promise<{ tree: string, filterTypeApplied: 'gitignore' | 'default' } | string>} Object with tree string and filter type, or an error string.
  */
 export async function getFileTree(workspaceFolder: vscode.WorkspaceFolder): Promise<{ tree: string, filterTypeApplied: 'gitignore' | 'default' } | string> {
-  // Trust and existence of workspaceFolder is pre-checked by the caller (ipcServer)
   const gitignoreFilter = await parseGitignore(workspaceFolder);
-  const actualFilterType = gitignoreFilter ? 'gitignore' : 'default';
+  const actualFilterType = gitignoreFilter !== null ? 'gitignore' : 'default';
 
   try {
-    const tree = await generateFileTreeTextInternal(workspaceFolder.uri, workspaceFolder.uri, '', gitignoreFilter);
-    return { tree: `${workspaceFolder.name}\n${tree}`.trim(), filterTypeApplied: actualFilterType };
+    const internalTree = await generateFileTreeTextInternal(workspaceFolder.uri, workspaceFolder.uri, '', gitignoreFilter);
+    const workspacePath = workspaceFolder.uri.fsPath.replace(/\\\\/g, '/'); // Ensure forward slashes for consistency
+    // SRS 3.3.1: <file_tree>\nC:/project/SmartInfo\n...
+    const formattedTree = `<file_tree>\n${workspacePath}\n${internalTree.trim()}\n</file_tree>`;
+
+    console.log('[ContextWeaver FileSystemService] getFileTree: formattedTree to be sent:');
+    // console.log(formattedTree); // Keep this commented out for brevity in logs unless debugging tree specifically
+
+    return { tree: formattedTree, filterTypeApplied: actualFilterType };
   } catch (error: any) {
     console.error(`[ContextWeaver FileSystemService] Error in getFileTree for ${workspaceFolder.name}: ${error.message}`);
     return `Error generating file tree for ${workspaceFolder.name}: ${error.message}`;
@@ -131,221 +138,234 @@ async function generateFileTreeTextInternal(dirUri: vscode.Uri, baseUri: vscode.
   let treeString = '';
   try {
     let entries = await vscode.workspace.fs.readDirectory(dirUri);
-    entries = [...entries].sort((a, b) => a[0].localeCompare(b[0]));
-    
-    // Process files and directories separately to maintain tree format and consistency
-    const dirs = entries.filter(([_, type]) => type === vscode.FileType.Directory);
-    const files = entries.filter(([_, type]) => type === vscode.FileType.File);
-    entries = [...dirs, ...files];
+    entries.sort((a, b) => {
+      if (a[1] === vscode.FileType.Directory && b[1] !== vscode.FileType.Directory) return -1;
+      if (a[1] !== vscode.FileType.Directory && b[1] === vscode.FileType.Directory) return 1;
+      return a[0].localeCompare(b[0]);
+    });
 
-    // Track the last unfiltered entry for correct last-item markers
-    let lastUnfilteredIndex = -1;
-    for (let i = entries.length - 1; i >= 0; i--) {
-      const [name, type] = entries[i];
+    const filteredEntries = [];
+    for (const [name, type] of entries) {
       const entryUri = vscode.Uri.joinPath(dirUri, name);
-      const relativePath = path.relative(baseUri.fsPath, entryUri.fsPath).replace(/\\\\/g, '/');
-      const ignoreInfo = getPathIgnoreInfo(relativePath, name, (type === vscode.FileType.Directory), gitignoreFilter, IGNORE_PATTERNS_DEFAULT);
+      const relativePathForIgnoreCheck = path.relative(baseUri.fsPath, entryUri.fsPath).replace(/\\/g, '/');
+      const ignoreInfo = getPathIgnoreInfo(relativePathForIgnoreCheck, name, (type === vscode.FileType.Directory), gitignoreFilter, IGNORE_PATTERNS_DEFAULT);
+
       if (!ignoreInfo.ignored) {
-        lastUnfilteredIndex = i;
-        break;
+        filteredEntries.push([name, type, entryUri] as [string, vscode.FileType, vscode.Uri]);
       }
     }
 
-    for (let i = 0; i < entries.length; i++) {
-      const [name, type] = entries[i];
-      const entryUri = vscode.Uri.joinPath(dirUri, name);
-      const relativePath = path.relative(baseUri.fsPath, entryUri.fsPath).replace(/\\\\/g, '/');
-
-      const ignoreInfo = getPathIgnoreInfo(relativePath, name, (type === vscode.FileType.Directory), gitignoreFilter, IGNORE_PATTERNS_DEFAULT);
-      if (ignoreInfo.ignored) {
-        continue;
-      }
-
-      const isLast = (i === lastUnfilteredIndex);
+    for (let i = 0; i < filteredEntries.length; i++) {
+      const [name, type, entryUri] = filteredEntries[i];
+      const isLast = (i === filteredEntries.length - 1);
       const newPrefix = prefix + (isLast ? '    ' : '│   ');
       const linePrefix = prefix + (isLast ? '└── ' : '├── ');
-
       treeString += `${linePrefix}${name}\n`;
 
       if (type === vscode.FileType.Directory) {
         const subdirContent = await generateFileTreeTextInternal(entryUri, baseUri, newPrefix, gitignoreFilter);
-        if (subdirContent) {
+        if (subdirContent) { // Only add if there's content (avoids empty prefixes for fully ignored subdirs)
           treeString += subdirContent;
         }
       }
     }
   } catch (error: any) {
     if (error.code === 'FileNotFound') {
-      throw error; // Re-throw FileNotFound to preserve it
+      console.warn(`[ContextWeaver FileSystemService] Directory not found during tree generation: ${dirUri.fsPath}`);
+      return ''; // Return empty string if directory not found, prevents error propagation
     }
     console.error(`[ContextWeaver FileSystemService] Error reading directory ${dirUri.fsPath}: ${error.message}`);
-    treeString += `${prefix}\u2514\u2500\u2500 Error reading directory: ${path.basename(dirUri.fsPath)}\\n`; // Return error in tree structure
+    // Avoid adding error to tree string here, let higher level handle overall error
+    throw error; // Re-throw to be caught by the caller of getFileTree
   }
   return treeString;
 }
 
 /**
- * @description Reads and provides the full UTF-8 text content of any specified file.
- * Assumes workspace is trusted.
- * @param {vscode.Uri} fileUri - The URI of the file to read.
- * @returns {Promise<string | null>} The file content as a string, null if binary, or an error string.
+ * @interface FileData
+ * @description Structure for holding file content and metadata.
  */
-export async function getFileContent(fileUri: vscode.Uri): Promise<string | null> {
-  // Trust is pre-checked by the caller (ipcServer)
-  try {
-    const fileData = await vscode.workspace.fs.readFile(fileUri);
-    const decoder = new TextDecoder('utf-8', { fatal: true }); // fatal: true will throw on invalid UTF-8
-    try {
-      const content = decoder.decode(fileData);
-      // A more robust binary check might be needed, but this heuristic can catch some common cases.
-      // Checking for multiple null bytes is a common heuristic.
-      // Corrected check for actual null character and Unicode replacement character
-      if (content.includes('\0\0\0') || content.includes('\uFFFD')) {
-        console.log(`[ContextWeaver FileSystemService] Skipping binary file (heuristic or decode error): ${fileUri.fsPath}`);
-        return null;
-      }
-      return content;
-    } catch (decodeError: any) { // Catch decoding errors specifically
-      console.log(`[ContextWeaver FileSystemService] Skipping binary file (decode error for ${fileUri.fsPath}): ${decodeError.message}`);
-      return null;
-    }
-  } catch (error: any) {
-    console.error(`[ContextWeaver FileSystemService] Error reading file ${fileUri.fsPath}: ${error.message}`);
-    // Return an error string that can be identified by the caller
-    return `Error: Reading file ${fileUri.fsPath} failed: ${error.message}`;
-  }
+interface FileData {
+  fullPath: string;
+  content: string;
+  languageId: string;
 }
 
 /**
- * @description Reads and concatenates the content of all text files within a specified folder (and its subfolders).\n * Assumes workspaceFolder is valid and trusted.
- * @param {vscode.Uri} folderUri - The URI of the folder.
- * @param {vscode.WorkspaceFolder} workspaceFolder - The workspace folder containing the target folder.
- * @returns {Promise<{ tree: string, filterTypeApplied: 'gitignore' | 'default' } | string>} Object with data or error string.
+ * @description Determines the language ID for a given file URI.
+ * @param {vscode.Uri} fileUri - The URI of the file.
+ * @returns {Promise<string>} The language ID (e.g., 'typescript', 'python'). Defaults to 'plaintext'.
  */
-export async function getFolderContents(
+async function getLanguageId(fileUri: vscode.Uri): Promise<string> {
+  try {
+    // This is a more robust way if a document is open, but for general fs access,
+    // we might need to rely on extensions or a mapping.
+    // For simplicity, let's use a basic extension-to-languageId map.
+    const extension = path.extname(fileUri.fsPath).toLowerCase();
+    // This map should be expanded as needed.
+    // Consider using vscode.languages.getLanguages() and then trying to find a match,
+    // or a more comprehensive mime-type library if available in VSCE context.
+    const langMap: { [key: string]: string } = {
+      '.ts': 'typescript', '.js': 'javascript', '.json': 'json', '.py': 'python',
+      '.java': 'java', '.c': 'c', '.cpp': 'cpp', '.cs': 'csharp', '.go': 'go',
+      '.html': 'html', '.css': 'css', '.scss': 'scss', '.less': 'less', '.xml': 'xml',
+      '.yaml': 'yaml', '.yml': 'yaml', '.md': 'markdown', '.rb': 'ruby', '.php': 'php',
+      '.rs': 'rust', '.swift': 'swift', '.kt': 'kotlin', '.scala': 'scala',
+      '.sh': 'shellscript', '.ps1': 'powershell', '.bat': 'bat',
+    };
+    return langMap[extension] || 'plaintext';
+  } catch (e) {
+    console.warn(`[ContextWeaver FileSystemService] Could not determine language for ${fileUri.fsPath}, defaulting to plaintext. Error: ${e}`);
+    return 'plaintext';
+  }
+}
+
+
+/**
+ * @description Reads the content and determines language ID of a file.
+ * @param {vscode.Uri} fileUri - The URI of the file to read.
+ * @returns {Promise<FileData | null>} Object with fullPath, content, and languageId, or null if binary/error.
+ * @sideeffect Reads from the file system.
+ */
+export async function getFileContentWithLanguageId(fileUri: vscode.Uri): Promise<FileData | null> {
+  try {
+    const fileData = await vscode.workspace.fs.readFile(fileUri);
+    // Basic binary check (presence of null byte)
+    const sample = fileData.slice(0, 1024);
+    if (sample.includes(0)) {
+      console.log(`[ContextWeaver FileSystemService] Skipping binary file (null byte detected): ${fileUri.fsPath}`);
+      return null;
+    }
+
+    const decoder = new TextDecoder('utf-8', { fatal: true }); // fatal:true throws on invalid UTF-8
+    let content: string;
+    try {
+      content = decoder.decode(fileData);
+      // Check for replacement character U+FFFD, which indicates decoding issues with non-UTF8 files
+      if (content.includes('\\uFFFD')) {
+        console.log(`[ContextWeaver FileSystemService] Skipping file with decoding errors (likely not UTF-8, or binary): ${fileUri.fsPath}`);
+        return null;
+      }
+    } catch (decodeError: any) {
+      console.log(`[ContextWeaver FileSystemService] Skipping binary file (decode error for ${fileUri.fsPath}): ${decodeError.message}`);
+      return null;
+    }
+
+    const languageId = await getLanguageId(fileUri);
+    const fullPath = fileUri.fsPath.replace(/\\/g, '/'); // Normalize path separators
+
+    return {
+      fullPath,
+      content,
+      languageId,
+    };
+  } catch (error: any) {
+    // Handle file not found or other read errors specifically if needed
+    if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
+      console.warn(`[ContextWeaver FileSystemService] File not found: ${fileUri.fsPath}`);
+    } else {
+      console.error(`[ContextWeaver FileSystemService] Error reading file ${fileUri.fsPath}: ${error.message}`);
+    }
+    return null; // Return null for any error to allow skipping the file
+  }
+}
+
+
+/**
+ * @description Retrieves structured data for all text files within a specified folder (and its subfolders)
+ *              for IPC, to be formatted by the CE according to SRS 3.3.2.
+ * @param {vscode.Uri} folderUri - The URI of the folder whose contents are to be read. This is the base for fullPath.
+ * @param {vscode.WorkspaceFolder} workspaceFolder - The workspace folder (used for .gitignore parsing from workspace root).
+ * @returns {Promise<{ filesData: FileData[], filterTypeApplied: 'gitignore' | 'default' } | string>} Object with filesData array or error string.
+ */
+export async function getFolderContentsForIPC(
   folderUri: vscode.Uri,
   workspaceFolder: vscode.WorkspaceFolder
-): Promise<{ tree: string, filterTypeApplied: 'gitignore' | 'default' } | string> {
-  // Trust and existence of workspaceFolder is pre-checked by the caller (ipcServer)
-  let concatenatedContent = '';
+): Promise<{ filesData: FileData[], filterTypeApplied: 'gitignore' | 'default' } | string> {
+
+  const filesData: FileData[] = [];
   const gitignoreFilter = await parseGitignore(workspaceFolder);
-  let filterTypeApplied: 'gitignore' | 'default' = gitignoreFilter ? 'gitignore' : 'default';
+  const actualFilterType = gitignoreFilter !== null ? 'gitignore' : 'default';
 
   async function traverseAndProcess(currentUri: vscode.Uri): Promise<void> {
     let entries: [string, vscode.FileType][];
-    
     try {
       entries = await vscode.workspace.fs.readDirectory(currentUri);
     } catch (error: any) {
-      if (error.code === 'FileNotFound') {
-        throw error; // Re-throw to preserve FileNotFound error type
-      }
-      console.error(`[ContextWeaver FileSystemService] Error reading directory ${currentUri.fsPath} for getFolderContents: ${error.message}`);
-      concatenatedContent += `Error reading directory ${path.basename(currentUri.fsPath)}: ${error.message}\n\n`;
-      return; // Skip this directory but continue with others
+      if (error.code === 'FileNotFound') { throw error; } // Let the top level catch this
+      const errorDisplayPath = path.relative(folderUri.fsPath, currentUri.fsPath).replace(/\\/g, '/') || '.';
+      console.error(`[ContextWeaver FileSystemService] Error reading directory ${currentUri.fsPath} for getFolderContentsForIPC: ${error.message}`);
+      // Optionally, could add an error marker to filesData if needed, but SRS implies skipping.
+      return;
     }
 
-    entries = [...entries].sort((a, b) => a[0].localeCompare(b[0]));
+    entries.sort((a, b) => { // Sort to ensure consistent order
+      if (a[1] === vscode.FileType.Directory && b[1] !== vscode.FileType.Directory) return -1;
+      if (a[1] !== vscode.FileType.Directory && b[1] === vscode.FileType.Directory) return 1;
+      return a[0].localeCompare(b[0]);
+    });
 
-    // Process files and directories separately to maintain content order
-    const files = entries.filter(([_, type]) => type === vscode.FileType.File);
-    const dirs = entries.filter(([_, type]) => type === vscode.FileType.Directory);
-
-    // Process files for content first
-    for (const [name, type] of files) {
+    for (const [name, type] of entries) {
       const entryUri = vscode.Uri.joinPath(currentUri, name);
-      const relativeEntryPath = path.relative(workspaceFolder.uri.fsPath, entryUri.fsPath).replace(/\\\\/g, '/');
+      const relativePathForIgnoreCheck = path.relative(workspaceFolder.uri.fsPath, entryUri.fsPath).replace(/\\/g, '/');
+      const isDirectory = type === vscode.FileType.Directory;
+      const ignoreInfo = getPathIgnoreInfo(relativePathForIgnoreCheck, name, isDirectory, gitignoreFilter, IGNORE_PATTERNS_DEFAULT);
 
-      const ignoreInfo = getPathIgnoreInfo(relativeEntryPath, name, false, gitignoreFilter, IGNORE_PATTERNS_DEFAULT);
-      if (ignoreInfo.ignored) {
-        continue;
-      }
+      if (ignoreInfo.ignored) continue;
 
-      if (name === '.gitignore') {
-        console.log(`[ContextWeaver FileSystemService] Skipping content of .gitignore file: ${relativeEntryPath}`);
-      } else {
-        const fileContent = await getFileContent(entryUri);
-        if (fileContent && !fileContent.startsWith('Error:')) {
-          let langId = 'text';
-          const ext = path.extname(name);
-          if (ext) {
-            const langMap: { [key: string]: string } = {
-              '.js': 'javascript', '.ts': 'typescript', '.py': 'python', '.java': 'java', '.c': 'c', '.cpp': 'cpp', '.cs': 'csharp',
-              '.go': 'go', '.rb': 'ruby', '.php': 'php', '.html': 'html', '.css': 'css', '.json': 'json', '.xml': 'xml', '.md': 'markdown'
-            };
-            langId = langMap[ext.toLowerCase()] || 'text';
-          }
-          concatenatedContent += `file: ${relativeEntryPath}\n\`\`\`${langId}\n${fileContent}\n\`\`\`\n\n`;
-        } else if (fileContent === null) {
-          // Binary file, already logged by getFileContent
-        } else {
-          // Error reading file, log it or append error message to concatenatedContent
-          console.warn(`[ContextWeaver FileSystemService] Skipping content of ${relativeEntryPath} due to read error: ${fileContent}`);
-        }
-      }
-    }
-
-    // Then process directories for recursive content
-    for (const [name, type] of dirs) {
-      const entryUri = vscode.Uri.joinPath(currentUri, name);
-      const relativeEntryPath = path.relative(workspaceFolder.uri.fsPath, entryUri.fsPath).replace(/\\\\/g, '/');
-      
-      const ignoreInfo = getPathIgnoreInfo(relativeEntryPath, name, true, gitignoreFilter, IGNORE_PATTERNS_DEFAULT);
-      if (!ignoreInfo.ignored) {
+      if (isDirectory) {
         await traverseAndProcess(entryUri);
+      } else if (type === vscode.FileType.File) {
+        if (name === '.gitignore') continue; // Skip .gitignore content itself
+
+        const fileDetail = await getFileContentWithLanguageId(entryUri);
+        if (fileDetail) {
+          filesData.push(fileDetail);
+        } else {
+          // Binary file or read error, already logged by getFileContentWithLanguageId
+          console.log(`[ContextWeaver FileSystemService] File ${entryUri.fsPath} skipped (binary or read error).`);
+        }
       }
     }
   }
 
   try {
-    try {
-      await traverseAndProcess(folderUri);
-      let fileTree = await generateFileTreeTextInternal(folderUri, workspaceFolder.uri, '', gitignoreFilter);
-      fileTree = fileTree.trim();
-      concatenatedContent = concatenatedContent.trim();
-
-      return {
-        tree: fileTree,
-        filterTypeApplied
-      };
-    } catch (error: any) {
-      if (error.code === 'FileNotFound') {
-        throw error; // Re-throw to preserve FileNotFound error type
-      }
-      // Otherwise try to return the tree with error nodes and any partial content
-      let fileTree = `└── Error reading directory: ${path.basename(folderUri.fsPath)}\n`;
-      fileTree = fileTree.trim();
-      concatenatedContent = concatenatedContent.trim();
-
-      return {
-        tree: fileTree,
-        filterTypeApplied
-      };
-    }
+    await traverseAndProcess(folderUri);
+    return { filesData, filterTypeApplied: actualFilterType };
   } catch (error: any) {
-    // Only convert to error string for non-existent target folder
+    console.error(`[ContextWeaver FileSystemService] Error in getFolderContentsForIPC for ${folderUri.fsPath}: ${error.message}`);
     return `Error getting contents for folder ${folderUri.fsPath}: ${error.message}`;
   }
 }
 
-/**
- * @description Reads and concatenates the content of all text files within a specified workspace folder.
- * Assumes workspaceFolder is valid and trusted.
- * @param {vscode.WorkspaceFolder} workspaceFolder - The workspace folder to process.
- * @returns {Promise<{ tree: string, workspaceName: string, filterTypeApplied: 'gitignore' | 'default' } | string>} Object with data or error string.
- */
-export async function getWorkspaceCodebaseContents(
-  workspaceFolder: vscode.WorkspaceFolder // Changed to accept WorkspaceFolder directly
-): Promise<{ tree: string, workspaceName: string, filterTypeApplied: 'gitignore' | 'default' } | string> {
-  const result = await getFolderContents(workspaceFolder.uri, workspaceFolder);
 
-  if (typeof result === 'string') {
-    return result;
+/**
+ * @description Prepares data for the 'entire codebase' to be sent to CE.
+ *              This involves getting all file contents and the file tree.
+ * @param {vscode.WorkspaceFolder} workspaceFolder - The workspace folder to process.
+ * @returns {Promise<{ filesData: FileData[], fileTreeString: string, workspaceName: string, filterTypeApplied: 'gitignore' | 'default', projectPath: string } | string>} Object with data or error string.
+ */
+export async function getWorkspaceDataForIPC(
+  workspaceFolder: vscode.WorkspaceFolder
+): Promise<{ filesData: FileData[], fileTreeString: string, workspaceName: string, filterTypeApplied: 'gitignore' | 'default', projectPath: string } | string> {
+
+  const folderContentResult = await getFolderContentsForIPC(workspaceFolder.uri, workspaceFolder);
+  if (typeof folderContentResult === 'string') { // Error occurred
+    return folderContentResult;
   }
 
+  const fileTreeResult = await getFileTree(workspaceFolder);
+  if (typeof fileTreeResult === 'string') { // Error occurred
+    return `Error generating file tree for workspace ${workspaceFolder.name}: ${fileTreeResult}`;
+  }
+
+  const projectPath = workspaceFolder.uri.fsPath.replace(/\\/g, '/');
+
   return {
-    tree: result.tree,
+    filesData: folderContentResult.filesData,
+    fileTreeString: fileTreeResult.tree, // This is already wrapped in <file_tree>
     workspaceName: workspaceFolder.name,
-    filterTypeApplied: result.filterTypeApplied
+    filterTypeApplied: folderContentResult.filterTypeApplied,
+    projectPath: projectPath
   };
 }

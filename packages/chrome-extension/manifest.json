@@ -8,7 +8,24 @@
     "activeTab",
     "notifications"
   ],
-  "host_permissions": [],
+  "host_permissions": [
+    "*://gemini.google.com/*",
+    "*://chatgpt.com/*",
+    "*://claude.ai/*",
+    "*://chat.deepseek.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "*://gemini.google.com/*",
+        "*://chatgpt.com/*",
+        "*://claude.ai/*",
+        "*://chat.deepseek.com/*"
+      ],
+      "js": ["dist/contentScript.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "background": {
     "service_worker": "dist/serviceWorker.js"
   },

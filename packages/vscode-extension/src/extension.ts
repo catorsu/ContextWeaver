@@ -77,7 +77,18 @@ export function activate(context: vscode.ExtensionContext) {
     const port = configuration.get('ipc.port', 30001);
 
     ipcServer = new IPCServer(port, context, outputChannel, searchService, workspaceService); // Pass workspaceService
+
+    // --- ADDED LOGGING ---
+    console.log(LOG_PREFIX + 'IPCServer instance created. Attempting to start...');
+    outputChannel.appendLine(LOG_PREFIX + 'IPCServer instance created. Attempting to start...');
+    // --- END ADDED LOGGING ---
+
     ipcServer.start();
+
+    // --- ADDED LOGGING ---
+    console.log(LOG_PREFIX + 'ipcServer.start() called.');
+    outputChannel.appendLine(LOG_PREFIX + 'ipcServer.start() called.');
+    // --- END ADDED LOGGING ---
 
     snippetService = new SnippetService(outputChannel);
 

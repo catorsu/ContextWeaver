@@ -151,6 +151,7 @@ Requests a search for files and folders within the workspace.
 ---
 
 #### 3.1.9. `check_workspace_trust`
+**[DEPRECATED]** Use `get_workspace_details` (3.1.11) instead.
 Requests the trust state of the current VS Code workspace(s).
 
 *   **`type`**: `"request"`
@@ -216,7 +217,7 @@ Response to `get_file_tree`.
     {
       "success": "boolean",
       "data": { // Present if success is true
-        "fileTree": "string", // ASCII tree representation
+        "fileTreeString": "string", // ASCII tree representation
         "metadata": { // ContextBlockMetadata object
           "unique_block_id": "string",
           "content_source_id": "string", // e.g., "workspace_uri::file_tree"
@@ -244,7 +245,11 @@ Response to `get_file_content`.
     {
       "success": "boolean",
       "data": { // Present if success is true
-        "content": "string", // File content
+        "fileData": { // Object containing file details
+          "fullPath": "string", // Normalized, absolute path to the file
+          "content": "string", // File content
+          "languageId": "string" // Language ID of the file
+        },
         "metadata": { // ContextBlockMetadata object
           "unique_block_id": "string",
           "content_source_id": "string", // Normalized file URI/path
@@ -255,8 +260,8 @@ Response to `get_file_content`.
         }
       } | null,
       "error": "string | null", // Present if success is false
-      "filePath": "string", // Original requested file path
-      "filterType": "'gitignore' | 'default' | 'none' | 'not_applicable'" // e.g. 'not_applicable' if file is outside filtered scope or binary
+      "filePath": "string", // Original requested file path (echoed back)
+      "filterType": "'gitignore' | 'default' | 'none' | 'not_applicable'"
     }
     ```
 
@@ -272,7 +277,14 @@ Response to `get_folder_content`.
     {
       "success": "boolean",
       "data": { // Present if success is true
-        "content": "string", // Concatenated content of files in folder
+        "filesData": [ // Array of FileData objects
+          {
+            "fullPath": "string",
+            "content": "string",
+            "languageId": "string"
+          }
+          // ... more files
+        ],
         "metadata": { // ContextBlockMetadata object
           "unique_block_id": "string",
           "content_source_id": "string", // Normalized folder URI/path
@@ -300,8 +312,15 @@ Response to `get_entire_codebase`.
     {
       "success": "boolean",
       "data": { // Present if success is true
-        "fileTree": "string", // Textual representation of the file tree for the specified workspace folder
-        "concatenatedContent": "string", // Concatenated content of all files in the specified workspace folder
+        "filesData": [ // Array of FileData objects for all files in the workspace
+          {
+            "fullPath": "string",
+            "content": "string",
+            "languageId": "string"
+          }
+          // ... more files
+        ],
+        // "fileTreeString": "string", // Optional: Textual representation of the file tree. Currently not sent by default.
         "metadata": { // ContextBlockMetadata object
           "unique_block_id": "string",
           "content_source_id": "string", // e.g., "uri_of_specified_workspace_folder::codebase"
@@ -313,7 +332,7 @@ Response to `get_entire_codebase`.
       } | null,
       "error": "string | null", // Present if success is false
       "workspaceFolderUri": "string | null",
-      "filterType": "'gitignore' | 'default' | 'none'" // For V1 of get_entire_codebase, this will be 'default' as full .gitignore parsing for this command is deferred.
+      "filterType": "'gitignore' | 'default' | 'none'" // Indicates the filter type applied during content collection.
     }
     ```
 
@@ -328,9 +347,9 @@ Response to `get_active_file_info`.
     ```json
     {
       "success": "boolean",
-      "data": { // Present if success is true
-        "activeFilePath": "string", // Normalized path of the active file
-        "activeFileLabel": "string", // Filename for label
+      "data": {
+        "activeFilePath": "string",
+        "activeFileLabel": "string", 
         "workspaceFolderUri": "string | null",
         "workspaceFolderName": "string | null"
       } | null,
@@ -396,6 +415,7 @@ Response to `search_workspace`.
 ---
 
 #### 3.2.9. `response_workspace_trust`
+**[DEPRECATED]** See `response_workspace_details` (3.2.11).
 Response to `check_workspace_trust`.
 
 *   **`type`**: `"response"`
@@ -499,6 +519,7 @@ VSCE pushes a selected code snippet to the CE.
       "snippet": "string", // The code snippet text
       "language": "string", // Language ID (e.g., "python", "javascript")
       "filePath": "string", // Normalized path of the source file
+      "relativeFilePath": "string", // Path relative to workspace folder
       "startLine": "number",
       "endLine": "number",
       "metadata": { // ContextBlockMetadata object
@@ -585,9 +606,13 @@ This object is included in VSCE responses when providing data that will be inser
 *   `WORKSPACE_FOLDER_NOT_FOUND`: A specified `workspaceFolderUri` does not match any open workspace folder.
 *   `AMBIGUOUS_WORKSPACE`: An operation requires a single workspace folder context (e.g., via `workspaceFolderUri` in payload), but multiple folders are open and no specific one was provided.
 *   `FILE_TREE_GENERATION_FAILED`: Error during file tree generation.
-*   `FILE_CONTENT_ERROR`: Error reading specific file content.
-*   `FOLDER_CONTENT_ERROR`: Error reading content of a folder.
-*   `CODEBASE_CONTENT_ERROR`: Error reading content for the entire codebase.
+*   `FILE_CONTENT_ERROR`: General error reading specific file content.
+*   `FILE_BINARY_OR_READ_ERROR`: File is binary or could not be read (specific file content error).
+*   `FOLDER_CONTENT_ERROR`: General error reading content of a folder.
+*   `FOLDER_CONTENT_UNEXPECTED_ERROR`: Unexpected error during folder content retrieval.
+*   `CODEBASE_CONTENT_ERROR`: General error reading content for the entire codebase.
+*   `CODEBASE_CONTENT_UNEXPECTED_ERROR`: Unexpected error during entire codebase retrieval.
+*   `INVALID_URI`: A provided string could not be parsed as a valid URI.
 *   `SEARCH_ERROR`: Error during a workspace search operation.
 *   `INVALID_PATH`: A provided path (e.g. folder path for `get_folder_content`) is invalid or not within the specified workspace.
 

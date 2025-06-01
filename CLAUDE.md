@@ -1,143 +1,235 @@
 # System Guidance: Claude Code (claude.ai/code)
 
-**Objective:** Assist with code in this repository.
-**Environment:** WSL (Ubuntu), accessing project files on Windows filesystem.
-**Primary Task:** Fix project bugs.
-**CRITICAL PRE-FIX STEP:** ALWAYS consult `docs/TROUBLESHOOTING_AND_LESSONS_LEARNED.md` for past issues/solutions BEFORE proposing fixes.
+**Objective:** Implement code changes per provided instructions, test, iterate, and document troubleshooting lessons.
+
+**Core Directives:**
+*   **MANDATORY: Think Step-by-Step.** Explain reasoning thoroughly before/during each action.
+*   **Instruction Adherence:** Strictly follow the "Implementation Plan" you receive.
+*   **Clarification Protocol:** If the Implementation Plan is unclear or contradictory, **MUST** state this. Request clarification *before* implementing.
+*   **Iterative Refinement:** Implement, report changes, await feedback. Repeat until functional correctness is confirmed.
 
 ## Project Overview
-- **Name:** ContextWeaver
 - **Type:** Monorepo: VS Code Extension (VSCE) & Chrome Extension (CE).
 - **Purpose:** Enable users to gather VS Code workspace context for LLM use in Chrome browser.
-- **Structure:**
-    - `packages/vscode-extension`: VSCE source code.
-    - `packages/chrome-extension`: CE source code.
-    - `packages/shared`: Shared code (likely IPC type definitions).
-    - `docs/`: All project documentation.
 - **Technology:** TypeScript, Node.js (VSCE), Web APIs (CE), WebSockets (IPC).
 
-## Key Files & Documentation
-**MANDATORY: Consult these documents for context when fixing bugs or implementing changes. Paths are relative to project root.**
-- `docs/Software_Requirements_Specification.md` (SRS): Features and requirements.
-- `docs/Development_Plan.md`: Tasks and phases.
-- `docs/ARCHITECTURE.MD`: System architecture.
-- `docs/IPC_Protocol_Design.md`: VSCE-CE communication details. **CRUCIAL for IPC bugs.**
-- `docs/TROUBLESHOOTING_AND_LESSONS_LEARNED.md`: **MUST REVIEW for past issues/solutions BEFORE proposing fixes. Critical for debugging.**
-- `README.md` (project root): General project info.
+The project is organized within the following file structure:
+```
+ContextWeaver/
+├── docs/                      # Project Documentation
+│   ├── ARCHITECTURE.MD
+│   ├── Development_Plan.md
+│   ├── IPC_Protocol_Design.md # Details VSCE-CE communication
+│   ├── Software_Requirements_Specification.md # (SRS)
+│   └── TROUBLESHOOTING_AND_LESSONS_LEARNED.md
+├── packages/
+│   ├── vscode-extension/      # VS Code Extension (VSCE)
+│   │   ├── src/               # Core VSCE Source Files
+│   │   │   ├── extension.ts   #   - Main entry point
+│   │   │   ├── fileSystemService.ts # - File system operations
+│   │   │   ├── ipcServer.ts   #   - IPC logic & WebSocket server
+│   │   │   ├── searchService.ts #   - Workspace search functionality
+│   │   │   ├── snippetService.ts #  - Code snippet preparation
+│   │   │   └── workspaceService.ts # - VS Code workspace interaction
+│   │   ├── tests/             #   - VSCE tests
+│   │   │   └── unit/
+│   │   ├── .eslintrc.json
+│   │   ├── jest.config.js
+│   │   ├── package.json
+│   │   └── tsconfig.json
+│   ├── chrome-extension/      # Chrome Extension (CE)
+│   │   ├── src/               # Core CE Source Files
+│   │   │   ├── contentScript.ts # - Interacts with LLM pages, UI trigger
+│   │   │   ├── options.ts     #   - Settings page logic
+│   │   │   ├── popup.ts       #   - Browser action popup logic
+│   │   │   └── serviceWorker.ts # - Background tasks, IPC client
+│   │   ├── images/
+│   │   ├── .eslintrc.json
+│   │   ├── manifest.json
+│   │   ├── package.json
+│   │   ├── tsconfig.json
+│   │   ├── popup.html
+│   │   └── options.html
+│   └── shared/                # Shared Code (e.g., IPC types)
+│       ├── src/
+│       ├── dist/
+│       ├── package.json
+│       └── tsconfig.json
+├── .gitignore
+├── package.json               # Root NPM manifest
+└── README.md                  # General Project Information
+```
 
-**Core VSCE Files (`packages/vscode-extension/src/`):**
-- `extension.ts`: VSCE main entry point.
-- `ipcServer.ts`: WebSocket server & IPC logic management.
-- `fileSystemService.ts`: File system operations handling.
-- `searchService.ts`: Workspace search implementation.
-- `workspaceService.ts`: VS Code workspace interaction management (trust, folders).
-- `snippetService.ts`: Code snippet preparation.
-
-**Core CE Files (`packages/chrome-extension/src/`):**
-- `serviceWorker.ts`: Background logic, IPC client.
-- `options.ts`: Settings page logic.
-- `popup.ts`: Browser action popup logic.
-- `manifest.json` (`packages/chrome-extension/`): CE manifest.
 
 ## Bash Commands
-**Instruction:** Navigate to correct package directory first (e.g., `cd packages/vscode-extension`). All commands are Linux-style.
+**Instruction:** Navigate to correct package directory first (e.g., `cd packages/vscode-extension`).
 
 **VSCE (`packages/vscode-extension/`):**
 ```bash
-npm run compile      # TypeScript compilation
-npm run watch        # Watch mode compilation
-npm run lint         # Run ESLint
-npm run test         # Run Jest tests
-npm run test:watch   # Jest watch mode
+npm run compile
+npm run watch
+npm run lint
+npm run test
+npm run test:watch
 ```
 
 **CE (`packages/chrome-extension/`):**
 ```bash
-npm run build        # Compile and bundle
-npm run compile      # TypeScript compilation
-npm run watch        # Watch mode
-npm run lint         # Run ESLint
+npm run build
+npm run compile
+npm run watch
+npm run lint
 ```
 
-## Code Style
-- **Language:** TypeScript.
-- **ESLint:** MUST adhere to project ESLint rules (`.eslintrc.json` in each package).
-    - Key rules: semicolons always; single quotes.
-- **Coding/Commenting Standards:** **MANDATORY:** Follow detailed standards in user's system prompt (`<CodeCommentGuide>`) (emphasizes docstrings, JSDoc, inline comments, type hints, clear styling).
-- **Architecture:** Refer to `<DevelopmentBestPracticesGuide>` for architectural principles.
+## Implementation & Coding Standards
 
-## Workflow & Bug Fixing
-- **Primary Goal:** Identify and fix bugs.
-- **MANDATORY: Think step-by-step. Explain reasoning thoroughly before and during each action.**
+### 1. General Principles
+*   **Single Responsibility Principle (SRP):** Ensure your functions/modules have one primary reason to change.
+*   **Don't Repeat Yourself (DRY):** Abstract common logic.
+*   **KISS (Keep It Simple, Stupid):** Prioritize straightforward solutions.
+*   **YAGNI (You Aren't Gonna Need It):** Implement only what the current Implementation Plan specifies.
+*   **Meaningful Names:** Use clear, descriptive names for variables, functions, classes.
+*   **Small, Focused Functions/Modules:** Each function does one thing well.
+*   **Clear Control Flow:** Avoid overly complex/nested logic.
 
-- **Iterative Process:**
-    1.  **Understand Bug & Gather Context:**
-        1.1. Review user's bug description.
-        1.2. **CRITICAL:** Consult `docs/TROUBLESHOOTING_AND_LESSONS_LEARNED.md` for past issues/solutions.
-        1.3. Examine relevant codebase (VSCE/CE `src/`) for current implementation and potential bug location.
-        1.4. If bug relates to requirements, architecture, or IPC: Review `docs/Software_Requirements_Specification.md`, `docs/ARCHITECTURE.MD`, `docs/IPC_Protocol_Design.md`.
-        1.5. **Clarify Ambiguities:** If bug description, user intent, docs (incl. `TROUBLESHOOTING_AND_LESSONS_LEARNED.md`), or codebase are unclear/conflicting/incomplete:
-            *   **DO NOT GUESS.** Do not make assumptions.
-            *   Ask user specific questions for clarification (issue, details, code/doc explanation).
-            *   Await user feedback before proceeding.
-    2.  **Analyze and Plan Solution:**
-        2.1. Analyze bug's root cause using gathered context and user clarifications.
-        2.2. Outline step-by-step fix plan. Explain reasoning.
-        2.3. **Handle API/Implementation Uncertainty:** If uncertain about usage/parameters/strategy for VS Code/Chrome APIs, project utilities, or complex logic:
-            *   **DO NOT GUESS.** Do not integrate uncertain code.
-            *   State specific API/function/logic and your uncertainty.
-            *   Ask user for clarification, examples, API docs, or preferred approach.
-            *   Await user feedback before implementing.
-    3.  **Implement Fix:**
-        3.1. Implement fix once plan is clear and all ambiguities/uncertainties are resolved via user feedback.
-    4.  **Run Automated Tests (if applicable):**
-        4.1. If VSCE code (`packages/vscode-extension/src/`) modified: **MUST** `cd packages/vscode-extension/` (WSL) and run `npm run test`.
-        4.2. Analyze test output. If VSCE tests fail: **MUST** debug, revise fix, re-implement, re-run until all pass. Report results (pass/fail, errors). **DO NOT proceed if tests fail.**
-        4.3. If bug/fix relates to CE: Run available CE command-line tests. If none, state CE testing is manual.
-    5.  **Guide User Testing (Manual/UI):**
-        5.1. After automated tests pass: Instruct user on specific manual/UI tests (Windows: VS Code, Chrome) to verify fix and check regressions. (For tests you cannot perform: UI, E2E).
-    6.  **Iterate Based on Feedback:**
-        6.1. Analyze user's testing feedback.
-        6.2. If bug unresolved or new issues (from automated or manual tests): **MUST** return to Step 1 or 2. Re-evaluate, gather context, ask questions, refine plan, re-implement. **DO NOT proceed if fix unconfirmed.**
-    7.  **Post-Verification Documentation Check:**
-        7.1. After user confirms fix (and automated tests pass): **MUST** consider if documentation needs updates due to the fix. Check:
-            *   `README.md` (user-facing behavior, setup, usage changes).
-            *   `docs/ARCHITECTURE.MD` (architectural implications).
-            *   `docs/IPC_Protocol_Design.md` (IPC impact).
-            *   `docs/Software_Requirements_Specification.md` (requirement clarification/alteration).
-            *   **`docs/TROUBLESHOOTING_AND_LESSONS_LEARNED.md`** (significant bug/resolution for future log).
-        7.2. If updates needed: Propose specific changes for relevant document(s).
-        7.3. **Final Work Summary:** After all previous steps (including doc proposals) are complete and user has confirmed the fix: **MUST** provide a final summary. Use first-person ("I"). Report:
-            *   What work was completed.
-            *   Brief explanation of how the problem was solved.
-            *   List of all files modified, using relative paths from project root (e.g., `packages/vscode-extension/src/extension.ts`).
+### 2. Code Commenting Standards
 
-## Testing
-**Testing Responsibilities Overview:**
+**MANDATORY:** Adhere to these standards for all code comments.
 
-**1. Automated Tests (Run by YOU, Claude Code, in WSL):**
-   - **VSCE Unit Tests:**
-     - **Command:** `npm run test` (from `packages/vscode-extension/`).
-     - **Trigger:** After YOU modify any file in `packages/vscode-extension/src/`.
-     - **Your Responsibility:** Per workflow, **MUST** run these tests. **MUST** ensure they pass before requesting user manual testing. Analyze failures; iterate on fixes.
-     - **Location:** `packages/vscode-extension/tests/unit/`.
-   - **CE Command-Line Tests (If any):**
-     - If CE command-line test scripts exist (e.g., for non-UI logic): YOU **MUST** run them if relevant to your changes.
+#### Guiding Principles
+*   Use clear, precise language. Be explicit: intent, params, returns, side effects, UI interactions.
+*   Comments: Explain *why* (design rationale, workflow role), not just *what*.
+*   Docstrings: Meticulously define TypeScript interfaces (APIs, IPC messages).
+*   CE UI: Clearly document local state and `useEffect`-like patterns.
+*   JSDoc: Use specified formats consistently.
+*   **MUST:** Keep comments synchronized with code.
+*   Comments: Complement TypeScript; do not duplicate type definitions.
 
-**2. Manual & Debug Tests (Performed by User in Windows):**
-   - **Manual End-to-End Testing (VSCE & CE):**
-     - **User Responsibility:** Perform after your changes (and after your automated tests pass).
-     - **Your Role:** Provide user clear, specific instructions for testing fix verification and regression checks (especially UI interactions, full E2E flows).
-   - **VSCE Debugging:**
-     - **User Responsibility:** Perform if needed.
-     - **Setup:** User opens `C:\project\ContextWeaver\packages\vscode-extension` in Windows VS Code; presses F5.
+#### General Commenting Rules
+*   Wrap comments/docstrings: 80-100 chars.
+*   Sentences: Complete, capitalized, period-terminated.
+*   **NO COMMENTS** in JSON files.
 
-## Development Environment
-- **Your OS:** WSL (Ubuntu 24.04) on Windows 11.
-- **Project Files Location:** Windows filesystem (e.g., `/mnt/c/project/ContextWeaver`).
-- **User IDE (Dev/Debug):** VS Code (`^1.100.2`) on Windows.
-- **User Browser (CE Test):** Google Chrome (`^137.0.7151.56`) on Windows.
+#### JSDoc Usage (`/** ... */`)
 
-## Important Notes & Known Issues
-- **IPC:** WebSockets on `localhost` (Windows/WSL accessible). Token auth removed. VSCE: port fallback. CE: connects via `127.0.0.1`. Refer to `docs/IPC_Protocol_Design.md`.
-- **Monorepo Context:** **Instruction:** Run package-specific commands (e.g., `npm install`) from within the respective package directory (e.g., `cd packages/vscode-extension` in WSL).
+##### File-Level Comments (Top of each significant `.ts` file)
+*   **Purpose:** Summarize file's role (VSCE/CE).
+*   **Content:**
+    *   `@file FileName.ts`
+    *   `@description Brief purpose summary.`
+    *   `(Optional) Detailed explanation.`
+    *   `@module ContextWeaver/VSCE` or `@module ContextWeaver/CE`
+*   **Example (VSCE - `ipcServer.ts`):**
+    ```typescript
+    /**
+     * @file ipcServer.ts
+     * @description Hosts the WebSocket server for IPC between the VSCE and CE.
+     * Handles incoming requests, authentication, and routes to appropriate service modules.
+     * @module ContextWeaver/VSCE
+     */
+    ```
+
+##### Function and Method Docstrings
+*   **Purpose:** Explain behavior, params, return, side effects.
+*   **Key JSDoc Tags:**
+    *   `@description Detailed explanation.`
+    *   `@param {ParamType} paramName - Description. Optional: `[paramName]`."
+    *   `@returns {ReturnType} - Description. Async: `@returns {Promise<ReturnType>}`."
+    *   `@throws {ErrorType} - Conditions for unhandled errors.`
+    *   `@sideeffect Describe side effects (e.g., WebSocket send, file op, state update).`
+    *   `@example Basic usage snippet.`
+*   **Example (VSCE - `fileService.ts`):**
+    ```typescript
+    /**
+     * @description Reads the content of a specified file, applying .gitignore filtering.
+     * @param {vscode.Uri} fileUri - The URI of the file to read.
+     * @param {Ignore} gitignoreFilter - Pre-compiled gitignore filter instance.
+     * @returns {Promise<string | null>} The file content as a string, or null if filtered or binary.
+     * @sideeffect Reads from the file system.
+     */
+    export async function readFileWithFilter(fileUri: vscode.Uri, gitignoreFilter: Ignore): Promise<string | null> {
+      // ... logic
+    }
+    ```
+
+##### TypeScript Type and Interface Comments
+*   **Purpose:** Explain custom types/interfaces (IPC payloads, complex data).
+*   **Format:** Use `/** ... */` above `type` or `interface`.
+*   **Content:**
+    *   `@interface InterfaceName` or `@typedef {object} TypeName`
+    *   `@description Representation (e.g., 'Payload for X request').`
+    *   Properties: `propertyName: type; // Brief meaning.`
+*   **Example (Shared or CE - `types.ts`):**
+    ```typescript
+    /**
+     * @interface IPCResponseMessage
+     * @description Defines the structure for a generic response message sent from VSCE to CE.
+     */
+    export interface IPCResponseMessage {
+      success: boolean;             // Indicates if the operation was successful
+      data?: any;                   // Payload if successful
+      error?: string;               // Error message if not successful
+      unique_block_id?: string;     // For content blocks, the unique ID for this instance
+      content_source_id?: string;   // For content blocks, the canonical source ID
+      type?: string;                // For content blocks, the type of content
+      label?: string;               // For content blocks, the display label for indicators
+    }
+    ```
+
+##### UI Component/Module Docstrings (CE - for floating UI elements)
+*   **Purpose:** Explain CE UI element: role, params, state, events.
+*   **Key JSDoc Tags:**
+    *   `@description UI element purpose/features.`
+    *   `@param {ParamType} paramName - Config/render params.`
+    *   `@returns {HTMLElement | void}` (or relevant type).
+    *   `@sideeffect DOM modifications, event listener setup.`
+*   **Example (CE - `floatingUi.ts`):**
+    ```typescript
+    /**
+     * @description Creates and displays the main floating UI panel near the target chat input.
+     * @param {HTMLElement} targetInputElement - The LLM chat input element to anchor near.
+     * @returns {void}
+     * @sideeffect Appends the floating UI to the DOM. Sets up event listeners.
+     */
+    export function showFloatingUi(targetInputElement: HTMLElement): void {
+      // ... logic to create and show UI
+    }
+    ```
+
+##### Inline Comments (`//` or `/* ... */`)
+*   **Purpose:**
+    *   Explain complex conditional logic.
+    *   Clarify non-obvious algorithms/business rules.
+    *   Detail specific IPC message handling logic.
+    *   Document workarounds or non-standard solutions.
+    *   `// TODO: Description of pending work.`
+    *   `// FIXME: Description of bug and impact.`
+*   **Example (CE - main content script):**
+    ```typescript
+    // Check if the typed character is the trigger and if UI should be shown
+    if (event.key === '@' && !isUiVisible) {
+      // Further logic to determine context and show UI...
+    }
+    ```
+
+#### Maintenance
+*   **MUST:** Update all related JSDoc/comments when code changes.
+
+### 3. Error Handling
+*   Anticipate potential errors (file ops, API calls, IPC).
+*   Handle errors gracefully per the Implementation Plan.
+
+### 4. Testing (VSCE)
+*   If modifying `packages/vscode-extension/src/`:
+    *   **MUST** ensure `npm run test` is executed.
+    *   **MUST** analyze failures and fix code until all tests pass.
+    *   Report test outcomes.
+
+## Workflow
+
+1.  Ingest the Implementation Blueprint.
+2.  Execute the plan. Adhere to all coding and commenting standards.
+3.  Provide a clear summary of all files created/modified.
+4.  Receive new/revised instructions. Repeat step 2 (Implement) and 3 (Report).
+5.  **MUST** propose a detailed entry for `docs/TROUBLESHOOTING_AND_LESSONS_LEARNED.md`, If a significant, non-trivial problem is encountered and resolved *by you* during implementation/debugging
+6.  Provide final, comprehensive summary of *your code changes*.

@@ -12,7 +12,7 @@ The primary goal of ContextWeaver is to streamline the process of providing rele
 
 *   **FR-VSCE-001:** Open and read files from the active VS Code workspace.
 *   **FR-VSCE-002:** Access and list the file/folder structure of the workspace.
-*   **FR-VSCE-003:** Provide a search functionality for files and symbols within the workspace.
+*   **FR-VSCE-003:** Provide a search functionality for file and folder names within the workspace.
 *   **FR-VSCE-004 & FR-VSCE-007 (Snippet Sending):** Provides a context menu option ("Send Snippet to LLM Context") to capture selected text, its file path, line numbers, and language ID, then send this data to the active Chrome Extension target.
 *   **FR-VSCE-005:** Implement an IPC mechanism (WebSocket server) to communicate with the Chrome Extension, including port fallback if the default is busy.
 *   **FR-VSCE-007:** Handle `.gitignore` specifications to exclude irrelevant files/folders.
@@ -44,9 +44,7 @@ The primary goal of ContextWeaver is to streamline the process of providing rele
 
 ## Setup and Usage
 
-Detailed instructions on how to build, install, and use the extensions, including updated IPC configuration and connection management, will be added here.
-
-Instructions on how to build, install, and use the extensions will be added here.
+Detailed instructions on how to build, install, and use the extensions, including IPC configuration (port setting) and connection management, will be added here.
 
 ## Project Structure
 
