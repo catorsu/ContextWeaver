@@ -84,7 +84,7 @@ Diligent status updates are essential for effective project management.
         *   [√] Implement the content script logic to detect the `@` trigger in designated LLM chat input fields (for FR-CE-001).
         *   [√] Develop the fundamental structure, styling, and basic interactive elements of the floating UI (for FR-CE-002, UI-CE-001).
         *   [√] Implement UI dismissal logic (Escape key, click-outside, post-insertion) (for FR-CE-011).
-    *   [√] **Implementation of Core Actions (Non-Search)**
+    *   [√] **Implementation of Core Actions (Non-Search)** (Relevant files: packages/chrome-extension/src/contentScript.ts, packages/chrome-extension/src/serviceWorker.ts. Note: UI for direct invocation of File Tree / Full Codebase per FR-CE-002 needs review; Active File duplicate check missing.)
         *   [√] Implement the "Insert Project File Directory Structure" option, including IPC request and content insertion (for FR-CE-004).
         *   [√] Implement the "Insert Entire Codebase Content" option (for FR-CE-005).
         *   [√] Implement the "Insert Active File's Content" option (for FR-CE-006).
@@ -96,17 +96,17 @@ Diligent status updates are essential for effective project management.
         *   [√] Implement the "Insert Searched File Content" action (for FR-CE-008). (Relevant files: packages/chrome-extension/src/contentScript.ts)
         *   [√] Implement the hybrid UX for "Insert Searched Folder Content", including the "Browse" functionality with a tree-like view and checkboxes (for FR-CE-009, UI-CE-005). (Relevant files: packages/chrome-extension/src/contentScript.ts, packages/chrome-extension/src/serviceWorker.ts, packages/vscode-extension/src/ipcServer.ts, packages/vscode-extension/src/fileSystemService.ts)
             *   *(This also covers the VSCE mini-task for `list_folder_contents` as it was a dependency for this specific sub-task's full implementation).*
-    *   [ ] **Context Block Indicator Management**
+    *   [√] **Context Block Indicator Management** (Relevant files: packages/chrome-extension/src/contentScript.ts. Note: Indicator for snippets (FR-CE-013) is pending.)
         *   [ ] Implement the dynamic display of context block indicators above the LLM chat input area based on received metadata (for FR-CE-014, UI-CE-006).
         *   [ ] Implement the close button functionality for each indicator, including removal of the indicator and the corresponding text block from the chat input (for FR-CE-015).
-    *   [ ] **Duplicate Content Prevention**
+    *   [√] **Duplicate Content Prevention** (Relevant files: packages/chrome-extension/src/contentScript.ts. Note: Duplicate check for Active File (FR-CE-006) is pending.)
         *   [ ] Implement client-side logic to maintain a list of active `content_source_id`s (for FR-CE-016).
         *   [ ] Implement checks before requesting content to prevent insertion of duplicate sources (except snippets).
         *   [ ] Implement UI notifications for duplicate insertion attempts (for UI-CE-007).
-    *   [ ] **Snippet Receiving and Insertion**
+    *   [√] **Snippet Receiving and Insertion** (Relevant files: packages/chrome-extension/src/contentScript.ts, packages/chrome-extension/src/serviceWorker.ts. Note: Indicator display for snippets (FR-CE-013) is pending.)
         *   [ ] Implement the IPC listener (e.g., WebSocket message handler) to receive pushed snippet data from VSCE.
         *   [ ] Implement logic to insert the received snippet content and display its indicator (for FR-CE-013).
-    *   [ ] **State, Error Handling, and UI Refinements**
+    *   [√] **State, Error Handling, and UI Refinements** (Relevant files: packages/chrome-extension/src/contentScript.ts, packages/chrome-extension/src/options.ts. Note: Filter type icon (UI-CE-003) is pending.)
         *   [ ] Implement display of loading indicators in the floating UI during IPC operations (for UI-CE-002).
         *   [ ] Implement display of all specified error and status messages (for ERR-001 to ERR-005, UI-CE-003).
         *   [ ] Implement UI grouping for multi-project/multi-folder data received from VSCE (for FR-CE-012, UI-CE-004).

@@ -65,6 +65,7 @@ ContextWeaver/
 │   │   └── tsconfig.json      # TypeScript configuration
 │   ├── chrome-extension/      # Chrome Extension (CE)
 │   │   ├── src/               # Source files for CE
+│   │   │   ├── contentScript.ts
 │   │   │   ├── options.ts
 │   │   │   ├── popup.ts
 │   │   │   └── serviceWorker.ts
@@ -110,7 +111,7 @@ Accurate and current structural documentation is mandatory for project integrity
     *   **Snippet Handling:** Capturing selected code snippets and pushing them to the CE.
     *   **Workspace Management:** Handling multi-root workspaces and respecting VS Code's Workspace Trust feature.
 *   **Key Modules (Planned/Conceptual):**
-    *   `ipcServer.ts`: Manages the WebSocket server, connection handling, authentication, and message deserialization/serialization.
+    *   `ipcServer.ts`: Manages the WebSocket server, connection handling (client registration), and message deserialization/serialization. (Note: Token-based authentication has been removed).
     *   `fileSystemService.ts`: Handles all interactions with the file system (reading files, listing directories, traversing structures). It also includes logic for `.gitignore` parsing and applying default/gitignore-based filtering rules.
     *   `searchService.ts`: Provides file/folder search capabilities within the workspace.
     *   `workspaceService.ts`: Centralizes logic for interacting with the VS Code workspace. It provides information about open workspace folders (including multi-root scenarios), their URIs, names, and the overall workspace trust state. It's used by other services to ensure operations are performed on trusted and valid workspaces.
@@ -133,6 +134,7 @@ Accurate and current structural documentation is mandatory for project integrity
     *   `contentScript.ts`: Injected into LLM web pages to handle UI triggers (e.g., `@` for general options, `@query` for real-time search). Manages DOM manipulation, creation, display, and logic of the floating UI panel (including dynamic rendering of search results, folder browsing views, and context selection options) and context block indicators. Communicates with the service worker for data fetching (workspace details, search, file/folder content, directory listings).
     *   `serviceWorker.ts`: Manages the IPC client connection to VSCE (via an internal `IPCClient` class which also handles loading its configuration like port from `chrome.storage.sync`). Handles messages from content scripts (acting as a bridge to VSCE for requests like search, file/folder content fetching, directory listings), forwards VSCE responses and pushes (like snippets) to the content script, and potentially maintains some background state.
     *   `options.ts`: Handles the logic for the extension's options page, including saving settings like the IPC port to `chrome.storage.sync`.
+*   `popup.ts`: Handles the logic for the browser action popup (`popup.html`), providing users with quick access to status information and links (e.g., to the options page).
 *   **Technology Stack:**
     *   TypeScript/JavaScript
     *   Chrome Extension APIs (Content Scripts, Service Workers, Storage, etc.)

@@ -125,7 +125,7 @@ The target users are software developers and other technical users who:
     *   If non-whitespace characters are typed immediately after `@` (e.g., `@my_file`), the CE shall interpret this as a search query.
     *   As the user types or modifies the query, the CE shall (with debouncing) send this query to the VSCE via IPC.
     *   The floating UI shall dynamically update in real-time to display a list of matching files and folders received from the VSCE.
-    *   If no matches are found, the UI shall display "未找到与 ‘`@<search_query>`’ 匹配的文件或文件夹。" (No files or folders found matching '`@<search_query>`').
+    *   If no matches are found, the UI shall display "No results found for '@<search_query>'".
 
 *   **FR-CE-004: Action - Insert Project File Directory Structure:**
     *   When selected, the CE shall check if a "File Tree" context block from the same project is already present. If so, it shall notify the user (e.g., "Project File Tree is already added.") and not proceed.
@@ -135,7 +135,7 @@ The target users are software developers and other technical users who:
 *   **FR-CE-005: Action - Insert Entire Codebase Content (Filtered):**
     *   When selected, the CE shall check if an "Entire Codebase" context block from the same project is already present. If so, it shall notify the user (e.g., "Entire Codebase is already added.") and not proceed.
     *   Otherwise, the CE shall request the concatenated content of all files (respecting root `.gitignore` or default filters) from the active VS Code project(s) from the VSCE.
-    *   The CE shall insert the received content (formatted as per [3.3.3](#333-folderfile-content-format)) into the LLM chat input and create a corresponding context block indicator.
+    *   The CE shall insert the received content (formatted as per [3.3.2](#332-file-folder-or-codebase-content-format)) into the LLM chat input and create a corresponding context block indicator.
 
 *   **FR-CE-006: Action - Insert Active File's Content:**
     *   When selected, the CE shall request the identity (e.g., path) of the currently focused file from VSCE.
@@ -145,7 +145,7 @@ The target users are software developers and other technical users who:
 
 *   **FR-CE-007: Action - Insert Content of Currently Open Files:**
     *   When selected, the CE shall request a list of currently open files (with their paths) in VS Code from the VSCE.
-    *   The floating UI shall display this list, allowing the user to select one or more files (e.g., via checkboxes). Files already represented by an active context block indicator may be visually distinguished (e.g., greyed out or with a note) but still selectable (allowing override if user insists, or simply re-inserting if the previous block was removed). **Decision for V1.3: If a file is already present, the option to select it again should be disabled or clearly indicate it's already added. Re-insertion of the same file content as a new block is disallowed.**
+    *   The floating UI shall display this list, allowing the user to select one or more files (e.g., via checkboxes). **If a file is already present (i.e., its `content_source_id` matches an active context block indicator), the option to select it again shall be disabled or clearly indicate it's already added, and re-insertion of the same file content as a new block is disallowed.**
     *   Upon confirmation, for each selected file not already present, the CE shall request its content from the VSCE.
     *   The CE shall insert the received content (formatted as per [3.3.2](#332-single-file-content-format), one block per file) into the LLM chat input and create corresponding context block indicators.
 
@@ -180,7 +180,7 @@ The target users are software developers and other technical users who:
 *   **FR-CE-013: Snippet Insertion from VS Code:**
     *   The CE (likely its service worker or a content script with an active WebSocket connection) shall listen for snippet data pushed from the VSCE.
     *   Upon receiving snippet data targeted for its active LLM input context, the CE shall insert the snippet (formatted as per [3.3.3](#333-code-snippet-format)) into the LLM chat input.
-    *   Snippet insertions are exempt from duplicate content checks. Each snippet sent from VS Code will create a new, distinct context block and indicator.
+    *   Snippet insertions are exempt from duplicate content checks. Each snippet sent from VS Code is intended to create a new, distinct context block and indicator (Note: Indicator creation for snippets is a pending implementation detail in `contentScript.ts`).
 
 *   **FR-CE-014: Context Block Indicator Display:**
     *   Upon successful insertion of content into the LLM chat input (from FR-CE-004, FR-CE-005, FR-CE-006, FR-CE-007, FR-CE-008, FR-CE-009, or FR-CE-013), the CE shall display a corresponding visual "context block indicator" above the LLM chat input area.
@@ -466,8 +466,8 @@ The content inserted into the LLM chat input shall be wrapped in specific XML-li
 *   **ERR-003: `.gitignore` File Issues:**
     *   If `.gitignore` is missing, the VSCE will log this and use default rules. The CE shall indicate (e.g., via an icon or text in the UI as per UI-CE-003) that default filtering rules are in use, based on the 'filterType' received from VSCE.
     *   If `.gitignore` is malformed and VSCE falls back to default rules, the CE UI shall indicate that default filtering rules are in use (e.g., via an icon).
-*   **ERR-004: File Read Errors:** If the VSCE fails to read a specific file, it should skip the file and report the issue. The CE can then notify the user, e.g., "读取文件 [文件名] 时出错。该文件已被跳过。" (Error reading file [filename]. The file has been skipped.)
-*   **ERR-005: IPC Communication Failure:** If IPC fails during an operation, the CE should indicate: "与 VS Code 的通信丢失。操作可能未完成。" (Communication with VS Code lost. Operation may not have completed.)
+*   **ERR-004: File Read Errors:** If the VSCE fails to read a specific file (e.g., it's binary or a read error occurs), it should report the issue (e.g., via `FILE_BINARY_OR_READ_ERROR` code). The CE can then notify the user with an English message, e.g., "Error reading file [filename]. The file has been skipped or is binary."
+*   **ERR-005: IPC Communication Failure:** If IPC fails during an operation, the CE should indicate an English message, e.g., "Communication with VS Code lost. Operation may not have completed."
 *   **ERR-006: Binary File Handling:** Binary files encountered during "entire codebase" or "folder content" operations shall be silently skipped by the VSCE.
 
 ---

@@ -10,32 +10,31 @@ The primary goal of ContextWeaver is to streamline the process of providing rele
 
 ### VS Code Extension (VSCE)
 
-*   **FR-VSCE-001:** Open and read files from the active VS Code workspace.
-*   **FR-VSCE-002:** Access and list the file/folder structure of the workspace.
-*   **FR-VSCE-003:** Provide a search functionality for file and folder names within the workspace.
-*   **FR-VSCE-004 & FR-VSCE-007 (Snippet Sending):** Provides a context menu option ("Send Snippet to LLM Context") to capture selected text, its file path, line numbers, and language ID, then send this data to the active Chrome Extension target.
-*   **FR-VSCE-005:** Implement an IPC mechanism (WebSocket server) to communicate with the Chrome Extension, including port fallback if the default is busy.
-*   **FR-VSCE-007:** Handle `.gitignore` specifications to exclude irrelevant files/folders.
-*   **FR-VSCE-008:** Allow users to select one or more open projects/workspaces if multiple are open (V2).
-*   **FR-VSCE-009:** Allow users to configure project-specific settings (V2).
+*   **FR-VSCE-001 (Data Provider - File System Structure):** Shall be able to traverse the active workspace folder(s) and generate a textual representation of the file and folder hierarchy.
+*   **FR-VSCE-002 (Data Provider - File Content):** Shall be able to read and provide the full UTF-8 text content of any specified file within the active workspace(s).
+*   **FR-VSCE-003 (Data Provider - Folder Content):** Shall be able to read and concatenate the content of all text files within a specified folder (and its subfolders), respecting filters.
+*   **FR-VSCE-004 (Data Provider - Entire Codebase Content):** Shall be able to read and concatenate the content of all text files within a specified active workspace folder, respecting filters.
+*   **FR-VSCE-005 (Filtering Logic):** Shall apply `.gitignore` rules from the root of each workspace folder and default exclusion patterns.
+*   **FR-VSCE-006 (Search Service):** Shall provide a search service for file and folder names within trusted workspace folders.
+*   **FR-VSCE-007 (Snippet Sending):** Shall contribute a context menu item to extract selected text and its metadata, and send it to the CE.
+*   **FR-VSCE-008 (Handling Multiple Workspace Folders):** Shall support multi-root workspaces, associating data with its originating workspace folder.
+*   **FR-VSCE-009 (Workspace Trust):** Shall only perform file system operations within trusted workspace folders.
+*   *(Related IPC Requirement FR-IPC-001 & FR-IPC-002): Hosts a local IPC server (WebSocket) with port fallback.*
 
 ### Chrome Extension (CE)
 
-*   **FR-CE-001:** Detect active LLM chat interfaces in the browser (e.g., ChatGPT, Bard, Claude, Perplexity).
-*   **FR-CE-002:** Provide a user interface (e.g., floating button/panel) near the LLM's input area.
-*   **FR-CE-003:** Implement an IPC client to communicate with the VS Code Extension.
-*   **FR-CE-003 & FR-CE-004 (Search & Data Request):**
-    *   Interpret `@<query>` typed in LLM inputs as a real-time search trigger.
-    *   Dynamically display search results (files/folders) from VSCE in the floating UI.
-    *   Allow insertion of selected searched file content or aggregated folder content.
-    *   Provide a "Browse Folder" option for searched folders, allowing itemized selection and insertion from the folder's contents.
-*   Request other workspace data (file tree, file content for active/open files) from VSCE.
-*   **FR-CE-005:** Display retrieved workspace data in a structured and user-friendly way.
-*   **FR-CE-006:** Allow users to select context items (files, code snippets) from the displayed data.
-*   **FR-CE-007:** Insert selected context into the LLM chat input, formatted appropriately (e.g., with Markdown code blocks).
-*   **FR-CE-008:** Manage connection status with VSCE and provide feedback to the user.
-*   **FR-CE-009:** Provide a manual reconnection option in the extension's settings.
-*   **FR-CE-010:** Allow users to configure preferred LLM interface selectors if detection fails (V2).
+*   **FR-CE-001 (Trigger Activation):** Shall detect `@` trigger in LLM chat inputs and display a floating UI.
+*   **FR-CE-002 (Floating UI - Basic Options):** Shall present options like "Insert Active File's Content" and "Insert Content of Currently Open Files".
+*   **FR-CE-003 (Floating UI - Search Functionality):** Shall interpret `@<query>` for real-time search, sending queries to VSCE and displaying results.
+*   **FR-CE-004 to FR-CE-009 (Content Actions):** Shall allow insertion of various content types (file tree, entire codebase, active file, open files, searched file/folder content, browsed folder content), including duplicate checks and context indicator creation. (Refer to SRS for detailed breakdown of FR-CE-004 through FR-CE-009).
+*   **FR-CE-010 (Content Insertion):** Shall insert content into LLM input, replacing trigger text, with identifiable blocks.
+*   **FR-CE-011 (UI Dismissal):** Floating UI shall be dismissible.
+*   **FR-CE-012 (Handling Multiple VS Code Projects):** UI shall group options/results by workspace if multiple are present.
+*   **FR-CE-013 (Snippet Insertion):** Shall listen for and insert pushed snippets from VSCE.
+*   **FR-CE-014 & FR-CE-015 (Context Block Indicators):** Shall display and manage visual indicators for inserted content, allowing removal.
+*   **FR-CE-016 (Duplicate Content Prevention):** Shall prevent re-insertion of identical content sources (except snippets).
+*   **FR-CE-017 (Manual IPC Reconnection):** Shall provide a UI option for manual reconnection.
+*   *(Related IPC Requirement FR-IPC-001): Acts as an IPC client to the VSCE.*
 
 ### Inter-Plugin Communication (IPC)
 
@@ -44,7 +43,7 @@ The primary goal of ContextWeaver is to streamline the process of providing rele
 
 ### Security
 
-*   **SEC-001:** IPC communication relies on `localhost` binding. Token-based authentication has been removed.
+*   **SEC-001:** The VSCE IPC server is designed to bind only to `localhost` for security. Token-based authentication has been removed.
 *   **SEC-002:** VSCE must respect VS Code's Workspace Trust feature.
 
 ## Setup and Usage

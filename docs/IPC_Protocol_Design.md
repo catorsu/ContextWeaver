@@ -1,7 +1,7 @@
 # ContextWeaver: Inter-Plugin Communication (IPC) Protocol Design
 
-**Version:** 1.0
-**Date:** May 27, 2025
+**Version:** 1.0.1
+**Date:** June 02, 2025
 
 ## 1. Overview
 
@@ -579,29 +579,6 @@ VSCE pushes a selected code snippet to the CE.
     }
     ```
 
----
-
-#### 3.3.2. `status_update`
-
-VSCE sends general status updates or asynchronous error notifications to CE. This includes updates on the IPC server's status, such as the port it successfully bound to after potential fallback attempts.
-
-VSCE sends general status updates or asynchronous error notifications to CE.
-
-*   **`type`**: `"push"`
-*   **`command`**: `"status_update"`
-*   **`payload`**:
-    ```json
-    {
-      "message": "string", // The status message
-      "statusType": "'info' | 'warning' | 'error' | 'connection_status' | 'workspace_status'",
-      // Examples for statusType:
-      // 'connection_status': "VSCE Server started on port 30001."
-      // 'workspace_status': "No project open in VS Code." or "Workspace is not trusted."
-      // 'info': "Using .gitignore for filtering."
-      "details": {} // Optional additional details specific to the status
-    }
-    ```
-
 ## 4. ContextBlockMetadata Structure
 
 This object is included in VSCE responses when providing data that will be inserted into the LLM chat and requires a visual indicator in the CE.
@@ -660,6 +637,7 @@ This object is included in VSCE responses when providing data that will be inser
 *   `INVALID_URI`: A provided string could not be parsed as a valid URI.
 *   `SEARCH_ERROR`: Error during a workspace search operation.
 *   `INVALID_PATH`: A provided path (e.g. folder path for `get_folder_content`) is invalid or not within the specified workspace.
+*   `FOLDER_LISTING_ERROR`: Error during directory listing operation (e.g., for `list_folder_contents`).
 
 ## 6. Version History
 
