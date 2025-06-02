@@ -21,20 +21,17 @@ async function testIPCConnection() {
     try {
         // Send a message to the service worker, asking it to ping the VSCE
         const response = await chrome.runtime.sendMessage({
-            action: 'sendIPCRequest',
-            command: 'check_workspace_trust', // Using a simple command for testing
+            type: 'GET_WORKSPACE_DETAILS_FOR_UI',
+            command: 'get_workspace_details', // Using get_workspace_details to test connection
             payload: {}
         });
 
         console.log(LOG_PREFIX_POPUP, 'Response from service worker:', response);
         if (response && response.success && response.data) {
-            updateStatus(`Connected! Workspace trusted: ${response.data.isTrusted}`);
+            updateStatus(`Connected! Workspace trusted: ${response.data.isTrusted}. Folders: ${response.data.workspaceFolders ? response.data.workspaceFolders.length : 0}`);
         } else if (response && response.error) {
             updateStatus(`Error: ${response.error}`, true);
         } 
-         else if (response && response.success === false && response.payload?.error) {
-            updateStatus(`Error from VSCE: ${response.payload.error}`, true);
-        }
         else {
             updateStatus('No/unexpected response from VSCE via service worker.', true);
         }

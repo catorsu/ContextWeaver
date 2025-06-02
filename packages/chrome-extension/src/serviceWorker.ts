@@ -280,6 +280,7 @@ class IPCClient {
     async getOpenFiles(): Promise<any> { return this.sendRequest('get_open_files'); }
     async searchWorkspace(query: string, workspaceFolderUri: string | null): Promise<any> { return this.sendRequest('search_workspace', { query, workspaceFolderUri }); }
     async getFilterInfo(workspaceFolderUri: string | null): Promise<any> { return this.sendRequest('get_filter_info'); }
+    async listFolderContents(folderUri: string, workspaceFolderUri: string | null): Promise<any> { return this.sendRequest('list_folder_contents', { folderUri, workspaceFolderUri }); }
 
 
     public isConnected(): boolean {
@@ -498,6 +499,57 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             .catch(error => {
                 console.error(LOG_PREFIX_SW, 'Unexpected error in Promise.all for GET_CONTENTS_FOR_SELECTED_OPEN_FILES:', error);
                 sendResponse({ success: false, error: error.message || 'Failed to process multiple file content requests.' });
+            });
+        return true;
+    } else if (message.type === 'GET_FOLDER_CONTENT') {
+        const { folderPath, workspaceFolderUri } = message.payload;
+        console.log(LOG_PREFIX_SW, `Handling GET_FOLDER_CONTENT for path: ${folderPath}`);
+        ipcClient.getFolderContent(folderPath, workspaceFolderUri)
+            .then(responsePayload => {
+                console.log(LOG_PREFIX_SW, 'Response for get_folder_content:', responsePayload);
+                if (responsePayload.success === false) {
+                    sendResponse({ success: false, error: responsePayload.error || 'Failed to get folder content from VSCE.' });
+                } else {
+                    sendResponse({ success: true, data: responsePayload.data });
+                }
+            })
+            .catch(error => {
+                console.error(LOG_PREFIX_SW, 'Error in get_folder_content IPC call:', error);
+                sendResponse({ success: false, error: error.message || 'IPC call failed for get_folder_content.' });
+            });
+        return true;
+    } else if (message.type === 'LIST_FOLDER_CONTENTS') {
+        const { folderUri, workspaceFolderUri } = message.payload;
+        console.log(LOG_PREFIX_SW, `Handling LIST_FOLDER_CONTENTS for URI: ${folderUri}, Workspace: ${workspaceFolderUri}`);
+        ipcClient.listFolderContents(folderUri, workspaceFolderUri)
+            .then(responsePayload => {
+                console.log(LOG_PREFIX_SW, 'Response for list_folder_contents:', responsePayload);
+                if (responsePayload.success === false) {
+                    sendResponse({ success: false, error: responsePayload.error || 'Failed to get folder contents from VSCE.' });
+                } else {
+                    sendResponse({ success: true, data: responsePayload.data });
+                }
+            })
+            .catch(error => {
+                console.error(LOG_PREFIX_SW, 'Error in list_folder_contents IPC call:', error);
+                sendResponse({ success: false, error: error.message || 'IPC call failed for list_folder_contents.' });
+            });
+        return true;
+    } else if (message.type === 'SEARCH_WORKSPACE') {
+        const { query, workspaceFolderUri } = message.payload;
+        console.log(LOG_PREFIX_SW, `Handling SEARCH_WORKSPACE for query: "${query}", folder: ${workspaceFolderUri}`);
+        ipcClient.searchWorkspace(query, workspaceFolderUri)
+            .then(responsePayload => {
+                console.log(LOG_PREFIX_SW, 'Response for search_workspace:', responsePayload);
+                if (responsePayload.success === false) {
+                    sendResponse({ success: false, error: responsePayload.error || 'Failed to get search results from VSCE.' });
+                } else {
+                    sendResponse({ success: true, data: responsePayload.data });
+                }
+            })
+            .catch(error => {
+                console.error(LOG_PREFIX_SW, 'Error in search_workspace IPC call:', error);
+                sendResponse({ success: false, error: error.message || 'IPC call failed for search_workspace.' });
             });
         return true;
     } else {

@@ -6,7 +6,7 @@
 
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { Ignore } from 'ignore'; 
+import { Ignore } from 'ignore';
 import { parseGitignore } from './fileSystemService'; // Assuming this is still needed for gitignore logic
 import { WorkspaceService } from './workspaceService'; // Added
 
@@ -14,9 +14,9 @@ const LOG_PREFIX_SEARCH_SERVICE = '[ContextWeaver SearchService] ';
 
 // Default ignore patterns (can be kept or potentially centralized if WorkspaceService provides them)
 const LOCAL_IGNORE_PATTERNS_DEFAULT = [
-  'node_modules/', '.git/', '.vscode/', 'dist/', 'build/', '*.log',
+  'node_modules/', '.git/', '.vscode/', 'dist/', 'dist_test/', 'build/', '*.log',
   '__pycache__/', '.DS_Store', '*.pyc', '*.pyo', '*.swp', '*.bak', '*.tmp',
-  '.gitignore', 
+  '.gitignore',
   '*.zip', '*.tar.gz', '*.rar', '*.7z', '*.exe', '*.dll', '*.obj', '*.o',
   '*.a', '*.lib', '*.so', '*.dylib', '*.ncb', '*.sdf', '*.suo', '*.pdb',
   '*.idb', '*.class', '*.jar', '*.mp3', '*.wav', '*.ogg', '*.mp4', '*.avi',
@@ -30,11 +30,11 @@ const LOCAL_IGNORE_PATTERNS_DEFAULT = [
  * @description Defines the structure for a search result item.
  */
 export interface SearchResult {
-  path: string; 
-  name: string; 
+  path: string;
+  name: string;
   type: 'file' | 'folder';
-  uri: string; 
-  content_source_id: string; 
+  uri: string;
+  content_source_id: string;
   workspaceFolderUri: string; // Changed to non-nullable, should always be present
   workspaceFolderName: string; // Changed to non-nullable
   filterTypeApplied?: 'gitignore' | 'default';
@@ -63,7 +63,7 @@ export class SearchService {
       if (pathToCheck.startsWith('./')) {
         pathToCheck = pathToCheck.substring(2);
       }
-      
+
       if (gitignoreFilter.ignores(pathToCheck)) {
         return { ignored: true, filterTypeApplied: 'gitignore' };
       }
@@ -72,15 +72,15 @@ export class SearchService {
       for (const pattern of defaultIgnorePatterns) {
         const cleanPatternName = pattern.endsWith('/') ? pattern.slice(0, -1) : pattern;
 
-        if (pattern.endsWith('/')) { 
+        if (pattern.endsWith('/')) {
           if (isDirectory && (name === cleanPatternName || relativePath === cleanPatternName || relativePath.startsWith(cleanPatternName + '/'))) {
             return { ignored: true, filterTypeApplied: 'default' };
           }
-        } else if (pattern.startsWith('*.')) { 
+        } else if (pattern.startsWith('*.')) {
           if (!isDirectory && name.endsWith(pattern.substring(1))) {
             return { ignored: true, filterTypeApplied: 'default' };
           }
-        } else { 
+        } else {
           if (name === pattern) {
             return { ignored: true, filterTypeApplied: 'default' };
           }
@@ -107,28 +107,28 @@ export class SearchService {
     const allResults: SearchResult[] = [];
     // Workspace trust and existence of folders are pre-checked by IPCServer using WorkspaceService.
     // We can directly use WorkspaceService here to get the folders to iterate over.
-    
+
     const foldersToSearch: vscode.WorkspaceFolder[] = [];
     if (specificWorkspaceFolderUri) {
-        const folder = this.workspaceService.getWorkspaceFolder(specificWorkspaceFolderUri);
-        if (folder) {
-            foldersToSearch.push(folder);
-        } else {
-            this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + `Warning: Specified workspace folder for search not found: ${specificWorkspaceFolderUri.toString()}`);
-            return []; // Or throw an error to be handled by IPCServer
-        }
+      const folder = this.workspaceService.getWorkspaceFolder(specificWorkspaceFolderUri);
+      if (folder) {
+        foldersToSearch.push(folder);
+      } else {
+        this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + `Warning: Specified workspace folder for search not found: ${specificWorkspaceFolderUri.toString()}`);
+        return []; // Or throw an error to be handled by IPCServer
+      }
     } else {
-        const allWorkspaceFolders = this.workspaceService.getWorkspaceFolders();
-        if (allWorkspaceFolders) {
-            foldersToSearch.push(...allWorkspaceFolders);
-        }
+      const allWorkspaceFolders = this.workspaceService.getWorkspaceFolders();
+      if (allWorkspaceFolders) {
+        foldersToSearch.push(...allWorkspaceFolders);
+      }
     }
 
     if (foldersToSearch.length === 0) {
-        this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + 'No workspace folders to search in.');
-        return [];
+      this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + 'No workspace folders to search in.');
+      return [];
     }
-    
+
     this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + `Searching for '${query}' in ${foldersToSearch.length} target folder(s).`);
 
     for (const folder of foldersToSearch) {
@@ -150,8 +150,8 @@ export class SearchService {
   }
 
   private async findInDirectoryRecursive(
-    dirUri: vscode.Uri, 
-    query: string, 
+    dirUri: vscode.Uri,
+    query: string,
     baseWorkspaceFolder: vscode.WorkspaceFolder, // This is the root for this particular search branch
     gitignoreFilter: Ignore | null
   ): Promise<SearchResult[]> {
@@ -165,15 +165,15 @@ export class SearchService {
         const relativePath = path.relative(baseWorkspaceFolder.uri.fsPath, entryUri.fsPath).replace(/\\\\/g, '/');
 
         const ignoreInfo = SearchService.getPathIgnoreInfoInternal(
-            relativePath, 
-            name, 
-            (type === vscode.FileType.Directory), 
-            gitignoreFilter, 
-            LOCAL_IGNORE_PATTERNS_DEFAULT
+          relativePath,
+          name,
+          (type === vscode.FileType.Directory),
+          gitignoreFilter,
+          LOCAL_IGNORE_PATTERNS_DEFAULT
         );
 
         if (ignoreInfo.ignored) {
-          continue; 
+          continue;
         }
 
         let itemMatchesQuery = name.toLowerCase().includes(lowerCaseQuery);
@@ -196,7 +196,7 @@ export class SearchService {
           results = results.concat(subDirResults);
         }
       }
-    } catch (error: any) { 
+    } catch (error: any) {
       this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + `Failed to read directory ${dirUri.fsPath}: ${error.message}`);
       // console.warn(`[ContextWeaver SearchService] Failed to read directory ${dirUri.fsPath}: ${error.message}`);
     }

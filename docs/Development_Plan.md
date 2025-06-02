@@ -89,11 +89,13 @@ Diligent status updates are essential for effective project management.
         *   [√] Implement the "Insert Entire Codebase Content" option (for FR-CE-005).
         *   [√] Implement the "Insert Active File's Content" option (for FR-CE-006).
         *   [√] Implement the "Insert Content of Currently Open Files" option, including the UI for selecting files from a list provided by VSCE (for FR-CE-007).
-    *   [ ] **Search Functionality Implementation**
-        *   [ ] Implement the UI for search query input within the floating panel.
-        *   [ ] Implement sending search queries to VSCE via IPC and dynamically updating the floating UI with results (for FR-CE-003).
-        *   [ ] Implement the "Insert Searched File Content" action (for FR-CE-008).
-        *   [ ] Implement the hybrid UX for "Insert Searched Folder Content", including the "Browse" functionality with a tree-like view and checkboxes (for FR-CE-009, UI-CE-005).
+    *   [√] **Search Functionality Implementation** (Relevant files: `packages/chrome-extension/src/contentScript.ts`, `packages/chrome-extension/src/serviceWorker.ts`, `packages/vscode-extension/src/ipcServer.ts`, `packages/vscode-extension/src/fileSystemService.ts`)
+        *   [√] Implement the UI for search query input within the floating panel. (Relevant files: packages/chrome-extension/src/contentScript.ts)
+            *   *(Note: Implementation evolved to real-time search based on LLM input, rather than a separate input field in the panel, fulfilling the objective of UI for search query handling).*
+        *   [√] Implement sending search queries to VSCE via IPC and dynamically updating the floating UI with results (for FR-CE-003). (Relevant files: packages/chrome-extension/src/contentScript.ts, packages/chrome-extension/src/serviceWorker.ts)
+        *   [√] Implement the "Insert Searched File Content" action (for FR-CE-008). (Relevant files: packages/chrome-extension/src/contentScript.ts)
+        *   [√] Implement the hybrid UX for "Insert Searched Folder Content", including the "Browse" functionality with a tree-like view and checkboxes (for FR-CE-009, UI-CE-005). (Relevant files: packages/chrome-extension/src/contentScript.ts, packages/chrome-extension/src/serviceWorker.ts, packages/vscode-extension/src/ipcServer.ts, packages/vscode-extension/src/fileSystemService.ts)
+            *   *(This also covers the VSCE mini-task for `list_folder_contents` as it was a dependency for this specific sub-task's full implementation).*
     *   [ ] **Context Block Indicator Management**
         *   [ ] Implement the dynamic display of context block indicators above the LLM chat input area based on received metadata (for FR-CE-014, UI-CE-006).
         *   [ ] Implement the close button functionality for each indicator, including removal of the indicator and the corresponding text block from the chat input (for FR-CE-015).

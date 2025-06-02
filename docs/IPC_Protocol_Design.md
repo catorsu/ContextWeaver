@@ -186,6 +186,22 @@ Requests details about the currently open workspace(s), including their trust st
 
 ---
 
+#### 3.1.12. `list_folder_contents`
+Requests a listing of immediate files and subdirectories within a specified folder, respecting filters.
+
+*   **`type`**: `"request"`
+*   **`command`**: `"list_folder_contents"`
+*   **`payload`**:
+    ```json
+    {
+      "folderUri": "string", // URI of the folder whose contents are to be listed
+      "workspaceFolderUri": "string" // URI of the workspace folder this folderUri belongs to (for context, filtering)
+    }
+    ```
+*   **VSCE Response**: `response_list_folder_contents` (see 3.2.13)
+
+---
+
 ### 3.2. VSCE -> CE (Responses)
 
 These messages are sent by the VS Code Extension in response to requests from the Chrome Extension. The `message_id` will match the `message_id` of the original request.
@@ -502,6 +518,35 @@ A generic error response if a more specific one isn't suitable, or for unhandled
 
 ---
 
+#### 3.2.13. `response_list_folder_contents`
+Response to `list_folder_contents`.
+
+*   **`type`**: `"response"`
+*   **`command`**: `"response_list_folder_contents"`
+*   **`payload`**:
+    ```json
+    {
+      "success": "boolean",
+      "data": { // Present if success is true
+        "entries": [
+          {
+            "name": "string", // Name of the file or folder
+            "type": "'file' | 'folder'",
+            "uri": "string", // Full URI string of the entry
+            "content_source_id": "string" // Canonical ID, typically same as URI string
+          }
+          // ... more entries
+        ],
+        "parentFolderUri": "string", // Echo back the requested folderUri
+        "filterTypeApplied": "'gitignore' | 'default' | 'none'"
+      } | null,
+      "error": "string | null", // Present if success is false
+      "errorCode": "string | null" // Optional error code
+    }
+    ```
+
+---
+
 ### 3.3. VSCE -> CE (Pushes)
 
 These messages are initiated by the VS Code Extension and pushed to the Chrome Extension. They do not typically have a `message_id` unless they are a response to a long-polling request (not planned for V1).
@@ -619,3 +664,4 @@ This object is included in VSCE responses when providing data that will be inser
 ## 6. Version History
 
 *   **1.0 (2025-05-26):** Initial design.
+*   **1.0.1 (2025-06-02):** Added `list_folder_contents` command and `response_list_folder_contents` for browsing folder contents.

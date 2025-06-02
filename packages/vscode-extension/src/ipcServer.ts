@@ -14,6 +14,7 @@ import {
     getFileContentWithLanguageId, // Use this for single file content
     getFolderContentsForIPC,      // Use this for folder content
     getWorkspaceDataForIPC,       // Use this for entire codebase
+    getDirectoryListing
 } from './fileSystemService'; // Ensure correct functions are imported
 import { SearchService, SearchResult } from './searchService';
 import { WorkspaceService, WorkspaceServiceError } from './workspaceService';
@@ -178,7 +179,7 @@ export class IPCServer {
         const commandsRequiringWorkspace = [
             'get_file_tree', 'get_file_content', 'get_folder_content',
             'get_entire_codebase', 'search_workspace', 'get_active_file_info',
-            'get_open_files', 'get_filter_info'
+            'get_open_files', 'get_filter_info', 'list_folder_contents'
         ];
 
         if (commandsRequiringWorkspace.includes(command)) {
@@ -226,6 +227,9 @@ export class IPCServer {
                 break;
             case 'get_filter_info':
                 this.handleGetFilterInfo(client, payload, message_id);
+                break;
+            case 'list_folder_contents':
+                this.handleListFolderContents(client, payload, message_id);
                 break;
             case 'check_workspace_trust': // Deprecated, but handle for now
                 this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Command 'check_workspace_trust' is deprecated. Use 'get_workspace_details'.`);
@@ -422,9 +426,9 @@ export class IPCServer {
 
             const metadata = { // As per FR-IPC-005
                 unique_block_id: uuidv4(),
-                content_source_id: fileData.fullPath, // Use normalized fullPath as source_id
+                content_source_id: fileUri.toString(), // CRITICAL: Use URI string as content_source_id for consistent format
                 type: "file_content",
-                label: path.basename(fileData.fullPath), // Label for CE indicator
+                label: path.basename(fileUri.fsPath), // Label for CE indicator
                 languageId: fileData.languageId, // Include languageId
                 workspaceFolderUri: associatedWorkspaceFolder ? associatedWorkspaceFolder.uri.toString() : null,
                 workspaceFolderName: associatedWorkspaceFolder ? associatedWorkspaceFolder.name : null
@@ -700,6 +704,47 @@ export class IPCServer {
             this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error in handleGetOpenFiles: ${error.message}`);
             console.error(LOG_PREFIX_SERVER + `Error in handleGetOpenFiles:`, error);
             this.sendError(client.ws, message_id, 'INTERNAL_SERVER_ERROR', `Error getting open files: ${error.message}`);
+        }
+    }
+
+    private async handleListFolderContents(client: Client, payload: any, message_id: string): Promise<void> {
+        const { folderUri, workspaceFolderUri } = payload;
+        if (!folderUri || typeof folderUri !== 'string') {
+            this.sendError(client.ws, message_id, 'INVALID_PAYLOAD', 'Missing or invalid folderUri in payload.');
+            return;
+        }
+
+        const targetWorkspaceFolder = await this.getTargetWorkspaceFolder(client, workspaceFolderUri, 'list_folder_contents', message_id);
+        if (!targetWorkspaceFolder) return;
+
+        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Processing list_folder_contents for: ${folderUri} in workspace ${targetWorkspaceFolder.name}`);
+
+        try {
+            const folderToScanUri = vscode.Uri.parse(folderUri, true);
+            if (!folderToScanUri.fsPath.startsWith(targetWorkspaceFolder.uri.fsPath)) {
+                this.sendError(client.ws, message_id, 'INVALID_PATH', `Folder to list ('${folderUri}') is not within the specified workspace folder ('${targetWorkspaceFolder.name}').`);
+                return;
+            }
+
+            const result = await getDirectoryListing(folderToScanUri, targetWorkspaceFolder);
+
+            const responsePayload = {
+                success: true,
+                data: {
+                    entries: result.entries,
+                    parentFolderUri: folderUri,
+                    filterTypeApplied: result.filterTypeApplied
+                },
+                error: null
+            };
+            this.sendMessage(client.ws, 'response', 'response_list_folder_contents', responsePayload, message_id);
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent folder listing for ${folderUri} (Filter: ${result.filterTypeApplied}, ${result.entries.length} entries) to ${client.ip}`);
+
+        } catch (error: any) {
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error listing contents for ${folderUri}: ${error.message}`);
+            console.error(LOG_PREFIX_SERVER + `Error listing contents:`, error);
+            const errorCode = error instanceof WorkspaceServiceError ? error.code : 'FOLDER_LISTING_ERROR';
+            this.sendError(client.ws, message_id, errorCode, `Error listing contents for folder ${folderUri}: ${error.message}`);
         }
     }
 

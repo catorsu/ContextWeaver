@@ -130,8 +130,8 @@ Accurate and current structural documentation is mandatory for project integrity
     *   **IPC Client:** Connecting to the VSCE server, sending requests, and handling responses.
     *   **State Management:** Managing the state of active context blocks and duplicate content prevention.
 *   **Key Modules (Planned/Conceptual):**
-    *   `contentScript.ts`: Injected into LLM web pages to handle UI triggers, DOM manipulation, creation, display, and logic of the floating UI panel and context block indicators. It also communicates with the service worker for data fetching.
-    *   `serviceWorker.ts`: Manages the IPC client connection to VSCE (via an internal `IPCClient` class which also handles loading its configuration like port from `chrome.storage.sync`), handles messages from content scripts (acting as a bridge to VSCE), and potentially maintains some background state.
+    *   `contentScript.ts`: Injected into LLM web pages to handle UI triggers (e.g., `@` for general options, `@query` for real-time search). Manages DOM manipulation, creation, display, and logic of the floating UI panel (including dynamic rendering of search results, folder browsing views, and context selection options) and context block indicators. Communicates with the service worker for data fetching (workspace details, search, file/folder content, directory listings).
+    *   `serviceWorker.ts`: Manages the IPC client connection to VSCE (via an internal `IPCClient` class which also handles loading its configuration like port from `chrome.storage.sync`). Handles messages from content scripts (acting as a bridge to VSCE for requests like search, file/folder content fetching, directory listings), forwards VSCE responses and pushes (like snippets) to the content script, and potentially maintains some background state.
     *   `options.ts`: Handles the logic for the extension's options page, including saving settings like the IPC port to `chrome.storage.sync`.
 *   **Technology Stack:**
     *   TypeScript/JavaScript
@@ -145,7 +145,7 @@ Accurate and current structural documentation is mandatory for project integrity
 *   **Protocol:** JSON-based messages. (Detailed message schemas are defined in the `docs/IPC_Protocol_Design.md` document).
 *   **Authentication:** Removed. Relies on `localhost` binding for security.
 *   **Key Data Flows:**
-    *   CE requests project data (file tree, file content, search) from VSCE.
+    *    CE requests project data (file tree, file content, folder content, search, directory listings) from VSCE.
     *   VSCE responds with data or error messages.
     *   VSCE pushes code snippets to CE.
     *   CE registers its active tab/context with VSCE for snippet targeting.

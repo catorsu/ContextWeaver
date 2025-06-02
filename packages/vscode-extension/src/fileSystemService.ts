@@ -192,6 +192,17 @@ interface FileData {
 }
 
 /**
+ * @interface DirectoryEntry
+ * @description Structure for file and folder entries in a directory listing.
+ */
+export interface DirectoryEntry {
+  name: string;
+  type: 'file' | 'folder';
+  uri: string; // Full URI string of the entry
+  content_source_id: string; // Canonical ID, typically same as URI string
+}
+
+/**
  * @description Determines the language ID for a given file URI.
  * @param {vscode.Uri} fileUri - The URI of the file.
  * @returns {Promise<string>} The language ID (e.g., 'typescript', 'python'). Defaults to 'plaintext'.
@@ -345,6 +356,67 @@ export async function getFolderContentsForIPC(
  * @param {vscode.WorkspaceFolder} workspaceFolder - The workspace folder to process.
  * @returns {Promise<{ filesData: FileData[], fileTreeString: string, workspaceName: string, filterTypeApplied: 'gitignore' | 'default', projectPath: string } | string>} Object with data or error string.
  */
+/**
+ * @description Lists files and folders in a directory, applying workspace filters.
+ * @param {vscode.Uri} folderToScanUri - The URI of the folder to list.
+ * @param {vscode.WorkspaceFolder} containingWorkspaceFolder - Workspace folder for filter context.
+ * @returns {Promise<{ entries: DirectoryEntry[]; filterTypeApplied: 'gitignore' | 'default' | 'none' }>}
+ * @sideeffect Reads from the file system.
+ */
+export async function getDirectoryListing(
+  folderToScanUri: vscode.Uri,
+  containingWorkspaceFolder: vscode.WorkspaceFolder
+): Promise<{ entries: DirectoryEntry[]; filterTypeApplied: 'gitignore' | 'default' | 'none' }> {
+  const gitignoreFilter = await parseGitignore(containingWorkspaceFolder);
+  const filterTypeApplied = gitignoreFilter !== null ? 'gitignore' : 'default';
+  const entries: DirectoryEntry[] = [];
+
+  try {
+    const dirEntries = await vscode.workspace.fs.readDirectory(folderToScanUri);
+    
+    // Sort entries (directories first, then alphabetically)
+    dirEntries.sort((a, b) => {
+      if (a[1] === vscode.FileType.Directory && b[1] !== vscode.FileType.Directory) return -1;
+      if (a[1] !== vscode.FileType.Directory && b[1] === vscode.FileType.Directory) return 1;
+      return a[0].localeCompare(b[0]);
+    });
+
+    for (const [name, type] of dirEntries) {
+      const entryUri = vscode.Uri.joinPath(folderToScanUri, name);
+      const relativePathForIgnoreCheck = path.relative(containingWorkspaceFolder.uri.fsPath, entryUri.fsPath).replace(/\\/g, '/');
+      const isDirectory = type === vscode.FileType.Directory;
+
+      const ignoreInfo = getPathIgnoreInfo(
+        relativePathForIgnoreCheck,
+        name,
+        isDirectory,
+        gitignoreFilter,
+        IGNORE_PATTERNS_DEFAULT
+      );
+
+      if (!ignoreInfo.ignored) {
+        const entryType = isDirectory ? 'folder' : 'file';
+        const uriString = entryUri.toString();
+        entries.push({
+          name,
+          type: entryType,
+          uri: uriString,
+          content_source_id: uriString
+        });
+      }
+    }
+
+    return { entries, filterTypeApplied };
+  } catch (error: any) {
+    if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
+      console.warn(`[ContextWeaver FileSystemService] Directory not found: ${folderToScanUri.fsPath}`);
+      throw error; // Let ipcServer handle the error
+    }
+    console.error(`[ContextWeaver FileSystemService] Error reading directory ${folderToScanUri.fsPath}: ${error.message}`);
+    throw error; // Let ipcServer handle the error
+  }
+}
+
 export async function getWorkspaceDataForIPC(
   workspaceFolder: vscode.WorkspaceFolder
 ): Promise<{ filesData: FileData[], fileTreeString: string, workspaceName: string, filterTypeApplied: 'gitignore' | 'default', projectPath: string } | string> {

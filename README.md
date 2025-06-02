@@ -24,7 +24,12 @@ The primary goal of ContextWeaver is to streamline the process of providing rele
 *   **FR-CE-001:** Detect active LLM chat interfaces in the browser (e.g., ChatGPT, Bard, Claude, Perplexity).
 *   **FR-CE-002:** Provide a user interface (e.g., floating button/panel) near the LLM's input area.
 *   **FR-CE-003:** Implement an IPC client to communicate with the VS Code Extension.
-*   **FR-CE-004:** Request workspace data (file tree, file content, search results) from VSCE.
+*   **FR-CE-003 & FR-CE-004 (Search & Data Request):**
+    *   Interpret `@<query>` typed in LLM inputs as a real-time search trigger.
+    *   Dynamically display search results (files/folders) from VSCE in the floating UI.
+    *   Allow insertion of selected searched file content or aggregated folder content.
+    *   Provide a "Browse Folder" option for searched folders, allowing itemized selection and insertion from the folder's contents.
+*   Request other workspace data (file tree, file content for active/open files) from VSCE.
 *   **FR-CE-005:** Display retrieved workspace data in a structured and user-friendly way.
 *   **FR-CE-006:** Allow users to select context items (files, code snippets) from the displayed data.
 *   **FR-CE-007:** Insert selected context into the LLM chat input, formatted appropriately (e.g., with Markdown code blocks).

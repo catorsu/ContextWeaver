@@ -123,8 +123,8 @@ The target users are software developers and other technical users who:
 
 *   **FR-CE-003: Floating UI - Search Functionality (`@<search_query>`):**
     *   If non-whitespace characters are typed immediately after `@` (e.g., `@my_file`), the CE shall interpret this as a search query.
-    *   The CE shall send this query to the VSCE via IPC.
-    *   The floating UI shall dynamically update to display a list of matching files and folders received from the VSCE.
+    *   As the user types or modifies the query, the CE shall (with debouncing) send this query to the VSCE via IPC.
+    *   The floating UI shall dynamically update in real-time to display a list of matching files and folders received from the VSCE.
     *   If no matches are found, the UI shall display "未找到与 ‘`@<search_query>`’ 匹配的文件或文件夹。" (No files or folders found matching '`@<search_query>`').
 
 *   **FR-CE-004: Action - Insert Project File Directory Structure:**
@@ -160,7 +160,9 @@ The target users are software developers and other technical users who:
             *   The CE shall check if content from this specific folder path is already represented by an active context block indicator. If so, it shall notify the user (e.g., "Content from folder `[foldername]` is already added.") and not proceed.
             *   Otherwise, proceed as in version 1.2, inserting content and creating an indicator.
         *   **Option B (Secondary):** "Browse files in `<folder_name>`".
-            *   The browse UI shall behave as in version 1.2. When selecting files/subfolders for insertion from this browse view, each item should be checked against existing context block indicators by its path. Attempting to add an already present file/folder should notify the user and prevent re-addition.
+            *   When selected, the CE shall request a listing of the immediate contents (files and subfolders) of the specified `<folder_name>` from the VSCE using the `list_folder_contents` IPC command.
+            *   The floating UI shall transition to a browse view displaying these items with checkboxes.
+            *   When selecting files/subfolders for insertion from this browse view, each item should be checked against existing context block indicators by its `content_source_id`. Attempting to add an already present file/folder should notify the user and prevent re-addition.
     *   Content insertion and indicator creation follow existing patterns.
 
 *   **FR-CE-010: Content Insertion:**
@@ -296,6 +298,11 @@ The target users are software developers and other technical users who:
 *   **FR-IPC-006: Connection Management:**
     *   The CE should gracefully handle connection failures to the VSCE server and inform the user.
     *   The VSCE server should handle client disconnections.
+
+
+*   **FR-IPC-007: Data Exchange - List Folder Contents:**
+    *   The CE shall be able to request a listing of immediate files and subdirectories for a specified folder URI from the VSCE.
+    *   The VSCE shall provide this listing, respecting filters, including item names, types, URIs, and `content_source_id`s.
 
 #### 3.2. User Interface (UI) Requirements (Chrome Extension)
 
