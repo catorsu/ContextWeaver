@@ -306,13 +306,15 @@ The target users are software developers and other technical users who:
 
 #### 3.2. User Interface (UI) Requirements (Chrome Extension)
 
+The floating UI should use a standardized loading indicator (CSS spinner and message) for all operations that involve fetching data from the VSCE. This provides a consistent visual cue to the user.
+
 *   **UI-CE-001: Floating UI Appearance:**
     *   The floating UI shall be non-intrusive and appear contextually near the LLM chat input.
     *   It shall list options and search results clearly.
     *   It shall use styling consistent with modern web UIs and be theme-aware if possible (respecting light/dark modes of the host page or browser).
 
 *   **UI-CE-002: Loading Indicators:**
-    *   The floating UI shall display loading indicators when waiting for data from the VSCE (e.g., during search, fetching large content).
+    *   The floating UI shall display a standardized loading indicator (CSS spinner and message) when waiting for data from the VSCE (e.g., during search, fetching large content). This indicator should be displayed in the main content area of the floating UI.
 
 *   **UI-CE-003: Error and Status Messages:**
     *   All errors (IPC, file read, etc.) and relevant status messages (e.g., "VS Code not connected", "No project open", "Using default .gitignore rules") shall be clearly displayed within the floating UI.

@@ -88,8 +88,7 @@ async function performSearch(query: string): Promise<void> {
   const titleArea = floatingUIPanel.querySelector(`.${CSS_PREFIX}title`) as HTMLElement;
   const contentArea = floatingUIPanel.querySelector(`.${CSS_PREFIX}content`) as HTMLElement;
 
-  if (titleArea) titleArea.textContent = `Searching for "@${query}"...`;
-  if (contentArea) contentArea.innerHTML = '<p>Loading results...</p>';
+  showLoadingStateInPanel(`Searching for "@${query}"...`, 'Loading results...');
 
   try {
     console.log(LOG_PREFIX_CS, `Sending SEARCH_WORKSPACE for query: "${query}"`);
@@ -202,6 +201,7 @@ function renderSearchResults(response: SearchResponse, query: string): void {
           insertAllButton.textContent = `Loading all content from ${fileName}...`;
           browseButton.disabled = true;
           backButton.disabled = true;
+          showLoadingStateInPanel(`Processing ${fileName}`, `Fetching all content from ${fileName}...`);
 
           try {
             const folderContentResponse = await chrome.runtime.sendMessage({
@@ -251,8 +251,7 @@ function renderSearchResults(response: SearchResponse, query: string): void {
         browseButton.id = `${CSS_PREFIX}btn-browse-folder-${fileContentSourceId.replace(/[^a-zA-Z0-9]/g, '_')}`;
         browseButton.onclick = async () => {
           console.log(LOG_PREFIX_CS, 'Browse folder clicked for:', fileName);
-          titleArea.textContent = `Browsing: ${fileName}`;
-          contentArea.innerHTML = '<p>Loading folder contents...</p>';
+          showLoadingStateInPanel(`Browsing: ${fileName}`, 'Loading folder contents...');
 
           try {
             const browseResponse = await chrome.runtime.sendMessage({
@@ -297,8 +296,7 @@ function renderSearchResults(response: SearchResponse, query: string): void {
 
       itemDiv.style.opacity = '0.5';
       itemDiv.style.pointerEvents = 'none';
-      titleArea.textContent = `Loading ${fileName}...`;
-      contentArea.innerHTML = `<p>Loading content for ${fileName}...</p>`;
+      showLoadingStateInPanel(`Loading ${fileName}...`, `Fetching content for ${fileName}...`);
 
       try {
         const contentResponse = await chrome.runtime.sendMessage({
@@ -442,6 +440,24 @@ function injectFloatingUiCss(): void {
     .${CSS_PREFIX}indicator-close-btn:hover {
       color: #fff;
     }
+    .${CSS_PREFIX}loader {
+      border: 4px solid #f3f3f3; /* Light grey */
+      border-top: 4px solid #3498db; /* Blue */
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      animation: ${CSS_PREFIX}spin 1s linear infinite;
+      margin: 20px auto; /* Center the spinner */
+    }
+    @keyframes ${CSS_PREFIX}spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .${CSS_PREFIX}loading-text {
+      text-align: center;
+      color: #ccc;
+      margin-top: 10px;
+    }
   `;
   const style = document.createElement('style');
   style.id = styleId;
@@ -522,6 +538,31 @@ function hideFloatingUi(): void {
   }
   document.removeEventListener('keydown', handleEscapeKey);
   document.removeEventListener('mousedown', handleClickOutside);
+}
+
+/**
+ * @description Displays a loading state in the floating UI panel with a spinner and message.
+ * @param titleText The text to display in the floating UI's title bar.
+ * @param loadingMessage The text to display below the loading spinner.
+ */
+function showLoadingStateInPanel(titleText: string, loadingMessage: string): void {
+  if (!floatingUIPanel) {
+    console.warn(`${LOG_PREFIX_CS} Attempted to show loading state, but floatingUIPanel is not initialized.`);
+    return;
+  }
+
+  const titleArea = floatingUIPanel.querySelector(`.${CSS_PREFIX}title`) as HTMLElement;
+  const contentArea = floatingUIPanel.querySelector(`.${CSS_PREFIX}content`) as HTMLElement;
+
+  if (titleArea) {
+    titleArea.textContent = titleText;
+  }
+  if (contentArea) {
+    contentArea.innerHTML = `
+      <div class="${CSS_PREFIX}loader"></div>
+      <p class="${CSS_PREFIX}loading-text">${loadingMessage}</p>
+    `;
+  }
 }
 
 /**
@@ -641,8 +682,7 @@ async function populateFloatingUiContent(uiContext: UIContext): Promise<void> {
     return;
   }
 
-  contentArea.innerHTML = '<p>Loading workspace details...</p>';
-  titleArea.textContent = 'ContextWeaver';
+  showLoadingStateInPanel('ContextWeaver', 'Loading workspace details...');
 
   try {
     const response = await chrome.runtime.sendMessage({ type: 'GET_WORKSPACE_DETAILS_FOR_UI' });
@@ -1309,6 +1349,7 @@ function renderWorkspaceFolders(workspaceFolders: any[], contentArea: HTMLElemen
 
       fileTreeButton.disabled = true;
       fileTreeButton.textContent = `Loading file tree for ${folder.name}...`;
+      showLoadingStateInPanel(`Processing ${folder.name}`, `Fetching file tree...`);
 
       try {
         const response = await chrome.runtime.sendMessage({
@@ -1364,6 +1405,7 @@ function renderWorkspaceFolders(workspaceFolders: any[], contentArea: HTMLElemen
 
       fullCodebaseButton.disabled = true;
       fullCodebaseButton.textContent = `Loading full codebase for ${folder.name}...`;
+      showLoadingStateInPanel(`Processing ${folder.name}`, `Fetching full codebase...`);
 
       try {
         const response = await chrome.runtime.sendMessage({
