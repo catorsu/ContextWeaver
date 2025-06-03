@@ -30,3 +30,9 @@ build/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+diff_unstaged_changes.txt
+
+.claude/
+.roo/
+.roomodes

@@ -6,7 +6,8 @@
   "permissions": [
     "storage",
     "activeTab",
-    "notifications"
+    "notifications",
+    "tabs"
   ],
   "host_permissions": [
     "*://gemini.google.com/*",
@@ -22,7 +23,9 @@
         "*://claude.ai/*",
         "*://chat.deepseek.com/*"
       ],
-      "js": ["dist/contentScript.js"],
+      "js": [
+        "dist/contentScript.js"
+      ],
       "run_at": "document_idle"
     }
   ],

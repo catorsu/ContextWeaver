@@ -198,9 +198,11 @@ class IPCClient {
     }
 
     private handleServerMessage(messageData: any): void {
+        console.log(LOG_PREFIX_SW, 'handleServerMessage: Raw data received from server:', messageData); // Log raw data
+
         try {
             const message = JSON.parse(messageData as string);
-            console.log(LOG_PREFIX_SW, 'Received message from server:', message);
+            console.log(LOG_PREFIX_SW, 'handleServerMessage: Parsed message from server:', message); // Log parsed message
 
             if (message.type === 'response' || message.type === 'error_response') {
                 const requestState = this.pendingRequests.get(message.message_id);
@@ -212,19 +214,42 @@ class IPCClient {
                     }
                     this.pendingRequests.delete(message.message_id);
                 } else {
-                    console.warn(LOG_PREFIX_SW, 'Received response for unknown message_id:', message.message_id);
+                    console.warn(LOG_PREFIX_SW, 'handleServerMessage: Received response for unknown message_id:', message.message_id);
                 }
             } else if (message.type === 'push') {
-                // Forward the entire message object for push, contentScript will destructure
-                chrome.runtime.sendMessage(message).catch(e => console.warn(LOG_PREFIX_SW, "Error broadcasting push message", e));
-                if (message.command === 'push_snippet') {
-                    console.log(LOG_PREFIX_SW, 'Received snippet push:', message.payload);
+                console.log(LOG_PREFIX_SW, `handleServerMessage: Detected 'push' message type. Command: ${message.command}`);
+
+                if (message.command === 'push_snippet' && message.payload && message.payload.targetTabId) {
+                    const targetTabId = message.payload.targetTabId;
+                    console.log(LOG_PREFIX_SW, `handleServerMessage: Forwarding 'push_snippet' to specific tabId: ${targetTabId}. Message:`, message);
+                    chrome.tabs.sendMessage(targetTabId, message) // Use chrome.tabs.sendMessage
+                        .then(response => {
+                            if (chrome.runtime.lastError) {
+                                console.warn(LOG_PREFIX_SW, `Error sending push_snippet to tab ${targetTabId}: ${chrome.runtime.lastError.message}`);
+                            } else {
+                                // console.log(LOG_PREFIX_SW, `Push_snippet message sent to tab ${targetTabId}, response from content script (if any):`, response);
+                            }
+                        })
+                        .catch(e => {
+                            // This catch might not be reliably hit for "no receiving end" with tabs.sendMessage,
+                            // chrome.runtime.lastError is often the way for that.
+                            console.warn(LOG_PREFIX_SW, `Error explicitly sending push_snippet message to tab ${targetTabId}:`, e);
+                        });
+                    console.log(LOG_PREFIX_SW, 'handleServerMessage: Specifically received and processed push_snippet, attempted to send to tab:', message.payload);
+                } else if (message.command === 'push_snippet') {
+                    // Fallback or error if targetTabId is missing, though it should always be there
+                    console.warn(LOG_PREFIX_SW, `handleServerMessage: 'push_snippet' received without targetTabId in payload. Broadcasting instead. Payload:`, message.payload);
+                    chrome.runtime.sendMessage(message).catch(e => console.warn(LOG_PREFIX_SW, "Error broadcasting push_snippet (fallback):", e));
+                } else {
+                    // For other potential push messages that aren't snippets, or if snippet is missing targetTabId
+                    console.log(LOG_PREFIX_SW, `handleServerMessage: Forwarding generic push message to all listeners. Command: ${message.command}`);
+                    chrome.runtime.sendMessage(message).catch(e => console.warn(LOG_PREFIX_SW, "Error broadcasting generic push message:", e));
                 }
             } else {
-                console.warn(LOG_PREFIX_SW, 'Received unknown message type from server:', message.type);
+                console.warn(LOG_PREFIX_SW, 'handleServerMessage: Received unknown message type from server:', message.type);
             }
         } catch (error) {
-            console.error(LOG_PREFIX_SW, 'Error processing server message:', error, 'Raw data:', messageData);
+            console.error(LOG_PREFIX_SW, 'handleServerMessage: Error processing server message:', error, 'Raw data:', messageData);
         }
     }
 
@@ -616,5 +641,85 @@ if (!ipcClient.isConnected()) {
         ipcClient.connectWithRetry();
     });
 }
+
+const SUPPORTED_LLM_HOST_SUFFIXES = [
+    'gemini.google.com',
+    'chatgpt.com',
+    'claude.ai',
+    'chat.deepseek.com'
+];
+
+async function checkAndRegisterTab(tabId: number, tabUrl?: string): Promise<void> {
+    if (!tabId) return;
+
+    let currentTabUrl = tabUrl;
+    if (!currentTabUrl) {
+        try {
+            const tab = await chrome.tabs.get(tabId);
+            if (!tab.url) return; // Tab might not have a URL (e.g., internal pages)
+            currentTabUrl = tab.url;
+        } catch (error) {
+            console.warn(LOG_PREFIX_SW, `Error getting tab info for tabId ${tabId}:`, error);
+            return; // Cannot get tab info
+        }
+    }
+
+    try {
+        const url = new URL(currentTabUrl);
+        const host = url.hostname;
+
+        const isSupportedLLM = SUPPORTED_LLM_HOST_SUFFIXES.some(suffix => host.endsWith(suffix));
+
+        if (isSupportedLLM) {
+            console.log(LOG_PREFIX_SW, `Supported LLM tab identified: ID ${tabId}, Host ${host}. Registering with VSCE.`);
+            await ipcClient.sendRequest('register_active_target', {
+                tabId: tabId,
+                llmHost: host
+            });
+            console.log(LOG_PREFIX_SW, `Registration request sent for tabId ${tabId}, host ${host}.`);
+        } else {
+            // console.log(LOG_PREFIX_SW, `Tab ${tabId} (${host}) is not a supported LLM host.`);
+        }
+    } catch (error) {
+        console.warn(LOG_PREFIX_SW, `Error processing tab URL '${currentTabUrl}' for registration:`, error);
+    }
+}
+
+chrome.tabs.onActivated.addListener(async (activeInfo) => {
+    console.log(LOG_PREFIX_SW, `Tab activated: tabId ${activeInfo.tabId}`);
+    await checkAndRegisterTab(activeInfo.tabId);
+});
+
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+    if (changeInfo.status === 'complete' && tab.url) {
+        console.log(LOG_PREFIX_SW, `Tab updated and complete: tabId ${tabId}, url ${tab.url}`);
+        await checkAndRegisterTab(tabId, tab.url);
+    } else if (changeInfo.url) {
+        console.log(LOG_PREFIX_SW, `Tab URL changed: tabId ${tabId}, new url ${changeInfo.url}`);
+        await checkAndRegisterTab(tabId, changeInfo.url);
+    }
+});
+
+async function registerInitialActiveTab() {
+    try {
+        const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        if (tabs.length > 0 && tabs[0].id !== undefined) {
+            console.log(LOG_PREFIX_SW, `Initial check: Active tab is ${tabs[0].id}, url ${tabs[0].url}`);
+            await checkAndRegisterTab(tabs[0].id, tabs[0].url);
+        } else {
+            console.log(LOG_PREFIX_SW, "Initial check: No active tab found in last focused window.");
+        }
+    } catch (error) {
+        console.error(LOG_PREFIX_SW, "Error during initial active tab registration:", error);
+    }
+}
+
+// Call this function when the service worker script is loaded, after ipcClient is initialized.
+// This ensures that even if the extension is reloaded or browser starts with an LLM tab open,
+// it gets registered.
+ipcClient.loadConfiguration().then(() => {
+    ipcClient.connectWithRetry();
+    registerInitialActiveTab(); // Call after ipcClient is ready and attempting connection
+});
 
 console.log(LOG_PREFIX_SW, 'Service worker script fully loaded and IPCClient instantiated.');

@@ -735,5 +735,30 @@ Each new entry should follow the format below:
 *   **Prevention:** Clearly delineate which tests rely on internal state manipulation and why. Ensure `jest.clearAllMocks()` and proper `beforeEach` setup prevent state leakage between tests.
 
 ---
+## [2025-06-02] - Snippet Push from VSCE Not Received by CE Content Script
+
+**Phase/Task in Development Plan:** Phase 3, Task "Snippet Receiving and Insertion" / Issue 3.1
+
+**Problem Encountered:**
+*   **Symptoms:** VSCE logs indicated successful sending of `push_snippet` messages. However, the CE content script's `chrome.runtime.onMessage.addListener` was not being triggered for these messages, and thus snippets were not appearing and indicators were not created.
+*   **Context:** Testing snippet sending functionality after implementing tab registration logic in the CE service worker.
+*   **Initial Diagnosis/Hypothesis:** An issue in the CE service worker's forwarding of the `push_snippet` message to the content script, or an issue with the content script's listener.
+
+**Investigation & Iterations:**
+*   Added detailed logging to VSCE `ipcServer.ts` (`pushSnippetToTarget`, `sendMessage`) to confirm WebSocket state and send success. VSCE logs confirmed message was sent over an OPEN WebSocket.
+*   Added detailed logging to CE `serviceWorker.ts` (`IPCClient.handleServerMessage`) to trace incoming WebSocket messages and their forwarding.
+*   Service worker logs showed it *was* receiving the `push_snippet` message via WebSocket but then encountered a "Error: Could not establish connection. Receiving end does not exist." when attempting to forward the message using `chrome.runtime.sendMessage(message)`.
+
+**Solution Implemented:**
+*   Modified the CE `serviceWorker.ts` in the `IPCClient.handleServerMessage` method.
+*   For `push_snippet` messages, instead of broadcasting with `chrome.runtime.sendMessage(message)`, it now uses `chrome.tabs.sendMessage(targetTabId, message)`.
+*   The `targetTabId` is extracted from the `message.payload.targetTabId` field, which is already part of the `push_snippet` IPC definition and populated by VSCE.
+*   This change directs the message specifically to the content script running on the intended LLM tab.
+
+**Key Takeaway(s) / How to Avoid in Future:**
+*   **Lesson:** When a service worker needs to send a message to a content script on a *specific, known tab*, using `chrome.tabs.sendMessage(tabId, message)` is more reliable than a general `chrome.runtime.sendMessage(message)`. The latter can fail with "Receiving end does not exist" if it cannot immediately find an active listener across all extension contexts, whereas `chrome.tabs.sendMessage` directly targets the specified tab's content script(s).
+*   **Prevention:** For targeted communication from service worker to a content script in a known tab, prefer `chrome.tabs.sendMessage`. Ensure the target tab ID is correctly passed and utilized.
+
+---
 
 <!-- Add new log entries above this line | This comment must remain at the end of the file -->

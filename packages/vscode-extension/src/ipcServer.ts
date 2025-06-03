@@ -75,10 +75,10 @@ export class IPCServer {
 
         const tryStartServer = (portToTry: number) => {
             try {
-                this.wss = new WebSocketServer({ port: portToTry });
+                this.wss = new WebSocketServer({ port: portToTry, host: '127.0.0.1' });
 
                 this.wss.on('listening', () => {
-                    const msg = `WebSocket server listening on localhost:${portToTry}`;
+                    const msg = `WebSocket server listening on 127.0.0.1:${portToTry}`;
                     this.outputChannel.appendLine(LOG_PREFIX_SERVER + msg);
                     console.log(LOG_PREFIX_SERVER + msg);
                     if (portToTry !== this.port) {
@@ -251,10 +251,21 @@ export class IPCServer {
             payload
         };
         try {
-            ws.send(JSON.stringify(message));
+            const messageString = JSON.stringify(message); // Stringify once
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `sendMessage: Attempting to send to client. ReadyState: ${ws.readyState}. Message: ${messageString}`);
+            console.log(LOG_PREFIX_SERVER + `sendMessage: Attempting to send to client. ReadyState: ${ws.readyState}. Message:`, message); // Log full object for console
+
+            if (ws.readyState === WebSocket.OPEN) { // Check if OPEN before sending
+                ws.send(messageString);
+                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `sendMessage: Message sent successfully for command: ${command}`);
+                console.log(LOG_PREFIX_SERVER + `sendMessage: Message sent successfully for command: ${command}`);
+            } else {
+                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `sendMessage: WebSocket not OPEN (state: ${ws.readyState}). Message for command '${command}' NOT sent.`);
+                console.warn(LOG_PREFIX_SERVER + `sendMessage: WebSocket not OPEN (state: ${ws.readyState}). Message for command '${command}' NOT sent.`);
+            }
         } catch (error: any) {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error sending message: ${error.message}. Message: ${JSON.stringify(message)}`);
-            console.error(LOG_PREFIX_SERVER + "Error sending message: ", error, message);
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `sendMessage: Error during ws.send() for command '${command}': ${error.message}. Message: ${JSON.stringify(message)}`);
+            console.error(LOG_PREFIX_SERVER + `sendMessage: Error during ws.send() for command '${command}': `, error, message);
         }
     }
 
@@ -274,6 +285,7 @@ export class IPCServer {
 
 
     private handleRegisterActiveTarget(client: Client, payload: any, message_id: string): void {
+        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `handleRegisterActiveTarget called: TabID ${payload.tabId}, Host ${payload.llmHost} for client ${client.ip}`);
         client.activeLLMTabId = payload.tabId;
         client.activeLLMHost = payload.llmHost;
         this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Registered active target for client ${client.ip}: TabID ${payload.tabId}, Host ${payload.llmHost}`);
@@ -783,7 +795,9 @@ export class IPCServer {
 
 
     public getPrimaryTargetTabId(): number | undefined {
+        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Searching for primary target tab ID. Clients: ${this.clients.size}`);
         for (const client of this.clients.values()) {
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `  Client IP: ${client.ip}, Authenticated: ${client.isAuthenticated}, TabID: ${client.activeLLMTabId}, Host: ${client.activeLLMHost}`);
             if (client.isAuthenticated && client.activeLLMTabId !== undefined) {
                 this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Found primary target tab ID: ${client.activeLLMTabId}`);
                 return client.activeLLMTabId;
@@ -803,9 +817,17 @@ export class IPCServer {
         }
 
         if (targetClient) {
-            this.sendMessage(targetClient.ws, 'push', 'push_snippet', snippetData);
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Pushed snippet to tabId ${targetTabId}`);
-            console.log(LOG_PREFIX_SERVER + `Pushed snippet to tabId ${targetTabId}`);
+            if (targetClient.ws) { // Ensure ws exists
+                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `pushSnippetToTarget: targetClient.ws.readyState: ${targetClient.ws.readyState}`);
+                console.log(LOG_PREFIX_SERVER + `pushSnippetToTarget: targetClient.ws.readyState: ${targetClient.ws.readyState}`);
+                this.sendMessage(targetClient.ws, 'push', 'push_snippet', snippetData);
+                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Pushed snippet to tabId ${targetTabId}`);
+                console.log(LOG_PREFIX_SERVER + `Pushed snippet to tabId ${targetTabId}`);
+            } else {
+                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `WARN: targetClient found for tabId ${targetTabId} but its WebSocket is missing.`);
+                console.warn(LOG_PREFIX_SERVER + `WARN: targetClient found for tabId ${targetTabId} but its WebSocket is missing.`);
+                vscode.window.showWarningMessage("ContextWeaver: Could not send snippet. Target client found, but WebSocket is missing.");
+            }
         } else {
             this.outputChannel.appendLine(LOG_PREFIX_SERVER + `WARN: No authenticated client found for targetTabId ${targetTabId} to push snippet.`);
             console.warn(LOG_PREFIX_SERVER + `No authenticated client found for targetTabId ${targetTabId} to push snippet.`);

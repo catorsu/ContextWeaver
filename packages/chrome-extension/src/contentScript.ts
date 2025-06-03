@@ -257,7 +257,7 @@ function renderSearchResults(response: SearchResponse, query: string): void {
           try {
             const browseResponse = await chrome.runtime.sendMessage({
               type: 'LIST_FOLDER_CONTENTS',
-              payload: { 
+              payload: {
                 folderUri: fileUri,
                 workspaceFolderUri: itemDiv.dataset.workspaceFolderUri || null
               }
@@ -547,7 +547,7 @@ async function insertFileContent(fileUri: string, triggerQuery?: string): Promis
       const contentToInsertInLLM = formattedContent.replace('<file_contents>', `<file_contents id="${uniqueBlockId}">`);
 
       insertTextIntoLLMInput(contentToInsertInLLM, currentTargetElementForPanel, triggerQuery);
-      
+
       activeContextBlocks.push({
         uniqueBlockId,
         contentSourceId: metadata.content_source_id,
@@ -588,7 +588,7 @@ async function insertFolderContent(folderUri: string, workspaceFolderUri: string
         label: metadata.label,
         type: metadata.type
       });
-      
+
       return true;
     }
     return false;
@@ -674,6 +674,36 @@ async function populateFloatingUiContent(uiContext: UIContext): Promise<void> {
 
           if (activeFileInfoResponse.success && activeFileInfoResponse.data && activeFileInfoResponse.data.activeFilePath) {
             const activeFilePath = activeFileInfoResponse.data.activeFilePath;
+            const activeFileContentSourceId = activeFileInfoResponse.data.activeFilePath; // This is the URI string
+            const isDuplicate = activeContextBlocks.some(block => block.contentSourceId === activeFileContentSourceId);
+
+            if (isDuplicate) {
+              // Notify user and abort
+              const fileName = activeFileInfoResponse.data.activeFileLabel || 'the active file'; // Use label if available
+              console.warn(LOG_PREFIX_CS, `Duplicate content source: ${activeFileContentSourceId}. Label: "${fileName}"`);
+
+              // Update UI to show message - ensure contentArea is accessible
+              const uiContentArea = floatingUIPanel?.querySelector(`.${CSS_PREFIX}content`) as HTMLElement;
+              if (uiContentArea) {
+                uiContentArea.innerHTML = `<p>Content from "${fileName}" is already added.</p>`;
+              } else {
+                // Fallback if contentArea cannot be found, though less ideal
+                alert(`Content from "${fileName}" is already added.`);
+              }
+
+              setTimeout(() => {
+                if (floatingUIPanel && floatingUIPanel.classList.contains(`${CSS_PREFIX}visible`)) {
+                  // Optionally, restore previous UI content or just hide
+                  hideFloatingUi();
+                }
+              }, 2000); // Hide after 2 seconds
+
+              // Reset button state before returning
+              activeFileButton.textContent = "Insert Active File's Content";
+              activeFileButton.disabled = false;
+              return; // Abort further processing
+            }
+
             const fileContentResponse = await chrome.runtime.sendMessage({
               type: 'GET_FILE_CONTENT',
               payload: { filePath: activeFilePath }
@@ -681,9 +711,21 @@ async function populateFloatingUiContent(uiContext: UIContext): Promise<void> {
             console.log('ContextWeaver: File content response:', fileContentResponse);
 
             if (fileContentResponse.success && fileContentResponse.data && fileContentResponse.data.fileData) {
-              const fileDataArray = [fileContentResponse.data.fileData];
-              const formattedContent = formatFileContentsForLLM(fileDataArray);
-              insertTextIntoLLMInput(formattedContent, currentTargetElementForPanel);
+              const { fileData, metadata } = fileContentResponse.data; // Destructure metadata
+              const uniqueBlockId = metadata.unique_block_id || `cw-block-${Date.now()}`; // Use metadata for uniqueBlockId
+              const formattedContent = formatFileContentsForLLM([fileData]);
+              const contentToInsertInLLM = formattedContent.replace('<file_contents>', `<file_contents id="${uniqueBlockId}">`); // Inject ID
+
+              insertTextIntoLLMInput(contentToInsertInLLM, currentTargetElementForPanel);
+
+              // Add to activeContextBlocks with correct metadata
+              activeContextBlocks.push({
+                uniqueBlockId,
+                contentSourceId: metadata.content_source_id,
+                label: metadata.label,
+                type: metadata.type
+              });
+              renderContextIndicators(); // Render indicators after adding
               hideFloatingUi();
             } else {
               const errorMsg = fileContentResponse.error || 'Failed to get active file content.';
@@ -858,34 +900,56 @@ function renderContextIndicators(): void {
       }
       console.log(LOG_PREFIX_CS, `Close indicator clicked for block ID: ${uniqueId}`);
 
+      if (!uniqueId || typeof uniqueId !== 'string') {
+        console.error(LOG_PREFIX_CS, "Cannot remove block: uniqueId is invalid.", uniqueId);
+        activeContextBlocks = activeContextBlocks.filter(b => b.uniqueBlockId !== closeBtn.dataset.uniqueBlockId);
+        renderContextIndicators();
+        return;
+      }
+
+      let tagNameForRegex = '';
+      if (blockType === 'file_content' || blockType === 'folder_content' || blockType === 'codebase_content') {
+        tagNameForRegex = 'file_contents';
+      } else if (blockType === 'code_snippet') {
+        tagNameForRegex = 'code_snippet';
+      } else if (blockType === 'file_tree') {
+        tagNameForRegex = 'file_tree';
+      } else {
+        console.warn(LOG_PREFIX_CS, `Unknown blockType for removal: ${blockType}`);
+        activeContextBlocks = activeContextBlocks.filter(b => b.uniqueBlockId !== uniqueId);
+        renderContextIndicators();
+        return;
+      }
+
+      const escapedUniqueId = uniqueId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const blockRegex = new RegExp(
+        `<${tagNameForRegex}(?:\\s+[^>]*?)?\\s+id=["']${escapedUniqueId}["'](?:\\s*[^>]*)?>` +
+        `[\\s\\S]*?` +
+        `</${tagNameForRegex}>`,
+        'g'
+      );
+
       if (currentTargetElementForPanel) {
         if ('value' in currentTargetElementForPanel && typeof (currentTargetElementForPanel as HTMLTextAreaElement).selectionStart === 'number') {
           const textArea = currentTargetElementForPanel as HTMLTextAreaElement;
           const originalValue = textArea.value;
 
-          // Regex to find <file_contents id="UID">...</file_contents> or <code_snippet id="UID">...</code_snippet>
-          const blockRegex = new RegExp(
-            `<(${blockType === 'code_snippet' ? 'code_snippet' : 'file_contents'})\\s[^>]*id=["']${uniqueId}["'][^>]*>[\\s\\S]*?</\\1>`,
-            'g'
-          );
-
           textArea.value = originalValue.replace(blockRegex, '');
           if (originalValue.length !== textArea.value.length) {
-            console.log(LOG_PREFIX_CS, `Removed text block ${uniqueId} from TEXTAREA value.`);
+            console.log(LOG_PREFIX_CS, `Removed text block ${uniqueId} (type: ${blockType}, tag: ${tagNameForRegex}) from TEXTAREA value.`);
             textArea.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
           } else {
-            console.warn(LOG_PREFIX_CS, `Could not find/remove text block ${uniqueId} in TEXTAREA value using regex.`);
+            console.warn(LOG_PREFIX_CS, `Could not find/remove text block ${uniqueId} (type: ${blockType}, tag: ${tagNameForRegex}) in TEXTAREA value using regex.`);
           }
 
         } else if (currentTargetElementForPanel.isContentEditable) {
-          // For contentEditable, we look for an element with the ID
           const blockInEditor = currentTargetElementForPanel.querySelector(`[id="${uniqueId}"]`);
-          if (blockInEditor) {
+          if (blockInEditor && blockInEditor.tagName.toLowerCase() === tagNameForRegex) {
             blockInEditor.remove();
-            console.log(LOG_PREFIX_CS, `Removed text block ${uniqueId} from ContentEditable via querySelector by ID.`);
+            console.log(LOG_PREFIX_CS, `Removed text block ${uniqueId} (type: ${blockType}, tag: ${tagNameForRegex}) from ContentEditable via querySelector by ID.`);
             currentTargetElementForPanel.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
           } else {
-            console.warn(LOG_PREFIX_CS, `Could not find text block ${uniqueId} in ContentEditable via querySelector by ID.`);
+            console.warn(LOG_PREFIX_CS, `Could not find text block ${uniqueId} (type: ${blockType}, tag: ${tagNameForRegex}) in ContentEditable via querySelector by ID, or tag name mismatch.`);
           }
         }
       } else {
@@ -1133,6 +1197,22 @@ if (document.readyState === 'loading') {
   initializeTriggerDetection();
 }
 
+function findActiveLLMInput(): HTMLElement | null {
+  const currentHostname = window.location.hostname;
+  for (const config of llmInputsConfig) {
+    if (currentHostname.includes(config.hostSuffix)) {
+      const inputField = document.querySelector(config.selector) as HTMLElement;
+      // Check if the field is visible and interactable (basic check)
+      if (inputField && inputField.offsetParent !== null) {
+        console.log(LOG_PREFIX_CS, "findActiveLLMInput: Found active LLM input field:", inputField);
+        return inputField;
+      }
+    }
+  }
+  console.warn(LOG_PREFIX_CS, "findActiveLLMInput: No active LLM input field found on the page.");
+  return null;
+}
+
 // Listen for messages from the service worker (or other parts of the extension)
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log("ContextWeaver (contentScript.ts): Message received", message);
@@ -1140,21 +1220,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'push' && message.command === 'push_snippet') {
     const snippetData = message.payload; // This is SnippetPayload from VSCE
     console.log("ContextWeaver: Received snippet to insert:", snippetData);
-    if (currentTargetElementForPanel) { // Insert into the last known active LLM input
-      // Format snippet according to SRS 3.3.3
-      const langId = snippetData.language || 'plaintext';
-      let formattedSnippet = `<code_snippet>\n`;
-      formattedSnippet += `File: ${snippetData.filePath}\n`; // Use full path
-      formattedSnippet += `lines: ${snippetData.startLine}-${snippetData.endLine}\n`;
-      formattedSnippet += `\`\`\`${langId}\n`;
-      formattedSnippet += snippetData.snippet.endsWith('\n') ? snippetData.snippet : `${snippetData.snippet}\n`;
-      formattedSnippet += `\`\`\`\n`;
-      formattedSnippet += `</code_snippet>`;
-      insertTextIntoLLMInput(formattedSnippet, currentTargetElementForPanel);
-      // TODO: Add context block indicator using snippetData.metadata
+
+    let targetInputElement = currentTargetElementForPanel;
+    if (!targetInputElement) {
+      console.log(LOG_PREFIX_CS, "currentTargetElementForPanel is null, attempting to find active LLM input for snippet insertion.");
+      targetInputElement = findActiveLLMInput();
+    }
+
+    if (targetInputElement) {
+      if (snippetData.metadata) { // Ensure metadata exists
+        const uniqueBlockId = snippetData.metadata.unique_block_id || `cw-snippet-${Date.now()}`;
+        const langId = snippetData.language || 'plaintext';
+        let formattedSnippet = `<code_snippet id="${uniqueBlockId}">\n`;
+        formattedSnippet += `File: ${snippetData.filePath}\n`;
+        formattedSnippet += `lines: ${snippetData.startLine}-${snippetData.endLine}\n`;
+        formattedSnippet += `\`\`\`${langId}\n`;
+        formattedSnippet += snippetData.snippet.endsWith('\n') ? snippetData.snippet : `${snippetData.snippet}\n`;
+        formattedSnippet += `\`\`\`\n`;
+        formattedSnippet += `</code_snippet>`;
+
+        // Update currentTargetElementForPanel if we found a new one,
+        // so renderContextIndicators can use it.
+        if (!currentTargetElementForPanel && targetInputElement) {
+          currentTargetElementForPanel = targetInputElement;
+        }
+        insertTextIntoLLMInput(formattedSnippet, targetInputElement);
+
+        activeContextBlocks.push({
+          uniqueBlockId: snippetData.metadata.unique_block_id,
+          contentSourceId: snippetData.metadata.content_source_id,
+          label: snippetData.metadata.label,
+          type: snippetData.metadata.type // Should be 'code_snippet'
+        });
+        console.log(LOG_PREFIX_CS, `Added snippet to activeContextBlocks:`, snippetData.metadata);
+        renderContextIndicators();
+      } else {
+        console.warn(LOG_PREFIX_CS, "Snippet received without metadata, cannot create indicator:", snippetData);
+      }
     } else {
-      console.warn("ContextWeaver: No target LLM input element known for snippet insertion.");
-      // Optionally, try to find a default LLM input if none is "active"
+      console.warn("ContextWeaver: No target LLM input element known or found for snippet insertion.");
     }
     return false; // No async response needed from here
   } else if (message.type === 'ERROR_FROM_SERVICE_WORKER' || message.type === 'ERROR_FROM_VSCE_IPC') {
@@ -1188,14 +1292,114 @@ function renderWorkspaceFolders(workspaceFolders: any[], contentArea: HTMLElemen
     folderTitle.textContent = folder.name || 'Workspace Folder';
     folderSection.appendChild(folderTitle);
 
-    const addFolderButton = document.createElement('button');
-    addFolderButton.className = `${CSS_PREFIX}button`;
-    addFolderButton.textContent = 'Add Folder Content';
-    addFolderButton.onclick = () => {
-      console.log(`${LOG_PREFIX_CS} Add folder content for:`, folder);
-      // TODO: Implement folder content addition
+    // File Tree button
+    const fileTreeButton = document.createElement('button');
+    fileTreeButton.className = `${CSS_PREFIX}button`;
+    fileTreeButton.textContent = `File Tree for ${folder.name}`;
+    fileTreeButton.id = `${CSS_PREFIX}btn-file-tree-${folder.uri.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    fileTreeButton.onclick = async () => {
+      const contentSourceId = `${folder.uri}::file_tree`;
+      const isDuplicate = activeContextBlocks.some(block => block.contentSourceId === contentSourceId);
+
+      if (isDuplicate) {
+        contentArea.innerHTML = `<p>File Tree for '${folder.name}' is already added.</p>`;
+        setTimeout(() => hideFloatingUi(), 2000);
+        return;
+      }
+
+      fileTreeButton.disabled = true;
+      fileTreeButton.textContent = `Loading file tree for ${folder.name}...`;
+
+      try {
+        const response = await chrome.runtime.sendMessage({
+          type: 'GET_FILE_TREE',
+          payload: { workspaceFolderUri: folder.uri }
+        });
+
+        if (response.success && response.data?.fileTreeString) {
+          const { fileTreeString, metadata } = response.data;
+          const uniqueBlockId = metadata.unique_block_id;
+
+          // Inject uniqueBlockId into the <file_tree> tag
+          const contentToInsertInLLM = fileTreeString.replace('<file_tree>', `<file_tree id="${uniqueBlockId}">`);
+
+          insertTextIntoLLMInput(contentToInsertInLLM, currentTargetElementForPanel, originalQueryTextFromUI);
+
+          activeContextBlocks.push({
+            uniqueBlockId,
+            contentSourceId: metadata.content_source_id,
+            label: metadata.label,
+            type: metadata.type
+          });
+
+          renderContextIndicators();
+          hideFloatingUi();
+        } else {
+          contentArea.innerHTML = `<p>Error: ${response.error || 'Failed to get file tree'}</p>`;
+        }
+      } catch (error: any) {
+        console.error(LOG_PREFIX_CS, 'Error fetching file tree:', error);
+        contentArea.innerHTML = `<p>Error: ${error.message || 'Failed to get file tree'}</p>`;
+      } finally {
+        fileTreeButton.disabled = false;
+        fileTreeButton.textContent = `File Tree for ${folder.name}`;
+      }
     };
-    folderSection.appendChild(addFolderButton);
+    folderSection.appendChild(fileTreeButton);
+
+    // Full Codebase button  
+    const fullCodebaseButton = document.createElement('button');
+    fullCodebaseButton.className = `${CSS_PREFIX}button`;
+    fullCodebaseButton.textContent = `Full Codebase for ${folder.name}`;
+    fullCodebaseButton.id = `${CSS_PREFIX}btn-full-codebase-${folder.uri.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    fullCodebaseButton.onclick = async () => {
+      const contentSourceId = `${folder.uri}::codebase`;
+      const isDuplicate = activeContextBlocks.some(block => block.contentSourceId === contentSourceId);
+
+      if (isDuplicate) {
+        contentArea.innerHTML = `<p>Full codebase for '${folder.name}' is already added.</p>`;
+        setTimeout(() => hideFloatingUi(), 2000);
+        return;
+      }
+
+      fullCodebaseButton.disabled = true;
+      fullCodebaseButton.textContent = `Loading full codebase for ${folder.name}...`;
+
+      try {
+        const response = await chrome.runtime.sendMessage({
+          type: 'GET_ENTIRE_CODEBASE',
+          payload: { workspaceFolderUri: folder.uri }
+        });
+
+        if (response.success && response.data?.filesData) {
+          const { filesData, metadata } = response.data;
+          const uniqueBlockId = metadata.unique_block_id;
+          const formattedContent = formatFileContentsForLLM(filesData);
+          const contentToInsertInLLM = formattedContent.replace('<file_contents>', `<file_contents id="${uniqueBlockId}">`);
+
+          insertTextIntoLLMInput(contentToInsertInLLM, currentTargetElementForPanel, originalQueryTextFromUI);
+
+          activeContextBlocks.push({
+            uniqueBlockId,
+            contentSourceId: metadata.content_source_id,
+            label: metadata.label,
+            type: metadata.type
+          });
+
+          renderContextIndicators();
+          hideFloatingUi();
+        } else {
+          contentArea.innerHTML = `<p>Error: ${response.error || 'Failed to get codebase'}</p>`;
+        }
+      } catch (error: any) {
+        console.error(LOG_PREFIX_CS, 'Error fetching codebase:', error);
+        contentArea.innerHTML = `<p>Error: ${error.message || 'Failed to get codebase'}</p>`;
+      } finally {
+        fullCodebaseButton.disabled = false;
+        fullCodebaseButton.textContent = `Full Codebase for ${folder.name}`;
+      }
+    };
+    folderSection.appendChild(fullCodebaseButton);
 
     contentArea.appendChild(folderSection);
   });
@@ -1279,7 +1483,7 @@ function renderBrowseView(browseResponse: any, parentFolderUri: string, parentFo
 
     insertButton.disabled = true;
     insertButton.textContent = `Loading ${selectedEntries.length} selected items...`;
-    
+
     const progressDiv = document.createElement('div');
     progressDiv.className = `${CSS_PREFIX}progress`;
     progressDiv.style.marginTop = '10px';

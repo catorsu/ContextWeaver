@@ -96,16 +96,16 @@ Diligent status updates are essential for effective project management.
         *   [√] Implement the "Insert Searched File Content" action (for FR-CE-008). (Relevant files: packages/chrome-extension/src/contentScript.ts)
         *   [√] Implement the hybrid UX for "Insert Searched Folder Content", including the "Browse" functionality with a tree-like view and checkboxes (for FR-CE-009, UI-CE-005). (Relevant files: packages/chrome-extension/src/contentScript.ts, packages/chrome-extension/src/serviceWorker.ts, packages/vscode-extension/src/ipcServer.ts, packages/vscode-extension/src/fileSystemService.ts)
             *   *(This also covers the VSCE mini-task for `list_folder_contents` as it was a dependency for this specific sub-task's full implementation).*
-    *   [√] **Context Block Indicator Management** (Relevant files: packages/chrome-extension/src/contentScript.ts. Note: Indicator for snippets (FR-CE-013) is pending.)
-        *   [ ] Implement the dynamic display of context block indicators above the LLM chat input area based on received metadata (for FR-CE-014, UI-CE-006).
-        *   [ ] Implement the close button functionality for each indicator, including removal of the indicator and the corresponding text block from the chat input (for FR-CE-015).
-    *   [√] **Duplicate Content Prevention** (Relevant files: packages/chrome-extension/src/contentScript.ts. Note: Duplicate check for Active File (FR-CE-006) is pending.)
-        *   [ ] Implement client-side logic to maintain a list of active `content_source_id`s (for FR-CE-016).
-        *   [ ] Implement checks before requesting content to prevent insertion of duplicate sources (except snippets).
-        *   [ ] Implement UI notifications for duplicate insertion attempts (for UI-CE-007).
-    *   [√] **Snippet Receiving and Insertion** (Relevant files: packages/chrome-extension/src/contentScript.ts, packages/chrome-extension/src/serviceWorker.ts. Note: Indicator display for snippets (FR-CE-013) is pending.)
-        *   [ ] Implement the IPC listener (e.g., WebSocket message handler) to receive pushed snippet data from VSCE.
-        *   [ ] Implement logic to insert the received snippet content and display its indicator (for FR-CE-013).
+    *   [√] **Context Block Indicator Management** (Relevant files: `packages/chrome-extension/src/contentScript.ts`)
+        *   [√] Implement the dynamic display of context block indicators above the LLM chat input area based on received metadata (for FR-CE-014, UI-CE-006). (Relevant files: `packages/chrome-extension/src/contentScript.ts` - `renderContextIndicators` and its callers)
+        *   [√] Implement the close button functionality for each indicator, including removal of the indicator and the corresponding text block from the chat input (for FR-CE-015). (Relevant files: `packages/chrome-extension/src/contentScript.ts` - `renderContextIndicators`'s `closeBtn.onclick` handler)
+    *   [√] **Duplicate Content Prevention** (Relevant files: `packages/chrome-extension/src/contentScript.ts`)
+        *   [√] Implement client-side logic to maintain a list of active `content_source_id`s (for FR-CE-016). (Relevant files: `packages/chrome-extension/src/contentScript.ts` - `activeContextBlocks` array and its usage)
+        *   [√] Implement checks before requesting content to prevent insertion of duplicate sources (except snippets). (Relevant files: `packages/chrome-extension/src/contentScript.ts` - in `renderWorkspaceFolders` for File Tree/Full Codebase, and in `activeFileButton.onclick`)
+        *   [√] Implement UI notifications for duplicate insertion attempts (for UI-CE-007). (Relevant files: `packages/chrome-extension/src/contentScript.ts` - in relevant click handlers)
+    *   [√] **Snippet Receiving and Insertion** (Relevant files: `packages/chrome-extension/src/contentScript.ts`, `packages/chrome-extension/src/serviceWorker.ts`)
+        *   [√] Implement the IPC listener (e.g., WebSocket message handler) to receive pushed snippet data from VSCE. (Relevant files: `packages/chrome-extension/src/serviceWorker.ts` - `IPCClient.handleServerMessage` and `chrome.tabs.sendMessage` usage)
+        *   [√] Implement logic to insert the received snippet content and display its indicator (for FR-CE-013). (Relevant files: `packages/chrome-extension/src/contentScript.ts` - `chrome.runtime.onMessage` handler for `push_snippet`)
     *   [√] **State, Error Handling, and UI Refinements** (Relevant files: packages/chrome-extension/src/contentScript.ts, packages/chrome-extension/src/options.ts. Note: Filter type icon (UI-CE-003) is pending.)
         *   [ ] Implement display of loading indicators in the floating UI during IPC operations (for UI-CE-002).
         *   [ ] Implement display of all specified error and status messages (for ERR-001 to ERR-005, UI-CE-003).

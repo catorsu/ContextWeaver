@@ -316,7 +316,7 @@ The target users are software developers and other technical users who:
 
 *   **UI-CE-003: Error and Status Messages:**
     *   All errors (IPC, file read, etc.) and relevant status messages (e.g., "VS Code not connected", "No project open", "Using default .gitignore rules") shall be clearly displayed within the floating UI.
-    *   An icon shall indicate whether project `.gitignore` or default ignore rules are being used by VSCE, based on information from VSCE.
+    *   The CE UI shall clearly indicate (e.g., via text) if default filtering rules are in use by VSCE (e.g., when a `.gitignore` file is not found or is unparsable), based on information from VSCE.
 
 *   **UI-CE-004: Multi-Project Display:**
     *   When VSCE provides data from a multi-root workspace, the floating UI shall group items (options, search results) by `workspace name + [project folder name]`.
