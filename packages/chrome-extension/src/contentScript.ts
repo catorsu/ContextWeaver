@@ -100,9 +100,7 @@ async function performSearch(query: string): Promise<void> {
     renderSearchResults(response, query);
   } catch (error: any) {
     console.error(LOG_PREFIX_CS, 'Error sending search request or processing response:', error);
-    if (contentArea) {
-      contentArea.innerHTML = `<p>Error performing search: ${error.message || 'Unknown error'}</p>`;
-    }
+    showErrorStateInPanel('Search Error', error.message || 'Unknown error performing search.');
   }
 }
 
@@ -191,7 +189,7 @@ function renderSearchResults(response: SearchResponse, query: string): void {
         insertAllButton.onclick = async () => {
           // Check for duplicates
           if (isDuplicate) {
-            contentArea.innerHTML = `<p>Content from folder '${fileName}' is already added.</p>`;
+            showErrorStateInPanel(`Content Already Added`, `Content from folder '${fileName}' is already added.`);
             setTimeout(() => hideFloatingUi(), 2000);
             return;
           }
@@ -230,11 +228,11 @@ function renderSearchResults(response: SearchResponse, query: string): void {
               renderContextIndicators();
               hideFloatingUi();
             } else {
-              contentArea.innerHTML = `<p>Error: ${folderContentResponse.error || 'Failed to get folder content'}</p>`;
+              showErrorStateInPanel(`Error Loading Folder ${fileName}`, folderContentResponse.error || 'Failed to get folder content.', folderContentResponse.errorCode);
             }
           } catch (error: any) {
             console.error(LOG_PREFIX_CS, 'Error fetching folder content:', error);
-            contentArea.innerHTML = `<p>Error: ${error.message || 'Failed to get folder content'}</p>`;
+            showErrorStateInPanel(`Error Loading Folder ${fileName}`, error.message || 'Failed to get folder content.');
           } finally {
             insertAllButton.disabled = false;
             insertAllButton.textContent = `Insert All Content from ${fileName}`;
@@ -264,7 +262,7 @@ function renderSearchResults(response: SearchResponse, query: string): void {
             renderBrowseView(browseResponse, fileUri, fileName, itemDiv.dataset.workspaceFolderUri || null);
           } catch (error: any) {
             console.error(LOG_PREFIX_CS, 'Error getting folder contents:', error);
-            contentArea.innerHTML = `<p>Error: ${error.message || 'Failed to get folder contents'}</p>`;
+            showErrorStateInPanel(`Error Browsing ${fileName}`, error.message || 'Failed to get folder contents.');
           }
         };
         contentArea.appendChild(browseButton);
@@ -279,7 +277,7 @@ function renderSearchResults(response: SearchResponse, query: string): void {
           if (searchResponse && searchQuery) {
             renderSearchResults(searchResponse, searchQuery);
           } else {
-            contentArea.innerHTML = '<p>Could not restore previous search results.</p>';
+            showErrorStateInPanel('Navigation Error', 'Could not restore previous search results.');
           }
         };
         contentArea.appendChild(backButton);
@@ -289,7 +287,7 @@ function renderSearchResults(response: SearchResponse, query: string): void {
 
       if (isDuplicate) {
         console.warn(LOG_PREFIX_CS, `Duplicate content source: ${fileContentSourceId}. Label: "${fileName}"`);
-        contentArea.innerHTML = `<p>Content from "${fileName}" is already added.</p>`;
+        showErrorStateInPanel(`Content Already Added`, `Content from "${fileName}" is already added.`);
         setTimeout(() => hideFloatingUi(), 2000);
         return;
       }
@@ -332,13 +330,13 @@ function renderSearchResults(response: SearchResponse, query: string): void {
           renderContextIndicators();
           hideFloatingUi();
         } else {
-          contentArea.innerHTML = `<p>Error: ${contentResponse.error || 'Failed to get file content'}</p>`;
+          showErrorStateInPanel(`Error Loading ${fileName}`, contentResponse.error || 'Failed to get file content.', contentResponse.errorCode);
           itemDiv.style.opacity = '';
           itemDiv.style.pointerEvents = '';
         }
       } catch (error: any) {
         console.error(LOG_PREFIX_CS, 'Error fetching file content:', error);
-        contentArea.innerHTML = `<p>Error: ${error.message || 'Failed to get file content'}</p>`;
+        showErrorStateInPanel(`Error Loading ${fileName}`, error.message || 'Failed to get file content.');
         itemDiv.style.opacity = '';
         itemDiv.style.pointerEvents = '';
       }
@@ -458,6 +456,33 @@ function injectFloatingUiCss(): void {
       color: #ccc;
       margin-top: 10px;
     }
+    .${CSS_PREFIX}error-panel {
+      padding: 15px;
+      background-color: #3c3c3c;
+      border-radius: 8px;
+      margin-top: 10px;
+      border: 1px solid #6a0000;
+    }
+    .${CSS_PREFIX}error-icon {
+      font-size: 30px;
+      color: #ff6b6b; /* A vibrant red */
+      display: block;
+      text-align: center;
+      margin-bottom: 10px;
+      content: "\\26A0"; /* Unicode warning sign (⚠️) */
+    }
+    .${CSS_PREFIX}error-text {
+      text-align: center;
+      color: #f8d7da; /* Light red/pink */
+      font-size: 13px;
+    }
+    .${CSS_PREFIX}filter-status-text {
+      font-size: 0.85em;
+      color: #aaa; /* Muted gray */
+      font-style: italic;
+      text-align: center;
+      margin-bottom: 8px;
+    }
   `;
   const style = document.createElement('style');
   style.id = styleId;
@@ -561,6 +586,36 @@ function showLoadingStateInPanel(titleText: string, loadingMessage: string): voi
     contentArea.innerHTML = `
       <div class="${CSS_PREFIX}loader"></div>
       <p class="${CSS_PREFIX}loading-text">${loadingMessage}</p>
+    `;
+  }
+}
+
+/**
+ * @description Displays an error state in the floating UI panel with an icon and message.
+ * @param titleText The text to display in the floating UI's title bar (e.g., "Error", "Connection Failed").
+ * @param errorMessage The main error message to display.
+ * @param errorCode An optional IPC error code, which can be appended to the message for more context.
+ */
+function showErrorStateInPanel(titleText: string, errorMessage: string, errorCode?: string): void {
+  if (!floatingUIPanel) {
+    console.warn(`${LOG_PREFIX_CS} Attempted to show error state, but floatingUIPanel is not initialized.`);
+    return;
+  }
+
+  const titleArea = floatingUIPanel.querySelector(`.${CSS_PREFIX}title`) as HTMLElement;
+  const contentArea = floatingUIPanel.querySelector(`.${CSS_PREFIX}content`) as HTMLElement;
+
+  if (titleArea) {
+    titleArea.textContent = titleText;
+  }
+
+  if (contentArea) {
+    const fullErrorMessage = errorCode ? `${errorMessage} (Code: ${errorCode})` : errorMessage;
+    contentArea.innerHTML = `
+      <div class="${CSS_PREFIX}error-panel">
+        <span class="${CSS_PREFIX}error-icon"></span>
+        <p class="${CSS_PREFIX}error-text">${fullErrorMessage}</p>
+      </div>
     `;
   }
 }
@@ -692,12 +747,10 @@ async function populateFloatingUiContent(uiContext: UIContext): Promise<void> {
     contentArea.innerHTML = '';
 
     if (response.error) {
-      contentArea.innerHTML = `<p>Error: ${response.error}</p>`;
-      titleArea.textContent = 'Error';
+      showErrorStateInPanel('Workspace Error', response.error, response.errorCode);
     } else if (response.success && response.data) {
       if (!response.data.isTrusted) {
-        contentArea.innerHTML = '<p>Workspace not trusted. Please trust the workspace in VS Code to proceed.</p>';
-        titleArea.textContent = 'Workspace Untrusted';
+        showErrorStateInPanel('Workspace Untrusted', 'Workspace not trusted. Please trust the workspace in VS Code to proceed.', 'WORKSPACE_NOT_TRUSTED');
         return;
       }
       const activeFileButton = document.createElement('button');
@@ -722,14 +775,7 @@ async function populateFloatingUiContent(uiContext: UIContext): Promise<void> {
               const fileName = activeFileInfoResponse.data.activeFileLabel || 'the active file'; // Use label if available
               console.warn(LOG_PREFIX_CS, `Duplicate content source: ${activeFileContentSourceId}. Label: "${fileName}"`);
 
-              // Update UI to show message - ensure contentArea is accessible
-              const uiContentArea = floatingUIPanel?.querySelector(`.${CSS_PREFIX}content`) as HTMLElement;
-              if (uiContentArea) {
-                uiContentArea.innerHTML = `<p>Content from "${fileName}" is already added.</p>`;
-              } else {
-                // Fallback if contentArea cannot be found, though less ideal
-                alert(`Content from "${fileName}" is already added.`);
-              }
+              showErrorStateInPanel(`Content Already Added`, `Content from "${fileName}" is already added.`);
 
               setTimeout(() => {
                 if (floatingUIPanel && floatingUIPanel.classList.contains(`${CSS_PREFIX}visible`)) {
@@ -770,16 +816,16 @@ async function populateFloatingUiContent(uiContext: UIContext): Promise<void> {
             } else {
               const errorMsg = fileContentResponse.error || 'Failed to get active file content.';
               console.error('ContextWeaver: Error getting active file content:', errorMsg);
-              contentArea.innerHTML = `<p>Error: ${errorMsg}</p>`;
+              showErrorStateInPanel('Active File Error', errorMsg, fileContentResponse.errorCode);
             }
           } else {
             const errorMsg = activeFileInfoResponse.error || 'Could not get active file information from VS Code. Is a file editor active?';
             console.error('ContextWeaver: Error getting active file info:', errorMsg);
-            contentArea.innerHTML = `<p>Error: ${errorMsg}</p>`;
+            showErrorStateInPanel('Active File Error', errorMsg, activeFileInfoResponse.errorCode);
           }
         } catch (e: any) {
           console.error('ContextWeaver: Error in active file workflow:', e);
-          contentArea.innerHTML = `<p>Error: ${e.message || 'Failed to process active file request.'}</p>`;
+          showErrorStateInPanel('Active File Error', e.message || 'Failed to process active file request.');
         } finally {
           if (floatingUIPanel && floatingUIPanel.classList.contains(`${CSS_PREFIX}visible`)) {
             activeFileButton.textContent = "Insert Active File's Content";
@@ -808,11 +854,11 @@ async function populateFloatingUiContent(uiContext: UIContext): Promise<void> {
           } else {
             const errorMsg = openFilesResponse.error || 'Failed to get open files list.';
             console.error('ContextWeaver: Error getting open files list:', errorMsg);
-            contentArea.innerHTML = `<p>Error: ${errorMsg}</p>`;
+            showErrorStateInPanel('Open Files Error', errorMsg, openFilesResponse.errorCode);
           }
         } catch (e: any) {
           console.error('ContextWeaver: Error in open files workflow:', e);
-          contentArea.innerHTML = `<p>Error: ${e.message || 'Failed to process open files request.'}</p>`;
+          showErrorStateInPanel('Open Files Error', e.message || 'Failed to process open files request.');
         } finally {
           if (floatingUIPanel && floatingUIPanel.classList.contains(`${CSS_PREFIX}visible`) && !contentArea.querySelector(`.${CSS_PREFIX}open-files-selector`)) {
             openFilesButton.textContent = "Insert Content of Open Files";
@@ -832,20 +878,14 @@ async function populateFloatingUiContent(uiContext: UIContext): Promise<void> {
         renderWorkspaceFolders(response.data.workspaceFolders, contentArea);
       } else {
         titleArea.textContent = 'ContextWeaver';
-        const noFolderMsg = document.createElement('p');
-        noFolderMsg.textContent = 'No workspace folder open in VS Code. Some options may be limited.';
-        noFolderMsg.style.marginTop = '10px';
-        contentArea.appendChild(noFolderMsg);
+        showErrorStateInPanel('No Workspace Open', 'No workspace folder open in VS Code. Some options may be limited.');
       }
     } else {
-      contentArea.innerHTML = '<p>Could not retrieve workspace details. Is ContextWeaver VSCode extension running and connected?</p>';
-      titleArea.textContent = 'Connection Issue';
+      showErrorStateInPanel('Connection Issue', 'Could not retrieve workspace details. Is ContextWeaver VSCode extension running and connected?');
     }
   } catch (error: any) {
     console.error('ContextWeaver: Error requesting workspace details from service worker:', error);
-    contentArea.innerHTML = '';
-    contentArea.innerHTML = `<p>Error: ${error.message || 'Failed to communicate with service worker.'}</p>`;
-    titleArea.textContent = 'Communication Error';
+    showErrorStateInPanel('Communication Error', error.message || 'Failed to communicate with service worker.');
   }
 }
 
@@ -1304,10 +1344,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   } else if (message.type === 'ERROR_FROM_SERVICE_WORKER' || message.type === 'ERROR_FROM_VSCE_IPC') {
     console.error(`ContextWeaver: Error received: ${message.payload.message}`);
     if (floatingUIPanel && floatingUIPanel.classList.contains(`${CSS_PREFIX}visible`)) {
-      const contentArea = floatingUIPanel.querySelector(`.${CSS_PREFIX}content`) as HTMLElement;
-      if (contentArea) {
-        contentArea.innerHTML = `<p>Error: ${message.payload.message} (Code: ${message.payload.errorCode || 'N/A'})</p>`;
-      }
+      showErrorStateInPanel('Extension Error', message.payload.message, message.payload.errorCode || 'N/A');
     }
     return false;
   }
@@ -1376,11 +1413,11 @@ function renderWorkspaceFolders(workspaceFolders: any[], contentArea: HTMLElemen
           renderContextIndicators();
           hideFloatingUi();
         } else {
-          contentArea.innerHTML = `<p>Error: ${response.error || 'Failed to get file tree'}</p>`;
+          showErrorStateInPanel('File Tree Error', response.error || 'Failed to get file tree.', response.errorCode);
         }
       } catch (error: any) {
         console.error(LOG_PREFIX_CS, 'Error fetching file tree:', error);
-        contentArea.innerHTML = `<p>Error: ${error.message || 'Failed to get file tree'}</p>`;
+        showErrorStateInPanel('File Tree Error', error.message || 'Failed to get file tree.');
       } finally {
         fileTreeButton.disabled = false;
         fileTreeButton.textContent = `File Tree for ${folder.name}`;
@@ -1431,11 +1468,11 @@ function renderWorkspaceFolders(workspaceFolders: any[], contentArea: HTMLElemen
           renderContextIndicators();
           hideFloatingUi();
         } else {
-          contentArea.innerHTML = `<p>Error: ${response.error || 'Failed to get codebase'}</p>`;
+          showErrorStateInPanel('Codebase Error', response.error || 'Failed to get codebase.', response.errorCode);
         }
       } catch (error: any) {
         console.error(LOG_PREFIX_CS, 'Error fetching codebase:', error);
-        contentArea.innerHTML = `<p>Error: ${error.message || 'Failed to get codebase'}</p>`;
+        showErrorStateInPanel('Codebase Error', error.message || 'Failed to get codebase.');
       } finally {
         fullCodebaseButton.disabled = false;
         fullCodebaseButton.textContent = `Full Codebase for ${folder.name}`;
@@ -1455,11 +1492,19 @@ function renderBrowseView(browseResponse: any, parentFolderUri: string, parentFo
   if (!contentArea || !titleArea) return;
 
   if (!browseResponse.success || !browseResponse.data?.entries) {
-    contentArea.innerHTML = `<p>Error: ${browseResponse.error || 'Failed to load folder contents'}</p>`;
+    showErrorStateInPanel(`Error Browsing ${parentFolderName}`, browseResponse.error || 'Failed to load folder contents.');
     return;
   }
 
   contentArea.innerHTML = '';
+
+  if (browseResponse.data.filterTypeApplied === 'default') {
+    const filterStatusMessage = document.createElement('p');
+    filterStatusMessage.className = `${CSS_PREFIX}filter-status-text`;
+    filterStatusMessage.textContent = '(Using default ignore rules for this listing)';
+    contentArea.appendChild(filterStatusMessage);
+  }
+
   const listContainer = document.createElement('div');
   listContainer.style.maxHeight = '250px';
   listContainer.style.overflowY = 'auto';
@@ -1557,7 +1602,7 @@ function renderBrowseView(browseResponse: any, parentFolderUri: string, parentFo
       if (successCount > 0) {
         hideFloatingUi();
       } else {
-        progressDiv.textContent = 'Failed to insert any items.';
+        showErrorStateInPanel('Insertion Failed', 'Failed to insert any of the selected items.');
         insertButton.disabled = false;
         insertButton.textContent = 'Insert Selected Items';
       }
@@ -1568,7 +1613,7 @@ function renderBrowseView(browseResponse: any, parentFolderUri: string, parentFo
 
     } catch (error: any) {
       console.error(LOG_PREFIX_CS, 'Error processing selected items:', error);
-      progressDiv.textContent = `Error: ${error.message || 'Failed to process selected items'}`;
+      showErrorStateInPanel('Insertion Error', error.message || 'Failed to process selected items.');
       insertButton.disabled = false;
       insertButton.textContent = 'Insert Selected Items';
     }
@@ -1602,7 +1647,7 @@ function displayOpenFilesSelectorUI(
   contentArea.classList.add(`${CSS_PREFIX}open-files-selector`); // Add a class for potential specific styling
 
   if (openFilesList.length === 0) {
-    contentArea.innerHTML = '<p>No open (saved) files found in trusted workspace(s).</p>';
+    showErrorStateInPanel('No Open Files', 'No open (saved) files found in trusted workspace(s).');
     const backButton = document.createElement('button');
     backButton.className = `${CSS_PREFIX}button`;
     backButton.textContent = 'Back';
@@ -1711,11 +1756,11 @@ function displayOpenFilesSelectorUI(
         }
 
       } else {
-        contentArea.innerHTML = `<p>Error fetching content: ${response.error || 'Unknown error'}</p>`;
+        showErrorStateInPanel('File Content Error', response.error || 'Unknown error fetching content.', response.errorCode);
       }
     } catch (e: any) {
       console.error('ContextWeaver: Error requesting selected files content:', e);
-      contentArea.innerHTML = `<p>Error: ${e.message || 'Failed to process request.'}</p>`;
+      showErrorStateInPanel('File Content Error', e.message || 'Failed to process request.');
     } finally {
       // No need to reset button state here as UI will be hidden or re-rendered on error
     }

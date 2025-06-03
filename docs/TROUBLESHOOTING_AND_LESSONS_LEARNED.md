@@ -760,5 +760,28 @@ Each new entry should follow the format below:
 *   **Prevention:** For targeted communication from service worker to a content script in a known tab, prefer `chrome.tabs.sendMessage`. Ensure the target tab ID is correctly passed and utilized.
 
 ---
+## 2025-06-03 - CSS `content` Property Emoji/Unicode Rendering
+
+**Phase/Task in Development Plan:** Phase 3 - CE UI and Functionality Implementation (Error Indicator CSS)
+
+**Problem Encountered:**
+*   **Symptoms:** An emoji (e.g., "⚠️") intended for use in a CSS `content` property (e.g., `content: "⚠️";`) was appearing as garbled characters (e.g., "鈿狅笍") in the rendered UI.
+*   **Context:** Defining CSS for an error icon in `contentScript.ts` within the `injectFloatingUiCss` function. The source file (`contentScript.ts`) was UTF-8 encoded.
+*   **Initial Diagnosis/Hypothesis:** Potential encoding mismatch during CSS string construction, injection, or browser parsing, or an issue with how the specific emoji character was being handled.
+
+**Investigation & Iterations:**
+*   Verified source file encoding was UTF-8.
+*   Observed that directly pasting the emoji into the CSS string within the TypeScript file led to the Mojibake.
+
+**Solution Implemented:**
+*   Replaced the problematic direct emoji character in the CSS `content` property with its CSS escape sequence. For "⚠️" (Warning Sign), the escape sequence is `\26A0`.
+    *   Example: Changed `content: "鈿狅笍";` (or `content: "⚠️";` if it was initially correct but got garbled) to `content: "\\26A0";` in the JavaScript string that defines the CSS. (Note the double backslash needed for JavaScript string literal).
+*   Alternatively, ensuring the emoji character is correctly represented as UTF-8 in the source string and that no intermediate steps corrupt this encoding can also work, but using the CSS escape sequence is often more robust against such issues.
+
+**Key Takeaway(s) / How to Avoid in Future:**
+*   **Lesson:** When using Unicode characters (especially emojis) in CSS `content` properties defined within JavaScript/TypeScript strings, directly embedding the character can sometimes lead to encoding issues or Mojibake if not handled perfectly at all stages.
+*   **Prevention:** For reliability, prefer using CSS escape sequences for Unicode characters in `content` properties (e.g., `\26A0` for "⚠️"). This avoids potential encoding problems during string manipulation or injection. If direct characters are used, ensure consistent UTF-8 handling throughout the build and serving process.
+
+---
 
 <!-- Add new log entries above this line | This comment must remain at the end of the file -->

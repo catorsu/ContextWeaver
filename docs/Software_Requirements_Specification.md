@@ -317,8 +317,9 @@ The floating UI should use a standardized loading indicator (CSS spinner and mes
     *   The floating UI shall display a standardized loading indicator (CSS spinner and message) when waiting for data from the VSCE (e.g., during search, fetching large content). This indicator should be displayed in the main content area of the floating UI.
 
 *   **UI-CE-003: Error and Status Messages:**
-    *   All errors (IPC, file read, etc.) and relevant status messages (e.g., "VS Code not connected", "No project open", "Using default .gitignore rules") shall be clearly displayed within the floating UI.
-    *   The CE UI shall clearly indicate (e.g., via text) if default filtering rules are in use by VSCE (e.g., when a `.gitignore` file is not found or is unparsable), based on information from VSCE.
+    *   All errors (IPC, file read, etc.) shall be clearly displayed within the floating UI using a standardized error panel that includes an icon, the error message, and an optional error code.
+    *   Relevant status messages (e.g., "VS Code not connected", "No project open") shall also be displayed clearly, potentially using the same standardized error panel if appropriate for the message's severity or nature.
+    *   The CE UI shall clearly indicate if default filtering rules are in use by VSCE (e.g., when a `.gitignore` file is not found or is unparsable), based on information from VSCE. This is currently implemented for the "Browse Files" view by displaying a text message like "(Using default ignore rules for this listing)".
 
 *   **UI-CE-004: Multi-Project Display:**
     *   When VSCE provides data from a multi-root workspace, the floating UI shall group items (options, search results) by `workspace name + [project folder name]`.
@@ -463,13 +464,13 @@ The content inserted into the LLM chat input shall be wrapped in specific XML-li
 
 #### 3.6. Error Handling and State Management
 
-*   **ERR-001: VS Code Not Running/Extension Disabled:** If the CE cannot connect to the VSCE server, it shall display a clear message to the user indicating the connection failure and suggesting potential causes (e.g., "Cannot connect to VS Code. Please ensure VS Code is running, the ContextWeaver VSCE is enabled, and a project is open. Check extension settings if issues persist."). Actual messages are in English, e.g., "Could not connect to VS Code after [X] attempts. Please check settings."
-*   **ERR-002: No Project Open in VS Code:** If the VSCE reports that no project/folder is open (e.g., via a 'NO_WORKSPACE_OPEN' error code), the CE shall display a clear message to the user (e.g., "No project open in VS Code. Please open a project to use this feature." or the error message from VSCE like "No workspace folder is open. Please open a folder or workspace.").
+*   **ERR-001: VS Code Not Running/Extension Disabled:** If the CE cannot connect to the VSCE server, it shall display a clear message in the floating UI's standardized error panel, indicating the connection failure and suggesting potential causes (e.g., "Error: Could not connect to VS Code. Please ensure it's running and ContextWeaver is active.").
+*   **ERR-002: No Project Open in VS Code:** If the VSCE reports that no project/folder is open (e.g., via a 'NO_WORKSPACE_OPEN' error code), the CE shall display a clear message in the floating UI's standardized error panel (e.g., "Error: No workspace folder is open in VS Code. Please open a project.").
 *   **ERR-003: `.gitignore` File Issues:**
     *   If `.gitignore` is missing, the VSCE will log this and use default rules. The CE shall indicate (e.g., via an icon or text in the UI as per UI-CE-003) that default filtering rules are in use, based on the 'filterType' received from VSCE.
     *   If `.gitignore` is malformed and VSCE falls back to default rules, the CE UI shall indicate that default filtering rules are in use (e.g., via an icon).
-*   **ERR-004: File Read Errors:** If the VSCE fails to read a specific file (e.g., it's binary or a read error occurs), it should report the issue (e.g., via `FILE_BINARY_OR_READ_ERROR` code). The CE can then notify the user with an English message, e.g., "Error reading file [filename]. The file has been skipped or is binary."
-*   **ERR-005: IPC Communication Failure:** If IPC fails during an operation, the CE should indicate an English message, e.g., "Communication with VS Code lost. Operation may not have completed."
+*   **ERR-004: File Read Errors:** If the VSCE fails to read a specific file (e.g., it's binary or a read error occurs, via `FILE_BINARY_OR_READ_ERROR` code), the CE shall display a message in the floating UI's standardized error panel (e.g., "Error: File is binary or could not be read: [filename]").
+*   **ERR-005: IPC Communication Failure:** If IPC fails during an operation, the CE should indicate this in the floating UI's standardized error panel (e.g., "Communication Error: Communication with VS Code lost. Operation may not have completed.").
 *   **ERR-006: Binary File Handling:** Binary files encountered during "entire codebase" or "folder content" operations shall be silently skipped by the VSCE.
 
 ---
