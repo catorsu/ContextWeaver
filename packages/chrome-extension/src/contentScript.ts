@@ -32,6 +32,43 @@ function debounce<F extends (...args: any[]) => any>(func: F, waitFor: number) {
     });
 }
 
+interface WorkspaceGroupable {
+  workspaceFolderUri?: string | null;
+  workspaceFolderName?: string | null;
+  // Other properties of items will be preserved
+  [key: string]: any;
+}
+
+interface GroupedWorkspaceItems<T extends WorkspaceGroupable> {
+  name: string; // Workspace name
+  items: T[];
+}
+
+function groupItemsByWorkspace<T extends WorkspaceGroupable>(
+  items: T[]
+): Map<string, GroupedWorkspaceItems<T>> {
+  const grouped = new Map<string, GroupedWorkspaceItems<T>>();
+  if (!items || items.length === 0) { // Handle empty or null input
+    return grouped;
+  }
+
+  for (const item of items) {
+    const key = item.workspaceFolderUri || 'unknown_workspace';
+    // Use a consistent fallback name if workspaceFolderName is missing but URI is present
+    const name = item.workspaceFolderName || (item.workspaceFolderUri ? `Workspace (${item.workspaceFolderUri.substring(item.workspaceFolderUri.lastIndexOf('/') + 1)})` : 'Unknown Workspace');
+
+
+    if (!grouped.has(key)) {
+      grouped.set(key, { name, items: [] });
+    }
+    grouped.get(key)!.items.push(item);
+  }
+  return grouped;
+}
+
+// Expose for testing in development
+(window as any).groupItemsByWorkspace = groupItemsByWorkspace;
+
 // --- Configuration for LLM Inputs ---
 interface LLMInputConfig {
   hostSuffix: string;
@@ -134,89 +171,198 @@ function renderSearchResults(response: SearchResponse, query: string): void {
 
   contentArea.innerHTML = '';
   const results = response.data.results as SearchResult[];
+  const groupedResultsMap = groupItemsByWorkspace(results);
 
-  results.forEach(result => {
-    const itemDiv = document.createElement('div');
-    itemDiv.className = `${CSS_PREFIX}search-result-item`;
+  if (groupedResultsMap.size > 1) {
+    // Multiple workspaces, render with group headers
+    for (const [workspaceKey, groupData] of groupedResultsMap.entries()) {
+      const groupHeader = document.createElement('div');
+      groupHeader.className = `${CSS_PREFIX}group-header`;
+      groupHeader.textContent = groupData.name;
+      contentArea.appendChild(groupHeader);
 
-    const iconSpan = document.createElement('span');
-    iconSpan.className = `${CSS_PREFIX}type-icon`;
-    iconSpan.textContent = result.type === 'file' ? '📄' : '📁';
-    itemDiv.appendChild(iconSpan);
+      groupData.items.forEach(result => {
+        const itemDiv = document.createElement('div');
+        itemDiv.className = `${CSS_PREFIX}search-result-item`;
 
-    const nameSpan = document.createElement('span');
-    nameSpan.textContent = result.name;
-    itemDiv.appendChild(nameSpan);
+        const iconSpan = document.createElement('span');
+        iconSpan.className = `${CSS_PREFIX}type-icon`;
+        iconSpan.textContent = result.type === 'file' ? '📄' : '📁';
+        itemDiv.appendChild(iconSpan);
 
-    if (result.workspaceFolderName) {
-      const workspaceSpan = document.createElement('span');
-      workspaceSpan.className = 'workspace-name';
-      workspaceSpan.textContent = `(${result.workspaceFolderName})`;
-      itemDiv.appendChild(workspaceSpan);
-    }
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = result.name;
+        itemDiv.appendChild(nameSpan);
 
-    itemDiv.dataset.uri = result.uri;
-    itemDiv.dataset.type = result.type;
-    itemDiv.dataset.contentSourceId = result.content_source_id;
-    if (result.workspaceFolderUri) {
-      itemDiv.dataset.workspaceFolderUri = result.workspaceFolderUri;
-    }
+        // Omit workspaceSpan here as group header provides context
+        // if (result.workspaceFolderName) {
+        //   const workspaceSpan = document.createElement('span');
+        //   workspaceSpan.className = 'workspace-name';
+        //   workspaceSpan.textContent = `(${result.workspaceFolderName})`;
+        //   itemDiv.appendChild(workspaceSpan);
+        // }
 
-    itemDiv.onclick = async () => {
-      const fileUri = itemDiv.dataset.uri!;
-      const fileType = itemDiv.dataset.type as 'file' | 'folder';
-      const fileContentSourceId = itemDiv.dataset.contentSourceId!;
-      const fileName = itemDiv.textContent?.replace(/📄|📁|\s*\(.*\)$/g, '').trim() || 'unknown file';
-      const originalQueryText = (floatingUIPanel?.querySelector(`.${CSS_PREFIX}title`) as HTMLElement)
-        ?.textContent?.match(/@(.*)"\.\.\.$$/)?.[1] || '';
+        itemDiv.dataset.uri = result.uri;
+        itemDiv.dataset.type = result.type;
+        itemDiv.dataset.contentSourceId = result.content_source_id;
+        if (result.workspaceFolderUri) {
+          itemDiv.dataset.workspaceFolderUri = result.workspaceFolderUri;
+        }
 
-      console.log(LOG_PREFIX_CS, `CLICKED ITEM: Name: "${fileName}", SourceID: "${fileContentSourceId}"`);
-      console.log(LOG_PREFIX_CS, `ACTIVE BLOCKS before check:`, JSON.parse(JSON.stringify(activeContextBlocks))); // Deep copy for logging
+        itemDiv.onclick = async () => {
+          const fileUri = itemDiv.dataset.uri!;
+          const fileType = itemDiv.dataset.type as 'file' | 'folder';
+          const fileContentSourceId = itemDiv.dataset.contentSourceId!;
+          const fileName = itemDiv.textContent?.replace(/📄|📁|\s*\(.*\)$/g, '').trim() || 'unknown file';
+          const originalQueryText = (floatingUIPanel?.querySelector(`.${CSS_PREFIX}title`) as HTMLElement)
+            ?.textContent?.match(/@(.*)"\.\.\.$$/)?.[1] || '';
 
-      const isDuplicate = activeContextBlocks.some(block => block.contentSourceId === fileContentSourceId);
-      console.log(LOG_PREFIX_CS, `IS DUPLICATE? ${isDuplicate}`);
+          console.log(LOG_PREFIX_CS, `CLICKED ITEM: Name: "${fileName}", SourceID: "${fileContentSourceId}"`);
+          console.log(LOG_PREFIX_CS, `ACTIVE BLOCKS before check:`, JSON.parse(JSON.stringify(activeContextBlocks))); // Deep copy for logging
 
-      if (fileType === 'folder') {
-        console.log(LOG_PREFIX_CS, 'Folder clicked:', fileName);
-        contentArea.innerHTML = '';
-        titleArea.textContent = `Folder: ${fileName}`;
+          const isDuplicate = activeContextBlocks.some(block => block.contentSourceId === fileContentSourceId);
+          console.log(LOG_PREFIX_CS, `IS DUPLICATE? ${isDuplicate}`);
 
-        // Create "Insert All Content" button
-        const insertAllButton = document.createElement('button');
-        insertAllButton.className = `${CSS_PREFIX}button`;
-        insertAllButton.textContent = `Insert All Content from ${fileName}`;
-        insertAllButton.id = `${CSS_PREFIX}btn-insert-all-${fileContentSourceId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-        insertAllButton.onclick = async () => {
-          // Check for duplicates
+          if (fileType === 'folder') {
+            console.log(LOG_PREFIX_CS, 'Folder clicked:', fileName);
+            contentArea.innerHTML = '';
+            titleArea.textContent = `Folder: ${fileName}`;
+
+            // Create "Insert All Content" button
+            const insertAllButton = document.createElement('button');
+            insertAllButton.className = `${CSS_PREFIX}button`;
+            insertAllButton.textContent = `Insert All Content from ${fileName}`;
+            insertAllButton.id = `${CSS_PREFIX}btn-insert-all-${fileContentSourceId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            insertAllButton.onclick = async () => {
+              // Check for duplicates
+              if (isDuplicate) {
+                showErrorStateInPanel(`Content Already Added`, `Content from folder '${fileName}' is already added.`);
+                setTimeout(() => hideFloatingUi(), 2000);
+                return;
+              }
+
+              // Show loading state
+              insertAllButton.disabled = true;
+              insertAllButton.textContent = `Loading all content from ${fileName}...`;
+              browseButton.disabled = true;
+              backButton.disabled = true;
+              showLoadingStateInPanel(`Processing ${fileName}`, `Fetching all content from ${fileName}...`);
+
+              try {
+                const folderContentResponse = await chrome.runtime.sendMessage({
+                  type: 'GET_FOLDER_CONTENT',
+                  payload: {
+                    folderPath: fileUri,
+                    workspaceFolderUri: itemDiv.dataset.workspaceFolderUri || null
+                  }
+                });
+
+                if (folderContentResponse.success && folderContentResponse.data?.filesData) {
+                  const { filesData, metadata } = folderContentResponse.data;
+                  const uniqueBlockId = metadata.unique_block_id || `cw-block-${Date.now()}`;
+                  const formattedContent = formatFileContentsForLLM(filesData);
+                  const contentToInsertInLLM = formattedContent.replace('<file_contents>', `<file_contents id="${uniqueBlockId}">`);
+
+                  insertTextIntoLLMInput(contentToInsertInLLM, currentTargetElementForPanel, originalQueryText);
+
+                  activeContextBlocks.push({
+                    uniqueBlockId,
+                    contentSourceId: metadata.content_source_id,
+                    label: metadata.label,
+                    type: metadata.type
+                  });
+
+                  renderContextIndicators();
+                  hideFloatingUi();
+                } else {
+                  showErrorStateInPanel(`Error Loading Folder ${fileName}`, folderContentResponse.error || 'Failed to get folder content.', folderContentResponse.errorCode);
+                }
+              } catch (error: any) {
+                console.error(LOG_PREFIX_CS, 'Error fetching folder content:', error);
+                showErrorStateInPanel(`Error Loading Folder ${fileName}`, error.message || 'Failed to get folder content.');
+              } finally {
+                insertAllButton.disabled = false;
+                insertAllButton.textContent = `Insert All Content from ${fileName}`;
+                browseButton.disabled = false;
+                backButton.disabled = false;
+              }
+            };
+            contentArea.appendChild(insertAllButton);
+
+            // Create "Browse Files" button
+            const browseButton = document.createElement('button');
+            browseButton.className = `${CSS_PREFIX}button`;
+            browseButton.textContent = `Browse Files in ${fileName}`;
+            browseButton.id = `${CSS_PREFIX}btn-browse-folder-${fileContentSourceId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            browseButton.onclick = async () => {
+              console.log(LOG_PREFIX_CS, 'Browse folder clicked for:', fileName);
+              showLoadingStateInPanel(`Browsing: ${fileName}`, 'Loading folder contents...');
+
+              try {
+                const browseResponse = await chrome.runtime.sendMessage({
+                  type: 'LIST_FOLDER_CONTENTS',
+                  payload: {
+                    folderUri: fileUri,
+                    workspaceFolderUri: itemDiv.dataset.workspaceFolderUri || null
+                  }
+                });
+                renderBrowseView(browseResponse, fileUri, fileName, itemDiv.dataset.workspaceFolderUri || null);
+              } catch (error: any) {
+                console.error(LOG_PREFIX_CS, 'Error getting folder contents:', error);
+                showErrorStateInPanel(`Error Browsing ${fileName}`, error.message || 'Failed to get folder contents.');
+              }
+            };
+            contentArea.appendChild(browseButton);
+
+            // Create "Back to Search Results" button
+            const backButton = document.createElement('button');
+            backButton.className = `${CSS_PREFIX}button`;
+            backButton.textContent = 'Back to Search Results';
+            backButton.style.marginTop = '10px';
+            backButton.onclick = () => {
+              // Re-render the search results if we have them
+              if (searchResponse && searchQuery) {
+                renderSearchResults(searchResponse, searchQuery);
+              } else {
+                showErrorStateInPanel('Navigation Error', 'Could not restore previous search results.');
+              }
+            };
+            contentArea.appendChild(backButton);
+
+            return;
+          }
+
           if (isDuplicate) {
-            showErrorStateInPanel(`Content Already Added`, `Content from folder '${fileName}' is already added.`);
+            console.warn(LOG_PREFIX_CS, `Duplicate content source: ${fileContentSourceId}. Label: "${fileName}"`);
+            showErrorStateInPanel(`Content Already Added`, `Content from "${fileName}" is already added.`);
             setTimeout(() => hideFloatingUi(), 2000);
             return;
           }
 
-          // Show loading state
-          insertAllButton.disabled = true;
-          insertAllButton.textContent = `Loading all content from ${fileName}...`;
-          browseButton.disabled = true;
-          backButton.disabled = true;
-          showLoadingStateInPanel(`Processing ${fileName}`, `Fetching all content from ${fileName}...`);
+          itemDiv.style.opacity = '0.5';
+          itemDiv.style.pointerEvents = 'none';
+          showLoadingStateInPanel(`Loading ${fileName}...`, `Fetching content for ${fileName}...`);
 
           try {
-            const folderContentResponse = await chrome.runtime.sendMessage({
-              type: 'GET_FOLDER_CONTENT',
-              payload: {
-                folderPath: fileUri,
-                workspaceFolderUri: itemDiv.dataset.workspaceFolderUri || null
-              }
+            const contentResponse = await chrome.runtime.sendMessage({
+              type: 'GET_FILE_CONTENT',
+              payload: { filePath: fileUri }
             });
 
-            if (folderContentResponse.success && folderContentResponse.data?.filesData) {
-              const { filesData, metadata } = folderContentResponse.data;
+            if (contentResponse.success && contentResponse.data?.fileData) {
+              const { fileData, metadata } = contentResponse.data;
               const uniqueBlockId = metadata.unique_block_id || `cw-block-${Date.now()}`;
-              const formattedContent = formatFileContentsForLLM(filesData);
-              const contentToInsertInLLM = formattedContent.replace('<file_contents>', `<file_contents id="${uniqueBlockId}">`);
+              const contentTag = metadata.type === 'code_snippet' ? 'code_snippet' : 'file_contents';
 
-              insertTextIntoLLMInput(contentToInsertInLLM, currentTargetElementForPanel, originalQueryText);
+              // Format the content first
+              const formattedContent = formatFileContentsForLLM([fileData]);
+
+              const contentToInsertInLLM = formattedContent.replace(
+                `<${contentTag}>`,
+                `<${contentTag} id="${uniqueBlockId}">`
+              );
+
+              insertTextIntoLLMInput(contentToInsertInLLM, currentTargetElementForPanel, originalQueryTextFromUI);
 
               activeContextBlocks.push({
                 uniqueBlockId,
@@ -224,126 +370,240 @@ function renderSearchResults(response: SearchResponse, query: string): void {
                 label: metadata.label,
                 type: metadata.type
               });
+              const newBlockToAdd = activeContextBlocks[activeContextBlocks.length - 1];
+              console.log(LOG_PREFIX_CS, `ADDED TO activeContextBlocks: Name: "${newBlockToAdd.label}", SourceID: "${newBlockToAdd.contentSourceId}"`);
+              console.log(LOG_PREFIX_CS, `ACTIVE BLOCKS after add:`, JSON.parse(JSON.stringify(activeContextBlocks)));
 
               renderContextIndicators();
               hideFloatingUi();
             } else {
-              showErrorStateInPanel(`Error Loading Folder ${fileName}`, folderContentResponse.error || 'Failed to get folder content.', folderContentResponse.errorCode);
+              showErrorStateInPanel(`Error Loading ${fileName}`, contentResponse.error || 'Failed to get file content.', contentResponse.errorCode);
+              itemDiv.style.opacity = '';
+              itemDiv.style.pointerEvents = '';
             }
           } catch (error: any) {
-            console.error(LOG_PREFIX_CS, 'Error fetching folder content:', error);
-            showErrorStateInPanel(`Error Loading Folder ${fileName}`, error.message || 'Failed to get folder content.');
-          } finally {
-            insertAllButton.disabled = false;
-            insertAllButton.textContent = `Insert All Content from ${fileName}`;
-            browseButton.disabled = false;
-            backButton.disabled = false;
+            console.error(LOG_PREFIX_CS, 'Error fetching file content:', error);
+            showErrorStateInPanel(`Error Loading ${fileName}`, error.message || 'Failed to get file content.');
+            itemDiv.style.opacity = '';
+            itemDiv.style.pointerEvents = '';
           }
         };
-        contentArea.appendChild(insertAllButton);
 
-        // Create "Browse Files" button
-        const browseButton = document.createElement('button');
-        browseButton.className = `${CSS_PREFIX}button`;
-        browseButton.textContent = `Browse Files in ${fileName}`;
-        browseButton.id = `${CSS_PREFIX}btn-browse-folder-${fileContentSourceId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-        browseButton.onclick = async () => {
-          console.log(LOG_PREFIX_CS, 'Browse folder clicked for:', fileName);
-          showLoadingStateInPanel(`Browsing: ${fileName}`, 'Loading folder contents...');
+        contentArea.appendChild(itemDiv);
+      });
+    }
+  } else {
+    // Single workspace or no workspace info, render as flat list
+    results.forEach(result => {
+      const itemDiv = document.createElement('div');
+      itemDiv.className = `${CSS_PREFIX}search-result-item`;
 
-          try {
-            const browseResponse = await chrome.runtime.sendMessage({
-              type: 'LIST_FOLDER_CONTENTS',
-              payload: {
-                folderUri: fileUri,
-                workspaceFolderUri: itemDiv.dataset.workspaceFolderUri || null
+      const iconSpan = document.createElement('span');
+      iconSpan.className = `${CSS_PREFIX}type-icon`;
+      iconSpan.textContent = result.type === 'file' ? '📄' : '📁';
+      itemDiv.appendChild(iconSpan);
+
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = result.name;
+      itemDiv.appendChild(nameSpan);
+
+      if (result.workspaceFolderName) {
+        const workspaceSpan = document.createElement('span');
+        workspaceSpan.className = 'workspace-name';
+        workspaceSpan.textContent = `(${result.workspaceFolderName})`;
+        itemDiv.appendChild(workspaceSpan);
+      }
+
+      itemDiv.dataset.uri = result.uri;
+      itemDiv.dataset.type = result.type;
+      itemDiv.dataset.contentSourceId = result.content_source_id;
+      if (result.workspaceFolderUri) {
+        itemDiv.dataset.workspaceFolderUri = result.workspaceFolderUri;
+      }
+
+      itemDiv.onclick = async () => {
+        const fileUri = itemDiv.dataset.uri!;
+        const fileType = itemDiv.dataset.type as 'file' | 'folder';
+        const fileContentSourceId = itemDiv.dataset.contentSourceId!;
+        const fileName = itemDiv.textContent?.replace(/📄|📁|\s*\(.*\)$/g, '').trim() || 'unknown file';
+        const originalQueryText = (floatingUIPanel?.querySelector(`.${CSS_PREFIX}title`) as HTMLElement)
+          ?.textContent?.match(/@(.*)"\.\.\.$$/)?.[1] || '';
+
+        console.log(LOG_PREFIX_CS, `CLICKED ITEM: Name: "${fileName}", SourceID: "${fileContentSourceId}"`);
+        console.log(LOG_PREFIX_CS, `ACTIVE BLOCKS before check:`, JSON.parse(JSON.stringify(activeContextBlocks))); // Deep copy for logging
+
+        const isDuplicate = activeContextBlocks.some(block => block.contentSourceId === fileContentSourceId);
+        console.log(LOG_PREFIX_CS, `IS DUPLICATE? ${isDuplicate}`);
+
+        if (fileType === 'folder') {
+          console.log(LOG_PREFIX_CS, 'Folder clicked:', fileName);
+          contentArea.innerHTML = '';
+          titleArea.textContent = `Folder: ${fileName}`;
+
+          // Create "Insert All Content" button
+          const insertAllButton = document.createElement('button');
+          insertAllButton.className = `${CSS_PREFIX}button`;
+          insertAllButton.textContent = `Insert All Content from ${fileName}`;
+          insertAllButton.id = `${CSS_PREFIX}btn-insert-all-${fileContentSourceId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+          insertAllButton.onclick = async () => {
+            // Check for duplicates
+            if (isDuplicate) {
+              showErrorStateInPanel(`Content Already Added`, `Content from folder '${fileName}' is already added.`);
+              setTimeout(() => hideFloatingUi(), 2000);
+              return;
+            }
+
+            // Show loading state
+            insertAllButton.disabled = true;
+            insertAllButton.textContent = `Loading all content from ${fileName}...`;
+            browseButton.disabled = true;
+            backButton.disabled = true;
+            showLoadingStateInPanel(`Processing ${fileName}`, `Fetching all content from ${fileName}...`);
+
+            try {
+              const folderContentResponse = await chrome.runtime.sendMessage({
+                type: 'GET_FOLDER_CONTENT',
+                payload: {
+                  folderPath: fileUri,
+                  workspaceFolderUri: itemDiv.dataset.workspaceFolderUri || null
+                }
+              });
+
+              if (folderContentResponse.success && folderContentResponse.data?.filesData) {
+                const { filesData, metadata } = folderContentResponse.data;
+                const uniqueBlockId = metadata.unique_block_id || `cw-block-${Date.now()}`;
+                const formattedContent = formatFileContentsForLLM(filesData);
+                const contentToInsertInLLM = formattedContent.replace('<file_contents>', `<file_contents id="${uniqueBlockId}">`);
+
+                insertTextIntoLLMInput(contentToInsertInLLM, currentTargetElementForPanel, originalQueryText);
+
+                activeContextBlocks.push({
+                  uniqueBlockId,
+                  contentSourceId: metadata.content_source_id,
+                  label: metadata.label,
+                  type: metadata.type
+                });
+
+                renderContextIndicators();
+                hideFloatingUi();
+              } else {
+                showErrorStateInPanel(`Error Loading Folder ${fileName}`, folderContentResponse.error || 'Failed to get folder content.', folderContentResponse.errorCode);
               }
-            });
-            renderBrowseView(browseResponse, fileUri, fileName, itemDiv.dataset.workspaceFolderUri || null);
-          } catch (error: any) {
-            console.error(LOG_PREFIX_CS, 'Error getting folder contents:', error);
-            showErrorStateInPanel(`Error Browsing ${fileName}`, error.message || 'Failed to get folder contents.');
-          }
-        };
-        contentArea.appendChild(browseButton);
+            } catch (error: any) {
+              console.error(LOG_PREFIX_CS, 'Error fetching folder content:', error);
+              showErrorStateInPanel(`Error Loading Folder ${fileName}`, error.message || 'Failed to get folder content.');
+            } finally {
+              insertAllButton.disabled = false;
+              insertAllButton.textContent = `Insert All Content from ${fileName}`;
+              browseButton.disabled = false;
+              backButton.disabled = false;
+            }
+          };
+          contentArea.appendChild(insertAllButton);
 
-        // Create "Back to Search Results" button
-        const backButton = document.createElement('button');
-        backButton.className = `${CSS_PREFIX}button`;
-        backButton.textContent = 'Back to Search Results';
-        backButton.style.marginTop = '10px';
-        backButton.onclick = () => {
-          // Re-render the search results if we have them
-          if (searchResponse && searchQuery) {
-            renderSearchResults(searchResponse, searchQuery);
-          } else {
-            showErrorStateInPanel('Navigation Error', 'Could not restore previous search results.');
-          }
-        };
-        contentArea.appendChild(backButton);
+          // Create "Browse Files" button
+          const browseButton = document.createElement('button');
+          browseButton.className = `${CSS_PREFIX}button`;
+          browseButton.textContent = `Browse Files in ${fileName}`;
+          browseButton.id = `${CSS_PREFIX}btn-browse-folder-${fileContentSourceId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+          browseButton.onclick = async () => {
+            console.log(LOG_PREFIX_CS, 'Browse folder clicked for:', fileName);
+            showLoadingStateInPanel(`Browsing: ${fileName}`, 'Loading folder contents...');
 
-        return;
-      }
+            try {
+              const browseResponse = await chrome.runtime.sendMessage({
+                type: 'LIST_FOLDER_CONTENTS',
+                payload: {
+                  folderUri: fileUri,
+                  workspaceFolderUri: itemDiv.dataset.workspaceFolderUri || null
+                }
+              });
+              renderBrowseView(browseResponse, fileUri, fileName, itemDiv.dataset.workspaceFolderUri || null);
+            } catch (error: any) {
+              console.error(LOG_PREFIX_CS, 'Error getting folder contents:', error);
+              showErrorStateInPanel(`Error Browsing ${fileName}`, error.message || 'Failed to get folder contents.');
+            }
+          };
+          contentArea.appendChild(browseButton);
 
-      if (isDuplicate) {
-        console.warn(LOG_PREFIX_CS, `Duplicate content source: ${fileContentSourceId}. Label: "${fileName}"`);
-        showErrorStateInPanel(`Content Already Added`, `Content from "${fileName}" is already added.`);
-        setTimeout(() => hideFloatingUi(), 2000);
-        return;
-      }
+          // Create "Back to Search Results" button
+          const backButton = document.createElement('button');
+          backButton.className = `${CSS_PREFIX}button`;
+          backButton.textContent = 'Back to Search Results';
+          backButton.style.marginTop = '10px';
+          backButton.onclick = () => {
+            // Re-render the search results if we have them
+            if (searchResponse && searchQuery) {
+              renderSearchResults(searchResponse, searchQuery);
+            } else {
+              showErrorStateInPanel('Navigation Error', 'Could not restore previous search results.');
+            }
+          };
+          contentArea.appendChild(backButton);
 
-      itemDiv.style.opacity = '0.5';
-      itemDiv.style.pointerEvents = 'none';
-      showLoadingStateInPanel(`Loading ${fileName}...`, `Fetching content for ${fileName}...`);
+          return;
+        }
 
-      try {
-        const contentResponse = await chrome.runtime.sendMessage({
-          type: 'GET_FILE_CONTENT',
-          payload: { filePath: fileUri }
-        });
+        if (isDuplicate) {
+          console.warn(LOG_PREFIX_CS, `Duplicate content source: ${fileContentSourceId}. Label: "${fileName}"`);
+          showErrorStateInPanel(`Content Already Added`, `Content from "${fileName}" is already added.`);
+          setTimeout(() => hideFloatingUi(), 2000);
+          return;
+        }
 
-        if (contentResponse.success && contentResponse.data?.fileData) {
-          const { fileData, metadata } = contentResponse.data;
-          const uniqueBlockId = metadata.unique_block_id || `cw-block-${Date.now()}`;
-          const contentTag = metadata.type === 'code_snippet' ? 'code_snippet' : 'file_contents';
+        itemDiv.style.opacity = '0.5';
+        itemDiv.style.pointerEvents = 'none';
+        showLoadingStateInPanel(`Loading ${fileName}...`, `Fetching content for ${fileName}...`);
 
-          // Format the content first
-          const formattedContent = formatFileContentsForLLM([fileData]);
-
-          const contentToInsertInLLM = formattedContent.replace(
-            `<${contentTag}>`,
-            `<${contentTag} id="${uniqueBlockId}">`
-          );
-
-          insertTextIntoLLMInput(contentToInsertInLLM, currentTargetElementForPanel, originalQueryTextFromUI);
-
-          activeContextBlocks.push({
-            uniqueBlockId,
-            contentSourceId: metadata.content_source_id,
-            label: metadata.label,
-            type: metadata.type
+        try {
+          const contentResponse = await chrome.runtime.sendMessage({
+            type: 'GET_FILE_CONTENT',
+            payload: { filePath: fileUri }
           });
-          const newBlockToAdd = activeContextBlocks[activeContextBlocks.length - 1];
-          console.log(LOG_PREFIX_CS, `ADDED TO activeContextBlocks: Name: "${newBlockToAdd.label}", SourceID: "${newBlockToAdd.contentSourceId}"`);
-          console.log(LOG_PREFIX_CS, `ACTIVE BLOCKS after add:`, JSON.parse(JSON.stringify(activeContextBlocks)));
 
-          renderContextIndicators();
-          hideFloatingUi();
-        } else {
-          showErrorStateInPanel(`Error Loading ${fileName}`, contentResponse.error || 'Failed to get file content.', contentResponse.errorCode);
+          if (contentResponse.success && contentResponse.data?.fileData) {
+            const { fileData, metadata } = contentResponse.data;
+            const uniqueBlockId = metadata.unique_block_id || `cw-block-${Date.now()}`;
+            const contentTag = metadata.type === 'code_snippet' ? 'code_snippet' : 'file_contents';
+
+            // Format the content first
+            const formattedContent = formatFileContentsForLLM([fileData]);
+
+            const contentToInsertInLLM = formattedContent.replace(
+              `<${contentTag}>`,
+              `<${contentTag} id="${uniqueBlockId}">`
+            );
+
+            insertTextIntoLLMInput(contentToInsertInLLM, currentTargetElementForPanel, originalQueryTextFromUI);
+
+            activeContextBlocks.push({
+              uniqueBlockId,
+              contentSourceId: metadata.content_source_id,
+              label: metadata.label,
+              type: metadata.type
+            });
+            const newBlockToAdd = activeContextBlocks[activeContextBlocks.length - 1];
+            console.log(LOG_PREFIX_CS, `ADDED TO activeContextBlocks: Name: "${newBlockToAdd.label}", SourceID: "${newBlockToAdd.contentSourceId}"`);
+            console.log(LOG_PREFIX_CS, `ACTIVE BLOCKS after add:`, JSON.parse(JSON.stringify(activeContextBlocks)));
+
+            renderContextIndicators();
+            hideFloatingUi();
+          } else {
+            showErrorStateInPanel(`Error Loading ${fileName}`, contentResponse.error || 'Failed to get file content.', contentResponse.errorCode);
+            itemDiv.style.opacity = '';
+            itemDiv.style.pointerEvents = '';
+          }
+        } catch (error: any) {
+          console.error(LOG_PREFIX_CS, 'Error fetching file content:', error);
+          showErrorStateInPanel(`Error Loading ${fileName}`, error.message || 'Failed to get file content.');
           itemDiv.style.opacity = '';
           itemDiv.style.pointerEvents = '';
         }
-      } catch (error: any) {
-        console.error(LOG_PREFIX_CS, 'Error fetching file content:', error);
-        showErrorStateInPanel(`Error Loading ${fileName}`, error.message || 'Failed to get file content.');
-        itemDiv.style.opacity = '';
-        itemDiv.style.pointerEvents = '';
-      }
-    };
+      };
 
-    contentArea.appendChild(itemDiv);
-  });
+      contentArea.appendChild(itemDiv);
+    });
+  }
 }
 
 // --- CSS Injection ---
@@ -475,6 +735,15 @@ function injectFloatingUiCss(): void {
       text-align: center;
       color: #f8d7da; /* Light red/pink */
       font-size: 13px;
+    }
+    .${CSS_PREFIX}group-header {
+      font-size: 15px;
+      font-weight: bold;
+      color: #e0e0e0;
+      margin-top: 12px;
+      margin-bottom: 6px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid #555;
     }
     .${CSS_PREFIX}filter-status-text {
       font-size: 0.85em;
@@ -875,7 +1144,8 @@ async function populateFloatingUiContent(uiContext: UIContext): Promise<void> {
         contentArea.appendChild(separator);
 
         titleArea.textContent = response.data.vsCodeInstanceName || 'ContextWeaver';
-        renderWorkspaceFolders(response.data.workspaceFolders, contentArea);
+        const showFolderGrouping = response.data.workspaceFolders.length > 1;
+        renderWorkspaceFolders(response.data.workspaceFolders, contentArea, showFolderGrouping);
       } else {
         titleArea.textContent = 'ContextWeaver';
         showErrorStateInPanel('No Workspace Open', 'No workspace folder open in VS Code. Some options may be limited.');
@@ -1359,15 +1629,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
  * @param contentArea - The HTMLElement where the UI should be rendered.
  * @param titleArea - The HTMLElement for the floating UI's title.
  */
-function renderWorkspaceFolders(workspaceFolders: any[], contentArea: HTMLElement): void {
+function renderWorkspaceFolders(workspaceFolders: any[], contentArea: HTMLElement, showFolderGrouping: boolean): void {
   workspaceFolders.forEach(folder => {
-    const folderSection = document.createElement('div');
-    folderSection.className = `${CSS_PREFIX}folder-section`;
+    let targetContainer = contentArea; // Default to contentArea for single folder case
 
-    const folderTitle = document.createElement('div');
-    folderTitle.className = `${CSS_PREFIX}folder-title`;
-    folderTitle.textContent = folder.name || 'Workspace Folder';
-    folderSection.appendChild(folderTitle);
+    if (showFolderGrouping) {
+      const folderSection = document.createElement('div');
+      folderSection.className = `${CSS_PREFIX}folder-section`;
+
+      const folderTitle = document.createElement('div');
+      folderTitle.className = `${CSS_PREFIX}folder-title`;
+      folderTitle.textContent = folder.name || 'Workspace Folder';
+      folderSection.appendChild(folderTitle);
+      contentArea.appendChild(folderSection); // Append the section first
+      targetContainer = folderSection; // Set target to the section for buttons
+    }
 
     // File Tree button
     const fileTreeButton = document.createElement('button');
@@ -1423,7 +1699,7 @@ function renderWorkspaceFolders(workspaceFolders: any[], contentArea: HTMLElemen
         fileTreeButton.textContent = `File Tree for ${folder.name}`;
       }
     };
-    folderSection.appendChild(fileTreeButton);
+    targetContainer.appendChild(fileTreeButton); // Append to targetContainer
 
     // Full Codebase button  
     const fullCodebaseButton = document.createElement('button');
@@ -1478,9 +1754,7 @@ function renderWorkspaceFolders(workspaceFolders: any[], contentArea: HTMLElemen
         fullCodebaseButton.textContent = `Full Codebase for ${folder.name}`;
       }
     };
-    folderSection.appendChild(fullCodebaseButton);
-
-    contentArea.appendChild(folderSection);
+    targetContainer.appendChild(fullCodebaseButton); // Append to targetContainer
   });
 }
 
@@ -1555,6 +1829,7 @@ function renderBrowseView(browseResponse: any, parentFolderUri: string, parentFo
   const insertButton = document.createElement('button');
   insertButton.className = `${CSS_PREFIX}button`;
   insertButton.textContent = 'Insert Selected Items';
+  insertButton.type = 'button';
   insertButton.onclick = async () => {
     const selectedEntries = Array.from(listContainer.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:checked:not(:disabled)'))
       .map(cb => ({
@@ -1665,45 +1940,98 @@ function displayOpenFilesSelectorUI(
   listContainer.style.overflowY = 'auto';
   listContainer.style.marginBottom = '10px';
 
-  openFilesList.forEach(file => {
-    const listItem = document.createElement('div');
-    listItem.style.marginBottom = '5px';
-    listItem.style.padding = '3px';
-    listItem.style.borderBottom = '1px solid #3a3a3a';
+  const groupedOpenFilesMap = groupItemsByWorkspace(openFilesList);
 
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.value = file.path; // Store file URI string as value
-    checkbox.id = `${CSS_PREFIX}openfile-${file.path.replace(/[^a-zA-Z0-9]/g, '_')}`; // Create a safe ID
-    checkbox.style.marginRight = '8px';
-    checkbox.checked = true; // Default to checked state
+  if (groupedOpenFilesMap.size > 1) {
+    // Multiple workspaces, render with group headers
+    for (const [workspaceKey, groupData] of groupedOpenFilesMap.entries()) {
+      const groupHeader = document.createElement('div');
+      groupHeader.className = `${CSS_PREFIX}group-header`;
+      groupHeader.textContent = groupData.name;
+      listContainer.appendChild(groupHeader);
 
-    const label = document.createElement('label');
-    label.htmlFor = checkbox.id;
-    let labelText = file.name;
-    if (file.workspaceFolderName) {
-      labelText += ` (${file.workspaceFolderName})`;
+      groupData.items.forEach(file => {
+        const listItem = document.createElement('div');
+        listItem.style.marginBottom = '5px';
+        listItem.style.padding = '3px';
+        listItem.style.borderBottom = '1px solid #3a3a3a';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.value = file.path; // Store file URI string as value
+        checkbox.id = `${CSS_PREFIX}openfile-${file.path.replace(/[^a-zA-Z0-9]/g, '_')}`; // Create a safe ID
+        checkbox.style.marginRight = '8px';
+        checkbox.checked = true; // Default to checked state
+
+        const label = document.createElement('label');
+        label.htmlFor = checkbox.id;
+        let labelText = file.name;
+        // Omit workspace name in label if under a group header
+        label.textContent = labelText;
+        label.style.fontSize = '13px';
+
+        // FR-CE-007 V1.3: Duplicate check
+        // Assuming file.path is the content_source_id for individual files
+        if (activeContextSourceIds.includes(file.path)) {
+          checkbox.disabled = true;
+          label.style.textDecoration = 'line-through';
+          label.title = 'This file has already been added to the context.';
+          const alreadyAddedSpan = document.createElement('span');
+          alreadyAddedSpan.textContent = ' (already added)';
+          alreadyAddedSpan.style.fontStyle = 'italic';
+          alreadyAddedSpan.style.color = '#888';
+          label.appendChild(alreadyAddedSpan);
+        }
+
+        listItem.appendChild(checkbox);
+        listItem.appendChild(label);
+        listContainer.appendChild(listItem);
+      });
     }
-    label.textContent = labelText;
-    label.style.fontSize = '13px';
+  } else {
+    // Single workspace or no workspace info, render as flat list
+    openFilesList.forEach(file => {
+      const listItem = document.createElement('div');
+      listItem.style.marginBottom = '5px';
+      listItem.style.padding = '3px';
+      listItem.style.borderBottom = '1px solid #3a3a3a';
 
-    // FR-CE-007 V1.3: Duplicate check
-    // Assuming file.path is the content_source_id for individual files
-    if (activeContextSourceIds.includes(file.path)) {
-      checkbox.disabled = true;
-      label.style.textDecoration = 'line-through';
-      label.title = 'This file has already been added to the context.';
-      const alreadyAddedSpan = document.createElement('span');
-      alreadyAddedSpan.textContent = ' (already added)';
-      alreadyAddedSpan.style.fontStyle = 'italic';
-      alreadyAddedSpan.style.color = '#888';
-      label.appendChild(alreadyAddedSpan);
-    }
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.value = file.path; // Store file URI string as value
+      checkbox.id = `${CSS_PREFIX}openfile-${file.path.replace(/[^a-zA-Z0-9]/g, '_')}`; // Create a safe ID
+      checkbox.style.marginRight = '8px';
+      checkbox.checked = true; // Default to checked state
 
-    listItem.appendChild(checkbox);
-    listItem.appendChild(label);
-    listContainer.appendChild(listItem);
-  });
+      const label = document.createElement('label');
+      label.htmlFor = checkbox.id;
+      let labelText = file.name;
+
+      // Only add workspace name if it's a single unknown workspace or no workspace info
+      if (file.workspaceFolderName && (groupedOpenFilesMap.size === 0 || groupedOpenFilesMap.keys().next().value === 'unknown_workspace')) {
+        labelText += ` (${file.workspaceFolderName})`;
+      }
+      label.textContent = labelText;
+      label.style.fontSize = '13px';
+
+      // FR-CE-007 V1.3: Duplicate check
+      // Assuming file.path is the content_source_id for individual files
+      if (activeContextSourceIds.includes(file.path)) {
+        checkbox.disabled = true;
+        label.style.textDecoration = 'line-through';
+        label.title = 'This file has already been added to the context.';
+        const alreadyAddedSpan = document.createElement('span');
+        alreadyAddedSpan.textContent = ' (already added)';
+        alreadyAddedSpan.style.fontStyle = 'italic';
+        alreadyAddedSpan.style.color = '#888';
+        label.appendChild(alreadyAddedSpan);
+      }
+
+      listItem.appendChild(checkbox);
+      listItem.appendChild(label);
+      listContainer.appendChild(listItem);
+    });
+  }
   form.appendChild(listContainer);
 
   const insertButton = document.createElement('button');

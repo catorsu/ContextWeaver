@@ -108,8 +108,8 @@ Diligent status updates are essential for effective project management.
         *   [√] Implement logic to insert the received snippet content and display its indicator (for FR-CE-013). (Relevant files: `packages/chrome-extension/src/contentScript.ts` - `chrome.runtime.onMessage` handler for `push_snippet`)
     *   [√] **State, Error Handling, and UI Refinements** (Relevant files: packages/chrome-extension/src/contentScript.ts, packages/chrome-extension/src/options.ts. Note: Filter type icon (UI-CE-003) is pending.)
         *   [√] Implement display of loading indicators in the floating UI during IPC operations (for UI-CE-002).
-        *   [ ] Implement display of all specified error and status messages (for ERR-001 to ERR-005, UI-CE-003).
-        *   [ ] Implement UI grouping for multi-project/multi-folder data received from VSCE (for FR-CE-012, UI-CE-004).
+        *   [√] Implement display of all specified error and status messages (for ERR-001 to ERR-005, UI-CE-003).
+        *   [√] Implement UI grouping for multi-project/multi-folder data received from VSCE (for FR-CE-012, UI-CE-004).
     *   [ ] **CE Unit and Integration Testing**
         *   [ ] Develop unit tests for UI components and client-side logic.
         *   [ ] Develop integration tests for IPC client logic using a mock VSCE server.

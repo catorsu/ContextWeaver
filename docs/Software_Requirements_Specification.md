@@ -174,8 +174,9 @@ The target users are software developers and other technical users who:
     *   The UI shall automatically dismiss after successfully inserting content.
 
 *   **FR-CE-012: Handling Multiple VS Code Projects:**
-    *   If the VSCE reports data from multiple workspace folders (in a multi-root workspace), the floating UI shall group options and search results by `workspace name + [project folder name]`.
-    *   If only one project/folder is open in VS Code, this grouping layer shall be omitted in the UI for simplicity.
+    *   If data (e.g., search results, list of open files) originates from multiple workspace folders, the floating UI shall group these items under headers corresponding to their respective workspace folder names.
+    *   If data originates from a single workspace folder, or if workspace information is unavailable for all items, this explicit grouping layer (i.e., group headers) shall be omitted, and items will be displayed in a flat list.
+    *   For general workspace actions (like "File Tree", "Full Codebase") in `populateFloatingUiContent`: if only one workspace folder is open, the per-folder sectioning/titling for these buttons will be omitted for a simpler UI. If multiple workspace folders are open, actions will be presented under their respective folder names.
 
 *   **FR-CE-013: Snippet Insertion from VS Code:**
     *   The CE (likely its service worker or a content script with an active WebSocket connection) shall listen for snippet data pushed from the VSCE.
@@ -322,8 +323,9 @@ The floating UI should use a standardized loading indicator (CSS spinner and mes
     *   The CE UI shall clearly indicate if default filtering rules are in use by VSCE (e.g., when a `.gitignore` file is not found or is unparsable), based on information from VSCE. This is currently implemented for the "Browse Files" view by displaying a text message like "(Using default ignore rules for this listing)".
 
 *   **UI-CE-004: Multi-Project Display:**
-    *   When VSCE provides data from a multi-root workspace, the floating UI shall group items (options, search results) by `workspace name + [project folder name]`.
-    *   If only one project/folder is open, this grouping layer shall be omitted.
+    *   When displaying lists of items (e.g., search results, open files) that originate from multiple workspace folders, the floating UI shall use group headers (displaying the workspace folder name) to visually separate these items.
+    *   If items originate from only a single workspace folder, or if workspace information is consistently unavailable, these group headers shall be omitted, and items will be displayed as a flat list.
+    *   For general workspace-specific actions (like "File Tree", "Full Codebase" buttons): if only one workspace folder is active, the UI will not show an explicit grouping title for that single folder's actions, presenting them more directly. If multiple workspace folders are active, actions will be grouped under their respective folder names.
 
 *   **UI-CE-005: Folder Browse View:**
     *   The folder browse view (triggered by "Browse" icon on a searched folder) shall display a hierarchical list of files and subfolders with checkboxes, as per the user-provided image reference.
