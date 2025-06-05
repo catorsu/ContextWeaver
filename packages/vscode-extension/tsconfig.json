@@ -15,7 +15,13 @@
     "types": [
       "node",
       "jest"
-    ]
+    ],
+    "composite": true,
+    "baseUrl": "./src",
+    "paths": {
+      "@contextweaver/shared": ["../../shared/src"],
+      "@contextweaver/shared/*": ["../../shared/src/*"]
+    }
   },
   "include": [
     "src/**/*.ts"
@@ -23,5 +29,8 @@
   "exclude": [
     "node_modules",
     ".vscode-test"
+  ],
+  "references": [
+    { "path": "../shared" }
   ]
 }

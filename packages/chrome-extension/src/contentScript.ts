@@ -6,20 +6,34 @@
  * @module ContextWeaver/CE
  */
 
+// Import UIManager and shared types
+import { UIManager } from './uiManager';
+import {
+  ContextBlockMetadata,
+  SearchResult as SharedSearchResult,
+  SearchWorkspaceResponsePayload,
+  FileContentResponsePayload,
+  FolderContentResponsePayload,
+  FileTreeResponsePayload,
+  EntireCodebaseResponsePayload,
+  ListFolderContentsResponsePayload,
+  OpenFilesResponsePayload,
+  ActiveFileInfoResponsePayload,
+  WorkspaceDetailsResponsePayload,
+  DirectoryEntry as CWDirectoryEntry // Alias DirectoryEntry to avoid collision
+} from '@contextweaver/shared';
+import { StateManager } from './stateManager';
+import * as swClient from './serviceWorkerClient'; // Import the client
+
+
 const LOG_PREFIX_CS = '[ContextWeaver CS]';
-const CSS_PREFIX = 'cw-';
+const LOCAL_CSS_PREFIX = 'cw-'; // For classes not managed by UIManager but needed locally
+
 console.log(`${LOG_PREFIX_CS} Content script loaded.`);
 
-interface ActiveContextBlock {
-  uniqueBlockId: string;
-  contentSourceId: string;
-  label: string;
-  type: string;
-}
+const uiManager = new UIManager();
+const stateManager = new StateManager(); // Instantiate StateManager
 
-let activeContextBlocks: ActiveContextBlock[] = [];
-const CONTEXT_INDICATOR_AREA_ID = `${CSS_PREFIX}context-indicator-area`;
-const CONTEXT_BLOCK_CLASS = `${CSS_PREFIX}context-block`;
 
 function debounce<F extends (...args: any[]) => any>(func: F, waitFor: number) {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -35,12 +49,11 @@ function debounce<F extends (...args: any[]) => any>(func: F, waitFor: number) {
 interface WorkspaceGroupable {
   workspaceFolderUri?: string | null;
   workspaceFolderName?: string | null;
-  // Other properties of items will be preserved
   [key: string]: any;
 }
 
 interface GroupedWorkspaceItems<T extends WorkspaceGroupable> {
-  name: string; // Workspace name
+  name: string;
   items: T[];
 }
 
@@ -48,15 +61,13 @@ function groupItemsByWorkspace<T extends WorkspaceGroupable>(
   items: T[]
 ): Map<string, GroupedWorkspaceItems<T>> {
   const grouped = new Map<string, GroupedWorkspaceItems<T>>();
-  if (!items || items.length === 0) { // Handle empty or null input
+  if (!items || items.length === 0) {
     return grouped;
   }
 
   for (const item of items) {
     const key = item.workspaceFolderUri || 'unknown_workspace';
-    // Use a consistent fallback name if workspaceFolderName is missing but URI is present
     const name = item.workspaceFolderName || (item.workspaceFolderUri ? `Workspace (${item.workspaceFolderUri.substring(item.workspaceFolderUri.lastIndexOf('/') + 1)})` : 'Unknown Workspace');
-
 
     if (!grouped.has(key)) {
       grouped.set(key, { name, items: [] });
@@ -66,10 +77,8 @@ function groupItemsByWorkspace<T extends WorkspaceGroupable>(
   return grouped;
 }
 
-// Expose for testing in development
 (window as any).groupItemsByWorkspace = groupItemsByWorkspace;
 
-// --- Configuration for LLM Inputs ---
 interface LLMInputConfig {
   hostSuffix: string;
   selector: string;
@@ -85,896 +94,281 @@ const llmInputsConfig: LLMInputConfig[] = [
   { hostSuffix: 'chat.deepseek.com', selector: 'textarea#chat-input', isContentEditable: false }
 ];
 
-// --- Global state for UI and listeners ---
 const eventHandlers = new Map<HTMLElement, (event: Event) => void>();
-let floatingUIPanel: HTMLElement | null = null;
-let currentTargetElementForPanel: HTMLElement | null = null;
-let originalQueryTextFromUI: string | undefined = undefined;
-const UI_PANEL_ID = 'contextweaver-floating-panel';
 
-interface UIContext {
+
+interface UIContext { // Kept for conceptual clarity in contentScript, though UIManager doesn't directly use it
   mode: 'general' | 'search';
   query?: string;
 }
 
-interface SearchResponse {
-  success: boolean;
-  error?: string;
-  data?: {
-    results: SearchResult[];
-  };
-}
-
-interface SearchResult {
-  path: string;
-  name: string;
-  type: 'file' | 'folder';
-  uri: string;
-  content_source_id: string;
-  workspaceFolderUri: string | null;
-  workspaceFolderName: string | null;
-}
-
 async function performSearch(query: string): Promise<void> {
-  if (!floatingUIPanel || !query || query.trim() === "") {
-    const contentArea = floatingUIPanel?.querySelector(`.${CSS_PREFIX}content`) as HTMLElement;
-    if (contentArea) contentArea.innerHTML = '<p>Type to search...</p>';
+  if (!query || query.trim() === "") {
+    uiManager.updateContent('<p>Type to search...</p>');
     return;
   }
 
-  const titleArea = floatingUIPanel.querySelector(`.${CSS_PREFIX}title`) as HTMLElement;
-  const contentArea = floatingUIPanel.querySelector(`.${CSS_PREFIX}content`) as HTMLElement;
-
-  showLoadingStateInPanel(`Searching for "@${query}"...`, 'Loading results...');
+  uiManager.showLoading(`Searching for "@${query}"...`, 'Loading results...');
 
   try {
     console.log(LOG_PREFIX_CS, `Sending SEARCH_WORKSPACE for query: "${query}"`);
-    const response = await chrome.runtime.sendMessage({
-      type: 'SEARCH_WORKSPACE',
-      payload: { query: query, workspaceFolderUri: null }
-    });
+    const response = await swClient.searchWorkspace(query, null);
     console.log(LOG_PREFIX_CS, 'Search response from service worker:', response);
     renderSearchResults(response, query);
   } catch (error: any) {
     console.error(LOG_PREFIX_CS, 'Error sending search request or processing response:', error);
-    showErrorStateInPanel('Search Error', error.message || 'Unknown error performing search.');
+    uiManager.showError('Search Error', error.message || 'Unknown error performing search.');
   }
 }
 
 const debouncedPerformSearch = debounce(performSearch, 300);
 
-let searchResponse: SearchResponse | null = null;
-let searchQuery: string | null = null;
+// Helper to process a generic content insertion (file or entire folder)
+async function processContentInsertion(
+  itemMetadata: {
+    name: string;
+    contentSourceId: string;
+    type: 'file' | 'folder' | 'file_tree' | 'codebase_content'; // Expanded types for clarity
+    uri?: string; // URI for fetching content (optional for file_tree/codebase_content if not directly URI-based)
+    workspaceFolderUri?: string | null; // For folder content, file tree, codebase
+  },
+  itemDivForFeedback?: HTMLElement | null // Optional: for UI feedback like opacity
+): Promise<void> {
+  if (stateManager.isDuplicateContentSource(itemMetadata.contentSourceId)) {
+    console.warn(LOG_PREFIX_CS, `Duplicate content source: ${itemMetadata.contentSourceId}. Label: "${itemMetadata.name}"`);
+    uiManager.showError("Content Already Added", `Content from "${itemMetadata.name}" is already added.`);
+    setTimeout(() => uiManager.hide(), 2000);
+    return;
+  }
 
-function renderSearchResults(response: SearchResponse, query: string): void {
-  searchResponse = response;
-  searchQuery = query;
-  if (!floatingUIPanel) return;
+  if (itemDivForFeedback) {
+    itemDivForFeedback.style.opacity = '0.5';
+    itemDivForFeedback.style.pointerEvents = 'none';
+  }
+  uiManager.showLoading(`Loading ${itemMetadata.name}...`, `Fetching content for ${itemMetadata.name}...`);
 
-  const titleArea = floatingUIPanel.querySelector(`.${CSS_PREFIX}title`) as HTMLElement;
-  const contentArea = floatingUIPanel.querySelector(`.${CSS_PREFIX}content`) as HTMLElement;
+  try {
+    let responsePayload: FileContentResponsePayload | FolderContentResponsePayload | FileTreeResponsePayload | EntireCodebaseResponsePayload;
+    let contentTag: 'file_contents' | 'file_tree' = 'file_contents'; // Default for file/folder content
 
-  if (!titleArea || !contentArea) return;
+    if (itemMetadata.type === 'file') {
+      responsePayload = await swClient.getFileContent(itemMetadata.uri!);
+    } else if (itemMetadata.type === 'folder') {
+      responsePayload = await swClient.getFolderContent(itemMetadata.uri!, itemMetadata.workspaceFolderUri || null);
+    } else if (itemMetadata.type === 'file_tree') {
+      contentTag = 'file_tree';
+      responsePayload = await swClient.getFileTree(itemMetadata.workspaceFolderUri || null);
+    } else if (itemMetadata.type === 'codebase_content') {
+      responsePayload = await swClient.getEntireCodebase(itemMetadata.workspaceFolderUri || null);
+    } else {
+      throw new Error(`Unsupported item type for processContentInsertion: ${itemMetadata.type}`);
+    }
+
+    if (responsePayload.success && responsePayload.data) {
+      const actualData = responsePayload.data as any; // Cast to any to access specific data properties
+      let contentToInsert: string;
+      let metadataFromResponse: ContextBlockMetadata;
+
+      if (itemMetadata.type === 'file_tree') {
+        contentToInsert = actualData.fileTreeString;
+        metadataFromResponse = actualData.metadata;
+      } else if (itemMetadata.type === 'file') {
+        contentToInsert = formatFileContentsForLLM([actualData.fileData]);
+        metadataFromResponse = actualData.metadata;
+      } else { // 'folder' or 'codebase_content'
+        contentToInsert = formatFileContentsForLLM(actualData.filesData);
+        metadataFromResponse = actualData.metadata;
+      }
+
+      const uniqueBlockId = metadataFromResponse.unique_block_id || `cw-block-${Date.now()}`;
+      const finalContentToInsertInLLM = contentToInsert.replace(
+        `<${contentTag}>`,
+        `<${contentTag} id="${uniqueBlockId}">`
+      );
+
+      insertTextIntoLLMInput(
+        finalContentToInsertInLLM,
+        stateManager.getCurrentTargetElementForPanel(),
+        stateManager.getOriginalQueryTextFromUI()
+      );
+
+      stateManager.addActiveContextBlock({ ...metadataFromResponse, unique_block_id: uniqueBlockId });
+      renderContextIndicators();
+      uiManager.hide();
+    } else {
+      uiManager.showError(`Error Loading ${itemMetadata.name}`, responsePayload.error || 'Failed to get content.', responsePayload.errorCode);
+      if (itemDivForFeedback) {
+        itemDivForFeedback.style.opacity = '';
+        itemDivForFeedback.style.pointerEvents = '';
+      }
+    }
+  } catch (error: any) {
+    console.error(LOG_PREFIX_CS, `Error fetching content for ${itemMetadata.name}:`, error);
+    uiManager.showError(`Error Loading ${itemMetadata.name}`, error.message || 'Failed to get content.');
+    if (itemDivForFeedback) {
+      itemDivForFeedback.style.opacity = '';
+      itemDivForFeedback.style.pointerEvents = '';
+    }
+  }
+}
+
+
+function createSearchResultItemElement(result: SharedSearchResult, omitWorkspaceName: boolean): HTMLDivElement {
+  const itemDiv = uiManager.createDiv({ classNames: [`search-result-item`] });
+
+  const iconSpan = uiManager.createSpan({ classNames: [`${LOCAL_CSS_PREFIX}type-icon`], textContent: result.type === 'file' ? '📄' : '📁' });
+  itemDiv.appendChild(iconSpan);
+
+  const nameSpan = uiManager.createSpan({ textContent: result.name });
+  itemDiv.appendChild(nameSpan);
+
+  if (!omitWorkspaceName && result.workspaceFolderName) {
+    const workspaceSpan = uiManager.createSpan({ classNames: ['workspace-name'], textContent: `(${result.workspaceFolderName})` });
+    itemDiv.appendChild(workspaceSpan);
+  }
+
+  itemDiv.dataset.uri = result.uri;
+  itemDiv.dataset.type = result.type;
+  itemDiv.dataset.contentSourceId = result.content_source_id;
+  if (result.workspaceFolderUri) {
+    itemDiv.dataset.workspaceFolderUri = result.workspaceFolderUri;
+  }
+
+  itemDiv.onclick = async () => {
+    const itemType = result.type; // 'file' or 'folder'
+    const itemName = result.name;
+    const itemUri = result.uri;
+    const itemContentSourceId = result.content_source_id;
+    const itemWorkspaceFolderUri = result.workspaceFolderUri;
+
+    console.log(LOG_PREFIX_CS, `CLICKED ITEM: Name: "${itemName}", SourceID: "${itemContentSourceId}"`);
+    console.log(LOG_PREFIX_CS, `ACTIVE BLOCKS before check:`, JSON.parse(JSON.stringify(stateManager.getActiveContextBlocks())));
+
+    if (itemType === 'file') {
+      await processContentInsertion({
+        name: itemName,
+        contentSourceId: itemContentSourceId,
+        type: 'file',
+        uri: itemUri
+      }, itemDiv);
+    } else if (itemType === 'folder') {
+      console.log(LOG_PREFIX_CS, 'Folder clicked:', itemName);
+      uiManager.updateTitle(`Folder: ${itemName}`);
+      const folderUiContent = document.createDocumentFragment();
+
+      const insertAllButton = uiManager.createButton(`Insert All Content from ${itemName}`, {
+        id: `${LOCAL_CSS_PREFIX}btn-insert-all-${itemContentSourceId.replace(/[^a-zA-Z0-9]/g, '_')}`,
+        onClick: async () => {
+          insertAllButton.disabled = true;
+          insertAllButton.textContent = `Loading all content from ${itemName}...`;
+          browseButton.disabled = true;
+          backButton.disabled = true;
+
+          await processContentInsertion({
+            name: itemName,
+            contentSourceId: itemContentSourceId, // Use folder's content_source_id for duplicate check
+            type: 'folder',
+            uri: itemUri,
+            workspaceFolderUri: itemWorkspaceFolderUri
+          });
+
+          // Re-enable buttons if UI is still visible (e.g., if processContentInsertion showed an error)
+          if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible')) {
+            insertAllButton.disabled = false;
+            insertAllButton.textContent = `Insert All Content from ${itemName}`;
+            browseButton.disabled = false;
+            backButton.disabled = false;
+          }
+        }
+      });
+      folderUiContent.appendChild(insertAllButton);
+
+      const browseButton = uiManager.createButton(`Browse Files in ${itemName}`, {
+        id: `${LOCAL_CSS_PREFIX}btn-browse-folder-${itemContentSourceId.replace(/[^a-zA-Z0-9]/g, '_')}`.replace(/[^a-zA-Z0-9]/g, '_'),
+        onClick: async () => {
+          console.log(LOG_PREFIX_CS, 'Browse folder clicked for:', itemName);
+          uiManager.showLoading(`Browsing: ${itemName}`, 'Loading folder contents...');
+          try {
+            const browseResponse = await swClient.listFolderContents(itemUri, itemWorkspaceFolderUri || null);
+            renderBrowseView(browseResponse, itemUri, itemName, itemWorkspaceFolderUri || null);
+          } catch (error: any) {
+            console.error(LOG_PREFIX_CS, 'Error getting folder contents:', error);
+            uiManager.showError(`Error Browsing ${itemName}`, error.message || 'Failed to get folder contents.');
+          }
+        }
+      });
+      folderUiContent.appendChild(browseButton);
+
+      const backButton = uiManager.createButton('Back to Search Results', {
+        style: { marginTop: '10px' },
+        onClick: () => {
+          const currentSearchResponse = stateManager.getSearchResponse();
+          const currentSearchQuery = stateManager.getSearchQuery();
+          if (currentSearchResponse && currentSearchQuery) {
+            renderSearchResults(currentSearchResponse, currentSearchQuery);
+          } else {
+            uiManager.showError('Navigation Error', 'Could not restore previous search results.');
+          }
+        }
+      });
+      folderUiContent.appendChild(backButton);
+      uiManager.updateContent(folderUiContent);
+    }
+  };
+  return itemDiv;
+}
+
+
+function renderSearchResults(response: SearchWorkspaceResponsePayload, query: string): void {
+  stateManager.setSearchResponse(response);
+  stateManager.setSearchQuery(query);
 
   if (!response.success || response.error) {
-    titleArea.textContent = 'Search Error';
-    contentArea.innerHTML = `<p>Error: ${response.error || 'Unknown error occurred'}</p>`;
+    uiManager.showError('Search Error', response.error || 'Unknown error occurred', response.errorCode);
     return;
   }
 
-  titleArea.textContent = `Results for "@${query}"`;
+  const titleText = `Results for "@${query}"`;
 
   if (!response.data?.results || response.data.results.length === 0) {
-    contentArea.innerHTML = `<p>No results found for '@${query}'</p>`;
+    uiManager.updateTitle(titleText);
+    uiManager.updateContent(uiManager.createParagraph({ textContent: `No results found for '@${query}'` }));
     return;
   }
 
-  contentArea.innerHTML = '';
-  const results = response.data.results as SearchResult[];
+  const contentFragment = document.createDocumentFragment();
+  const results = response.data.results as SharedSearchResult[];
   const groupedResultsMap = groupItemsByWorkspace(results);
 
   if (groupedResultsMap.size > 1) {
-    // Multiple workspaces, render with group headers
-    for (const [workspaceKey, groupData] of groupedResultsMap.entries()) {
-      const groupHeader = document.createElement('div');
-      groupHeader.className = `${CSS_PREFIX}group-header`;
-      groupHeader.textContent = groupData.name;
-      contentArea.appendChild(groupHeader);
-
+    for (const [_workspaceKey, groupData] of groupedResultsMap.entries()) {
+      const groupHeader = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}group-header`], textContent: groupData.name });
+      contentFragment.appendChild(groupHeader);
       groupData.items.forEach(result => {
-        const itemDiv = document.createElement('div');
-        itemDiv.className = `${CSS_PREFIX}search-result-item`;
-
-        const iconSpan = document.createElement('span');
-        iconSpan.className = `${CSS_PREFIX}type-icon`;
-        iconSpan.textContent = result.type === 'file' ? '📄' : '📁';
-        itemDiv.appendChild(iconSpan);
-
-        const nameSpan = document.createElement('span');
-        nameSpan.textContent = result.name;
-        itemDiv.appendChild(nameSpan);
-
-        // Omit workspaceSpan here as group header provides context
-        // if (result.workspaceFolderName) {
-        //   const workspaceSpan = document.createElement('span');
-        //   workspaceSpan.className = 'workspace-name';
-        //   workspaceSpan.textContent = `(${result.workspaceFolderName})`;
-        //   itemDiv.appendChild(workspaceSpan);
-        // }
-
-        itemDiv.dataset.uri = result.uri;
-        itemDiv.dataset.type = result.type;
-        itemDiv.dataset.contentSourceId = result.content_source_id;
-        if (result.workspaceFolderUri) {
-          itemDiv.dataset.workspaceFolderUri = result.workspaceFolderUri;
-        }
-
-        itemDiv.onclick = async () => {
-          const fileUri = itemDiv.dataset.uri!;
-          const fileType = itemDiv.dataset.type as 'file' | 'folder';
-          const fileContentSourceId = itemDiv.dataset.contentSourceId!;
-          const fileName = itemDiv.textContent?.replace(/📄|📁|\s*\(.*\)$/g, '').trim() || 'unknown file';
-          const originalQueryText = (floatingUIPanel?.querySelector(`.${CSS_PREFIX}title`) as HTMLElement)
-            ?.textContent?.match(/@(.*)"\.\.\.$$/)?.[1] || '';
-
-          console.log(LOG_PREFIX_CS, `CLICKED ITEM: Name: "${fileName}", SourceID: "${fileContentSourceId}"`);
-          console.log(LOG_PREFIX_CS, `ACTIVE BLOCKS before check:`, JSON.parse(JSON.stringify(activeContextBlocks))); // Deep copy for logging
-
-          const isDuplicate = activeContextBlocks.some(block => block.contentSourceId === fileContentSourceId);
-          console.log(LOG_PREFIX_CS, `IS DUPLICATE? ${isDuplicate}`);
-
-          if (fileType === 'folder') {
-            console.log(LOG_PREFIX_CS, 'Folder clicked:', fileName);
-            contentArea.innerHTML = '';
-            titleArea.textContent = `Folder: ${fileName}`;
-
-            // Create "Insert All Content" button
-            const insertAllButton = document.createElement('button');
-            insertAllButton.className = `${CSS_PREFIX}button`;
-            insertAllButton.textContent = `Insert All Content from ${fileName}`;
-            insertAllButton.id = `${CSS_PREFIX}btn-insert-all-${fileContentSourceId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-            insertAllButton.onclick = async () => {
-              // Check for duplicates
-              if (isDuplicate) {
-                showErrorStateInPanel(`Content Already Added`, `Content from folder '${fileName}' is already added.`);
-                setTimeout(() => hideFloatingUi(), 2000);
-                return;
-              }
-
-              // Show loading state
-              insertAllButton.disabled = true;
-              insertAllButton.textContent = `Loading all content from ${fileName}...`;
-              browseButton.disabled = true;
-              backButton.disabled = true;
-              showLoadingStateInPanel(`Processing ${fileName}`, `Fetching all content from ${fileName}...`);
-
-              try {
-                const folderContentResponse = await chrome.runtime.sendMessage({
-                  type: 'GET_FOLDER_CONTENT',
-                  payload: {
-                    folderPath: fileUri,
-                    workspaceFolderUri: itemDiv.dataset.workspaceFolderUri || null
-                  }
-                });
-
-                if (folderContentResponse.success && folderContentResponse.data?.filesData) {
-                  const { filesData, metadata } = folderContentResponse.data;
-                  const uniqueBlockId = metadata.unique_block_id || `cw-block-${Date.now()}`;
-                  const formattedContent = formatFileContentsForLLM(filesData);
-                  const contentToInsertInLLM = formattedContent.replace('<file_contents>', `<file_contents id="${uniqueBlockId}">`);
-
-                  insertTextIntoLLMInput(contentToInsertInLLM, currentTargetElementForPanel, originalQueryText);
-
-                  activeContextBlocks.push({
-                    uniqueBlockId,
-                    contentSourceId: metadata.content_source_id,
-                    label: metadata.label,
-                    type: metadata.type
-                  });
-
-                  renderContextIndicators();
-                  hideFloatingUi();
-                } else {
-                  showErrorStateInPanel(`Error Loading Folder ${fileName}`, folderContentResponse.error || 'Failed to get folder content.', folderContentResponse.errorCode);
-                }
-              } catch (error: any) {
-                console.error(LOG_PREFIX_CS, 'Error fetching folder content:', error);
-                showErrorStateInPanel(`Error Loading Folder ${fileName}`, error.message || 'Failed to get folder content.');
-              } finally {
-                insertAllButton.disabled = false;
-                insertAllButton.textContent = `Insert All Content from ${fileName}`;
-                browseButton.disabled = false;
-                backButton.disabled = false;
-              }
-            };
-            contentArea.appendChild(insertAllButton);
-
-            // Create "Browse Files" button
-            const browseButton = document.createElement('button');
-            browseButton.className = `${CSS_PREFIX}button`;
-            browseButton.textContent = `Browse Files in ${fileName}`;
-            browseButton.id = `${CSS_PREFIX}btn-browse-folder-${fileContentSourceId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-            browseButton.onclick = async () => {
-              console.log(LOG_PREFIX_CS, 'Browse folder clicked for:', fileName);
-              showLoadingStateInPanel(`Browsing: ${fileName}`, 'Loading folder contents...');
-
-              try {
-                const browseResponse = await chrome.runtime.sendMessage({
-                  type: 'LIST_FOLDER_CONTENTS',
-                  payload: {
-                    folderUri: fileUri,
-                    workspaceFolderUri: itemDiv.dataset.workspaceFolderUri || null
-                  }
-                });
-                renderBrowseView(browseResponse, fileUri, fileName, itemDiv.dataset.workspaceFolderUri || null);
-              } catch (error: any) {
-                console.error(LOG_PREFIX_CS, 'Error getting folder contents:', error);
-                showErrorStateInPanel(`Error Browsing ${fileName}`, error.message || 'Failed to get folder contents.');
-              }
-            };
-            contentArea.appendChild(browseButton);
-
-            // Create "Back to Search Results" button
-            const backButton = document.createElement('button');
-            backButton.className = `${CSS_PREFIX}button`;
-            backButton.textContent = 'Back to Search Results';
-            backButton.style.marginTop = '10px';
-            backButton.onclick = () => {
-              // Re-render the search results if we have them
-              if (searchResponse && searchQuery) {
-                renderSearchResults(searchResponse, searchQuery);
-              } else {
-                showErrorStateInPanel('Navigation Error', 'Could not restore previous search results.');
-              }
-            };
-            contentArea.appendChild(backButton);
-
-            return;
-          }
-
-          if (isDuplicate) {
-            console.warn(LOG_PREFIX_CS, `Duplicate content source: ${fileContentSourceId}. Label: "${fileName}"`);
-            showErrorStateInPanel(`Content Already Added`, `Content from "${fileName}" is already added.`);
-            setTimeout(() => hideFloatingUi(), 2000);
-            return;
-          }
-
-          itemDiv.style.opacity = '0.5';
-          itemDiv.style.pointerEvents = 'none';
-          showLoadingStateInPanel(`Loading ${fileName}...`, `Fetching content for ${fileName}...`);
-
-          try {
-            const contentResponse = await chrome.runtime.sendMessage({
-              type: 'GET_FILE_CONTENT',
-              payload: { filePath: fileUri }
-            });
-
-            if (contentResponse.success && contentResponse.data?.fileData) {
-              const { fileData, metadata } = contentResponse.data;
-              const uniqueBlockId = metadata.unique_block_id || `cw-block-${Date.now()}`;
-              const contentTag = metadata.type === 'code_snippet' ? 'code_snippet' : 'file_contents';
-
-              // Format the content first
-              const formattedContent = formatFileContentsForLLM([fileData]);
-
-              const contentToInsertInLLM = formattedContent.replace(
-                `<${contentTag}>`,
-                `<${contentTag} id="${uniqueBlockId}">`
-              );
-
-              insertTextIntoLLMInput(contentToInsertInLLM, currentTargetElementForPanel, originalQueryTextFromUI);
-
-              activeContextBlocks.push({
-                uniqueBlockId,
-                contentSourceId: metadata.content_source_id,
-                label: metadata.label,
-                type: metadata.type
-              });
-              const newBlockToAdd = activeContextBlocks[activeContextBlocks.length - 1];
-              console.log(LOG_PREFIX_CS, `ADDED TO activeContextBlocks: Name: "${newBlockToAdd.label}", SourceID: "${newBlockToAdd.contentSourceId}"`);
-              console.log(LOG_PREFIX_CS, `ACTIVE BLOCKS after add:`, JSON.parse(JSON.stringify(activeContextBlocks)));
-
-              renderContextIndicators();
-              hideFloatingUi();
-            } else {
-              showErrorStateInPanel(`Error Loading ${fileName}`, contentResponse.error || 'Failed to get file content.', contentResponse.errorCode);
-              itemDiv.style.opacity = '';
-              itemDiv.style.pointerEvents = '';
-            }
-          } catch (error: any) {
-            console.error(LOG_PREFIX_CS, 'Error fetching file content:', error);
-            showErrorStateInPanel(`Error Loading ${fileName}`, error.message || 'Failed to get file content.');
-            itemDiv.style.opacity = '';
-            itemDiv.style.pointerEvents = '';
-          }
-        };
-
-        contentArea.appendChild(itemDiv);
+        const itemDiv = createSearchResultItemElement(result, true);
+        contentFragment.appendChild(itemDiv);
       });
     }
   } else {
-    // Single workspace or no workspace info, render as flat list
     results.forEach(result => {
-      const itemDiv = document.createElement('div');
-      itemDiv.className = `${CSS_PREFIX}search-result-item`;
-
-      const iconSpan = document.createElement('span');
-      iconSpan.className = `${CSS_PREFIX}type-icon`;
-      iconSpan.textContent = result.type === 'file' ? '📄' : '📁';
-      itemDiv.appendChild(iconSpan);
-
-      const nameSpan = document.createElement('span');
-      nameSpan.textContent = result.name;
-      itemDiv.appendChild(nameSpan);
-
-      if (result.workspaceFolderName) {
-        const workspaceSpan = document.createElement('span');
-        workspaceSpan.className = 'workspace-name';
-        workspaceSpan.textContent = `(${result.workspaceFolderName})`;
-        itemDiv.appendChild(workspaceSpan);
-      }
-
-      itemDiv.dataset.uri = result.uri;
-      itemDiv.dataset.type = result.type;
-      itemDiv.dataset.contentSourceId = result.content_source_id;
-      if (result.workspaceFolderUri) {
-        itemDiv.dataset.workspaceFolderUri = result.workspaceFolderUri;
-      }
-
-      itemDiv.onclick = async () => {
-        const fileUri = itemDiv.dataset.uri!;
-        const fileType = itemDiv.dataset.type as 'file' | 'folder';
-        const fileContentSourceId = itemDiv.dataset.contentSourceId!;
-        const fileName = itemDiv.textContent?.replace(/📄|📁|\s*\(.*\)$/g, '').trim() || 'unknown file';
-        const originalQueryText = (floatingUIPanel?.querySelector(`.${CSS_PREFIX}title`) as HTMLElement)
-          ?.textContent?.match(/@(.*)"\.\.\.$$/)?.[1] || '';
-
-        console.log(LOG_PREFIX_CS, `CLICKED ITEM: Name: "${fileName}", SourceID: "${fileContentSourceId}"`);
-        console.log(LOG_PREFIX_CS, `ACTIVE BLOCKS before check:`, JSON.parse(JSON.stringify(activeContextBlocks))); // Deep copy for logging
-
-        const isDuplicate = activeContextBlocks.some(block => block.contentSourceId === fileContentSourceId);
-        console.log(LOG_PREFIX_CS, `IS DUPLICATE? ${isDuplicate}`);
-
-        if (fileType === 'folder') {
-          console.log(LOG_PREFIX_CS, 'Folder clicked:', fileName);
-          contentArea.innerHTML = '';
-          titleArea.textContent = `Folder: ${fileName}`;
-
-          // Create "Insert All Content" button
-          const insertAllButton = document.createElement('button');
-          insertAllButton.className = `${CSS_PREFIX}button`;
-          insertAllButton.textContent = `Insert All Content from ${fileName}`;
-          insertAllButton.id = `${CSS_PREFIX}btn-insert-all-${fileContentSourceId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-          insertAllButton.onclick = async () => {
-            // Check for duplicates
-            if (isDuplicate) {
-              showErrorStateInPanel(`Content Already Added`, `Content from folder '${fileName}' is already added.`);
-              setTimeout(() => hideFloatingUi(), 2000);
-              return;
-            }
-
-            // Show loading state
-            insertAllButton.disabled = true;
-            insertAllButton.textContent = `Loading all content from ${fileName}...`;
-            browseButton.disabled = true;
-            backButton.disabled = true;
-            showLoadingStateInPanel(`Processing ${fileName}`, `Fetching all content from ${fileName}...`);
-
-            try {
-              const folderContentResponse = await chrome.runtime.sendMessage({
-                type: 'GET_FOLDER_CONTENT',
-                payload: {
-                  folderPath: fileUri,
-                  workspaceFolderUri: itemDiv.dataset.workspaceFolderUri || null
-                }
-              });
-
-              if (folderContentResponse.success && folderContentResponse.data?.filesData) {
-                const { filesData, metadata } = folderContentResponse.data;
-                const uniqueBlockId = metadata.unique_block_id || `cw-block-${Date.now()}`;
-                const formattedContent = formatFileContentsForLLM(filesData);
-                const contentToInsertInLLM = formattedContent.replace('<file_contents>', `<file_contents id="${uniqueBlockId}">`);
-
-                insertTextIntoLLMInput(contentToInsertInLLM, currentTargetElementForPanel, originalQueryText);
-
-                activeContextBlocks.push({
-                  uniqueBlockId,
-                  contentSourceId: metadata.content_source_id,
-                  label: metadata.label,
-                  type: metadata.type
-                });
-
-                renderContextIndicators();
-                hideFloatingUi();
-              } else {
-                showErrorStateInPanel(`Error Loading Folder ${fileName}`, folderContentResponse.error || 'Failed to get folder content.', folderContentResponse.errorCode);
-              }
-            } catch (error: any) {
-              console.error(LOG_PREFIX_CS, 'Error fetching folder content:', error);
-              showErrorStateInPanel(`Error Loading Folder ${fileName}`, error.message || 'Failed to get folder content.');
-            } finally {
-              insertAllButton.disabled = false;
-              insertAllButton.textContent = `Insert All Content from ${fileName}`;
-              browseButton.disabled = false;
-              backButton.disabled = false;
-            }
-          };
-          contentArea.appendChild(insertAllButton);
-
-          // Create "Browse Files" button
-          const browseButton = document.createElement('button');
-          browseButton.className = `${CSS_PREFIX}button`;
-          browseButton.textContent = `Browse Files in ${fileName}`;
-          browseButton.id = `${CSS_PREFIX}btn-browse-folder-${fileContentSourceId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-          browseButton.onclick = async () => {
-            console.log(LOG_PREFIX_CS, 'Browse folder clicked for:', fileName);
-            showLoadingStateInPanel(`Browsing: ${fileName}`, 'Loading folder contents...');
-
-            try {
-              const browseResponse = await chrome.runtime.sendMessage({
-                type: 'LIST_FOLDER_CONTENTS',
-                payload: {
-                  folderUri: fileUri,
-                  workspaceFolderUri: itemDiv.dataset.workspaceFolderUri || null
-                }
-              });
-              renderBrowseView(browseResponse, fileUri, fileName, itemDiv.dataset.workspaceFolderUri || null);
-            } catch (error: any) {
-              console.error(LOG_PREFIX_CS, 'Error getting folder contents:', error);
-              showErrorStateInPanel(`Error Browsing ${fileName}`, error.message || 'Failed to get folder contents.');
-            }
-          };
-          contentArea.appendChild(browseButton);
-
-          // Create "Back to Search Results" button
-          const backButton = document.createElement('button');
-          backButton.className = `${CSS_PREFIX}button`;
-          backButton.textContent = 'Back to Search Results';
-          backButton.style.marginTop = '10px';
-          backButton.onclick = () => {
-            // Re-render the search results if we have them
-            if (searchResponse && searchQuery) {
-              renderSearchResults(searchResponse, searchQuery);
-            } else {
-              showErrorStateInPanel('Navigation Error', 'Could not restore previous search results.');
-            }
-          };
-          contentArea.appendChild(backButton);
-
-          return;
-        }
-
-        if (isDuplicate) {
-          console.warn(LOG_PREFIX_CS, `Duplicate content source: ${fileContentSourceId}. Label: "${fileName}"`);
-          showErrorStateInPanel(`Content Already Added`, `Content from "${fileName}" is already added.`);
-          setTimeout(() => hideFloatingUi(), 2000);
-          return;
-        }
-
-        itemDiv.style.opacity = '0.5';
-        itemDiv.style.pointerEvents = 'none';
-        showLoadingStateInPanel(`Loading ${fileName}...`, `Fetching content for ${fileName}...`);
-
-        try {
-          const contentResponse = await chrome.runtime.sendMessage({
-            type: 'GET_FILE_CONTENT',
-            payload: { filePath: fileUri }
-          });
-
-          if (contentResponse.success && contentResponse.data?.fileData) {
-            const { fileData, metadata } = contentResponse.data;
-            const uniqueBlockId = metadata.unique_block_id || `cw-block-${Date.now()}`;
-            const contentTag = metadata.type === 'code_snippet' ? 'code_snippet' : 'file_contents';
-
-            // Format the content first
-            const formattedContent = formatFileContentsForLLM([fileData]);
-
-            const contentToInsertInLLM = formattedContent.replace(
-              `<${contentTag}>`,
-              `<${contentTag} id="${uniqueBlockId}">`
-            );
-
-            insertTextIntoLLMInput(contentToInsertInLLM, currentTargetElementForPanel, originalQueryTextFromUI);
-
-            activeContextBlocks.push({
-              uniqueBlockId,
-              contentSourceId: metadata.content_source_id,
-              label: metadata.label,
-              type: metadata.type
-            });
-            const newBlockToAdd = activeContextBlocks[activeContextBlocks.length - 1];
-            console.log(LOG_PREFIX_CS, `ADDED TO activeContextBlocks: Name: "${newBlockToAdd.label}", SourceID: "${newBlockToAdd.contentSourceId}"`);
-            console.log(LOG_PREFIX_CS, `ACTIVE BLOCKS after add:`, JSON.parse(JSON.stringify(activeContextBlocks)));
-
-            renderContextIndicators();
-            hideFloatingUi();
-          } else {
-            showErrorStateInPanel(`Error Loading ${fileName}`, contentResponse.error || 'Failed to get file content.', contentResponse.errorCode);
-            itemDiv.style.opacity = '';
-            itemDiv.style.pointerEvents = '';
-          }
-        } catch (error: any) {
-          console.error(LOG_PREFIX_CS, 'Error fetching file content:', error);
-          showErrorStateInPanel(`Error Loading ${fileName}`, error.message || 'Failed to get file content.');
-          itemDiv.style.opacity = '';
-          itemDiv.style.pointerEvents = '';
-        }
-      };
-
-      contentArea.appendChild(itemDiv);
+      const itemDiv = createSearchResultItemElement(result, false);
+      contentFragment.appendChild(itemDiv);
     });
   }
+  uiManager.updateTitle(titleText);
+  uiManager.updateContent(contentFragment);
 }
 
-// --- CSS Injection ---
-function injectFloatingUiCss(): void {
-  const styleId = `${CSS_PREFIX}styles`;
-  if (document.getElementById(styleId)) return;
-
-  const css = `
-    #${UI_PANEL_ID} {
-      position: absolute; background-color: #2d2d2d; color: #f0f0f0; border: 1px solid #4a4a4a;
-      border-radius: 8px; padding: 10px; z-index: 2147483647; font-family: sans-serif;
-      font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); width: 320px;
-      max-height: 450px; overflow-y: auto; display: none;
-    }
-    #${UI_PANEL_ID}.${CSS_PREFIX}visible { display: block; }
-    .${CSS_PREFIX}title-bar {
-      display: flex; justify-content: space-between; align-items: center;
-      margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #4a4a4a;
-    }
-    .${CSS_PREFIX}title { font-size: 16px; font-weight: bold; }
-    .${CSS_PREFIX}close-button {
-      background: none; border: none; color: #aaa; font-size: 20px; font-weight: bold;
-      cursor: pointer; padding: 0 5px; line-height: 1;
-    }
-    .${CSS_PREFIX}close-button:hover { color: #fff; }
-    .${CSS_PREFIX}content { max-height: 350px; overflow-y: auto; }
-    .${CSS_PREFIX}content p { margin: 10px 0; color: #ccc; } 
-    .${CSS_PREFIX}folder-section { margin-bottom: 15px; }
-    .${CSS_PREFIX}folder-title {
-      font-size: 14px; font-weight: bold; color: #bbb; margin-bottom: 5px;
-      padding-bottom: 3px; border-bottom: 1px dashed #444;
-    }
-    .${CSS_PREFIX}button {
-      background-color: #3a3a3a; color: #e0e0e0; border: 1px solid #555;
-      border-radius: 4px; padding: 5px 10px; margin-top: 5px; margin-right: 8px;
-      cursor: pointer; font-size: 13px; transition: background-color 0.2s;
-    }
-    .${CSS_PREFIX}button:hover { background-color: #4a4a4a; }
-    .${CSS_PREFIX}button:disabled { background-color: #2a2a2a; color: #777; cursor: not-allowed; }
-    .${CSS_PREFIX}search-result-item {
-      padding: 6px 8px;
-      margin-bottom: 4px;
-      border-radius: 3px;
-      cursor: pointer;
-      border: 1px solid transparent;
-    }
-    .${CSS_PREFIX}search-result-item:hover {
-      background-color: #4a4a4a;
-      border-color: #666;
-    }
-    .${CSS_PREFIX}context-indicator span.${CSS_PREFIX}type-icon {
-      margin-right: 5px;
-      display: inline-block;
-    }
-
-    .${CSS_PREFIX}search-result-item span.type-icon {
-      margin-right: 8px;
-    }
-    .${CSS_PREFIX}search-result-item span.workspace-name {
-      font-size: 0.8em;
-      color: #aaa;
-      margin-left: 5px;
-    }
-    #${CONTEXT_INDICATOR_AREA_ID} {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 5px;
-      margin-bottom: 5px;
-      padding: 5px;
-      border: 1px solid #444;
-      border-radius: 4px;
-    }
-    .${CSS_PREFIX}context-indicator {
-      background-color: #3a3a3a;
-      color: #e0e0e0;
-      padding: 3px 8px;
-      border-radius: 10px;
-      font-size: 12px;
-      display: flex;
-      align-items: center;
-    }
-    .${CSS_PREFIX}indicator-close-btn {
-      background: none;
-      border: none;
-      color: #aaa;
-      font-size: 14px;
-      margin-left: 5px;
-      cursor: pointer;
-      padding: 0;
-      line-height: 1;
-    }
-    .${CSS_PREFIX}indicator-close-btn:hover {
-      color: #fff;
-    }
-    .${CSS_PREFIX}loader {
-      border: 4px solid #f3f3f3; /* Light grey */
-      border-top: 4px solid #3498db; /* Blue */
-      border-radius: 50%;
-      width: 30px;
-      height: 30px;
-      animation: ${CSS_PREFIX}spin 1s linear infinite;
-      margin: 20px auto; /* Center the spinner */
-    }
-    @keyframes ${CSS_PREFIX}spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-    .${CSS_PREFIX}loading-text {
-      text-align: center;
-      color: #ccc;
-      margin-top: 10px;
-    }
-    .${CSS_PREFIX}error-panel {
-      padding: 15px;
-      background-color: #3c3c3c;
-      border-radius: 8px;
-      margin-top: 10px;
-      border: 1px solid #6a0000;
-    }
-    .${CSS_PREFIX}error-icon {
-      font-size: 30px;
-      color: #ff6b6b; /* A vibrant red */
-      display: block;
-      text-align: center;
-      margin-bottom: 10px;
-      content: "\\26A0"; /* Unicode warning sign (⚠️) */
-    }
-    .${CSS_PREFIX}error-text {
-      text-align: center;
-      color: #f8d7da; /* Light red/pink */
-      font-size: 13px;
-    }
-    .${CSS_PREFIX}group-header {
-      font-size: 15px;
-      font-weight: bold;
-      color: #e0e0e0;
-      margin-top: 12px;
-      margin-bottom: 6px;
-      padding-bottom: 4px;
-      border-bottom: 1px solid #555;
-    }
-    .${CSS_PREFIX}filter-status-text {
-      font-size: 0.85em;
-      color: #aaa; /* Muted gray */
-      font-style: italic;
-      text-align: center;
-      margin-bottom: 8px;
-    }
-  `;
-  const style = document.createElement('style');
-  style.id = styleId;
-  style.textContent = css;
-  document.head.appendChild(style);
-  console.log(`${LOG_PREFIX_CS} Floating UI CSS injected/updated.`);
-}
-
-// --- Event Handlers for Dismissal ---
-const handleEscapeKey = (event: KeyboardEvent): void => {
-  if (event.key === 'Escape') {
-    hideFloatingUi();
-  }
-};
-
-const handleClickOutside = (event: MouseEvent): void => {
-  if (floatingUIPanel && floatingUIPanel.classList.contains(`${CSS_PREFIX}visible`)) {
-    const target = event.target as Node;
-    if (!floatingUIPanel.contains(target) && !(currentTargetElementForPanel && currentTargetElementForPanel.contains(target))) {
-      hideFloatingUi();
-    }
-  }
-};
-
-// --- Floating UI Management ---
-function showFloatingUi(targetInputElement: HTMLElement, uiContext: UIContext): void {
-  if (uiContext.mode === 'search') {
-    originalQueryTextFromUI = uiContext.query;
-  } else {
-    originalQueryTextFromUI = undefined;
-  }
-
-  if (!floatingUIPanel) {
-    floatingUIPanel = document.createElement('div');
-    floatingUIPanel.id = UI_PANEL_ID;
-
-    const titleBarDiv = document.createElement('div');
-    titleBarDiv.className = `${CSS_PREFIX}title-bar`;
-    const titleDiv = document.createElement('div');
-    titleDiv.className = `${CSS_PREFIX}title`;
-    titleBarDiv.appendChild(titleDiv);
-    const closeButton = document.createElement('button');
-    closeButton.className = `${CSS_PREFIX}close-button`;
-    closeButton.innerHTML = '×';
-    closeButton.onclick = hideFloatingUi;
-    titleBarDiv.appendChild(closeButton);
-    floatingUIPanel.appendChild(titleBarDiv);
-
-    const contentDiv = document.createElement('div');
-    contentDiv.className = `${CSS_PREFIX}content`;
-    floatingUIPanel.appendChild(contentDiv);
-
-    document.body.appendChild(floatingUIPanel);
-  }
-
-  const inputRect = targetInputElement.getBoundingClientRect();
-  const panelCurrentHeight = floatingUIPanel.offsetHeight;
-  const panelHeight = panelCurrentHeight > 0 ? panelCurrentHeight : 200;
-
-  floatingUIPanel.style.top = `${window.scrollY + inputRect.top - panelHeight - 5}px`;
-  floatingUIPanel.style.left = `${window.scrollX + inputRect.left}px`;
-  floatingUIPanel.classList.add(`${CSS_PREFIX}visible`);
-  currentTargetElementForPanel = targetInputElement;
-
-  document.removeEventListener('keydown', handleEscapeKey);
-  document.addEventListener('keydown', handleEscapeKey);
-  document.removeEventListener('mousedown', handleClickOutside);
-  document.addEventListener('mousedown', handleClickOutside);
-
-  console.log(`${LOG_PREFIX_CS} Floating UI shown. Initializing with context:`, uiContext);
-  populateFloatingUiContent(uiContext);
-}
-
-function hideFloatingUi(): void {
-  if (floatingUIPanel && floatingUIPanel.classList.contains(`${CSS_PREFIX}visible`)) {
-    floatingUIPanel.classList.remove(`${CSS_PREFIX}visible`);
-    console.log(`${LOG_PREFIX_CS} Floating UI hidden.`);
-  }
-  document.removeEventListener('keydown', handleEscapeKey);
-  document.removeEventListener('mousedown', handleClickOutside);
-}
-
-/**
- * @description Displays a loading state in the floating UI panel with a spinner and message.
- * @param titleText The text to display in the floating UI's title bar.
- * @param loadingMessage The text to display below the loading spinner.
- */
-function showLoadingStateInPanel(titleText: string, loadingMessage: string): void {
-  if (!floatingUIPanel) {
-    console.warn(`${LOG_PREFIX_CS} Attempted to show loading state, but floatingUIPanel is not initialized.`);
-    return;
-  }
-
-  const titleArea = floatingUIPanel.querySelector(`.${CSS_PREFIX}title`) as HTMLElement;
-  const contentArea = floatingUIPanel.querySelector(`.${CSS_PREFIX}content`) as HTMLElement;
-
-  if (titleArea) {
-    titleArea.textContent = titleText;
-  }
-  if (contentArea) {
-    contentArea.innerHTML = `
-      <div class="${CSS_PREFIX}loader"></div>
-      <p class="${CSS_PREFIX}loading-text">${loadingMessage}</p>
-    `;
-  }
-}
-
-/**
- * @description Displays an error state in the floating UI panel with an icon and message.
- * @param titleText The text to display in the floating UI's title bar (e.g., "Error", "Connection Failed").
- * @param errorMessage The main error message to display.
- * @param errorCode An optional IPC error code, which can be appended to the message for more context.
- */
-function showErrorStateInPanel(titleText: string, errorMessage: string, errorCode?: string): void {
-  if (!floatingUIPanel) {
-    console.warn(`${LOG_PREFIX_CS} Attempted to show error state, but floatingUIPanel is not initialized.`);
-    return;
-  }
-
-  const titleArea = floatingUIPanel.querySelector(`.${CSS_PREFIX}title`) as HTMLElement;
-  const contentArea = floatingUIPanel.querySelector(`.${CSS_PREFIX}content`) as HTMLElement;
-
-  if (titleArea) {
-    titleArea.textContent = titleText;
-  }
-
-  if (contentArea) {
-    const fullErrorMessage = errorCode ? `${errorMessage} (Code: ${errorCode})` : errorMessage;
-    contentArea.innerHTML = `
-      <div class="${CSS_PREFIX}error-panel">
-        <span class="${CSS_PREFIX}error-icon"></span>
-        <p class="${CSS_PREFIX}error-text">${fullErrorMessage}</p>
-      </div>
-    `;
-  }
-}
-
-/**
- * @description Formats content from one or more files (single file, folder, or entire codebase)
- * for insertion into an LLM chat input, as per SRS 3.3.2.
- * @param {Array<Object>} filesData - An array of file data objects.
- * @param {string} filesData[].fullPath - The full, absolute path to the file.
- * @param {string} filesData[].content - The content of the file.
- * @param {string} filesData[].languageId - The language identifier for the file (e.g., 'javascript', 'python').
- * @returns {string} The formatted string ready for insertion, or an empty string if input is invalid.
- */
-async function insertFileContent(fileUri: string, triggerQuery?: string): Promise<boolean> {
-  try {
-    const contentResponse = await chrome.runtime.sendMessage({
-      type: 'GET_FILE_CONTENT',
-      payload: { filePath: fileUri }
-    });
-
-    if (contentResponse.success && contentResponse.data?.fileData) {
-      const { fileData, metadata } = contentResponse.data;
-      const uniqueBlockId = metadata.unique_block_id || `cw-block-${Date.now()}`;
-      const formattedContent = formatFileContentsForLLM([fileData]);
-      const contentToInsertInLLM = formattedContent.replace('<file_contents>', `<file_contents id="${uniqueBlockId}">`);
-
-      insertTextIntoLLMInput(contentToInsertInLLM, currentTargetElementForPanel, triggerQuery);
-
-      activeContextBlocks.push({
-        uniqueBlockId,
-        contentSourceId: metadata.content_source_id,
-        label: metadata.label,
-        type: metadata.type
-      });
-
-      return true;
-    }
-    return false;
-  } catch (error) {
-    console.error(LOG_PREFIX_CS, 'Error inserting file content:', error);
-    return false;
-  }
-}
-
-async function insertFolderContent(folderUri: string, workspaceFolderUri: string | null, triggerQuery?: string): Promise<boolean> {
-  try {
-    const folderContentResponse = await chrome.runtime.sendMessage({
-      type: 'GET_FOLDER_CONTENT',
-      payload: {
-        folderPath: folderUri,
-        workspaceFolderUri
-      }
-    });
-
-    if (folderContentResponse.success && folderContentResponse.data?.filesData) {
-      const { filesData, metadata } = folderContentResponse.data;
-      const uniqueBlockId = metadata.unique_block_id || `cw-block-${Date.now()}`;
-      const formattedContent = formatFileContentsForLLM(filesData);
-      const contentToInsertInLLM = formattedContent.replace('<file_contents>', `<file_contents id="${uniqueBlockId}">`);
-
-      insertTextIntoLLMInput(contentToInsertInLLM, currentTargetElementForPanel, triggerQuery);
-
-      activeContextBlocks.push({
-        uniqueBlockId,
-        contentSourceId: metadata.content_source_id,
-        label: metadata.label,
-        type: metadata.type
-      });
-
-      return true;
-    }
-    return false;
-  } catch (error) {
-    console.error(LOG_PREFIX_CS, 'Error inserting folder content:', error);
-    return false;
-  }
-}
 
 function formatFileContentsForLLM(filesData: { fullPath: string; content: string; languageId: string }[]): string {
   if (!Array.isArray(filesData) || filesData.length === 0) {
     console.warn('[ContextWeaver CE] formatFileContentsForLLM: Invalid or empty filesData array.');
     return "";
   }
-
   let formattedBlocks = [];
-
   for (const file of filesData) {
     if (file && typeof file.fullPath === 'string' && typeof file.content === 'string') {
       const langId = (typeof file.languageId === 'string' && file.languageId) ? file.languageId : 'plaintext';
-
       let fileBlock = `File: ${file.fullPath}\n`;
       fileBlock += `\`\`\`${langId}\n`;
       fileBlock += file.content.endsWith('\n') ? file.content : `${file.content}\n`;
@@ -984,458 +378,396 @@ function formatFileContentsForLLM(filesData: { fullPath: string; content: string
       console.warn('[ContextWeaver CE] formatFileContentsForLLM: Skipping invalid file data object:', file);
     }
   }
-
-  if (formattedBlocks.length === 0) {
-    return "";
-  }
+  if (formattedBlocks.length === 0) return "";
   return `<file_contents>\n${formattedBlocks.join('')}</file_contents>`;
 }
 
+// Helper function to create the general options section (Active File, Open Files, Workspace Folders)
+function createGeneralOptionsSection(workspaceDetails: WorkspaceDetailsResponsePayload['data']): DocumentFragment {
+  const contentFragment = document.createDocumentFragment();
+
+  const activeFileButton = uiManager.createButton("Insert Active File's Content", {
+    id: `${LOCAL_CSS_PREFIX}btn-active-file`,
+    onClick: async () => {
+      console.log('ContextWeaver: "Insert Active File\'s Content" clicked');
+      activeFileButton.textContent = 'Loading Active File...';
+      activeFileButton.disabled = true;
+      try {
+        const activeFileInfoResponse = await swClient.getActiveFileInfo();
+        console.log('ContextWeaver: Active file info response:', activeFileInfoResponse);
+
+        if (activeFileInfoResponse.success && activeFileInfoResponse.data && activeFileInfoResponse.data.activeFilePath) {
+          const activeFilePath = activeFileInfoResponse.data.activeFilePath;
+          const activeFileContentSourceId = activeFilePath;
+
+          await processContentInsertion({
+            name: activeFileInfoResponse.data.activeFileLabel || 'the active file',
+            contentSourceId: activeFileContentSourceId,
+            type: 'file',
+            uri: activeFilePath
+          }, activeFileButton); // Pass button for feedback
+
+        } else {
+          const errorMsg = activeFileInfoResponse.error || 'Could not get active file information from VS Code. Is a file editor active?';
+          console.error('ContextWeaver: Error getting active file info:', errorMsg);
+          uiManager.showError('Active File Error', errorMsg, activeFileInfoResponse.errorCode);
+        }
+      } catch (e: any) {
+        console.error('ContextWeaver: Error in active file workflow:', e);
+        uiManager.showError('Active File Error', e.message || 'Failed to process active file request.');
+      } finally {
+        if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible')) {
+          activeFileButton.textContent = "Insert Active File's Content";
+          activeFileButton.disabled = false;
+        }
+      }
+    }
+  });
+  contentFragment.appendChild(activeFileButton);
+
+  const openFilesButton = uiManager.createButton("Insert Content of Open Files", {
+    id: `${LOCAL_CSS_PREFIX}btn-open-files`,
+    onClick: async () => {
+      console.log('ContextWeaver: "Insert Content of Open Files" clicked');
+      openFilesButton.textContent = 'Loading Open Files...';
+      openFilesButton.disabled = true;
+      try {
+        const openFilesResponse = await swClient.getOpenFiles();
+        console.log('ContextWeaver: Open files response:', openFilesResponse);
+
+        if (openFilesResponse.success && openFilesResponse.data && Array.isArray(openFilesResponse.data.openFiles)) {
+          displayOpenFilesSelectorUI(openFilesResponse.data.openFiles);
+        } else {
+          const errorMsg = openFilesResponse.error || 'Failed to get open files list.';
+          console.error('ContextWeaver: Error getting open files list:', errorMsg);
+          uiManager.showError('Open Files Error', errorMsg, openFilesResponse.errorCode);
+        }
+      } catch (e: any) {
+        console.error('ContextWeaver: Error in open files workflow:', e);
+        uiManager.showError('Open Files Error', e.message || 'Failed to process open files request.');
+      } finally {
+        if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible') && !document.querySelector(`.${LOCAL_CSS_PREFIX}open-files-selector`)) {
+          openFilesButton.textContent = "Insert Content of Open Files";
+          openFilesButton.disabled = false;
+        }
+      }
+    }
+  });
+  contentFragment.appendChild(openFilesButton);
+
+  if (workspaceDetails?.workspaceFolders && workspaceDetails.workspaceFolders.length > 0) {
+    const separator = document.createElement('hr');
+    separator.style.margin = '10px 0';
+    separator.style.borderColor = '#4a4a4a';
+    contentFragment.appendChild(separator);
+
+    const showFolderGrouping = workspaceDetails.workspaceFolders.length > 1;
+    renderWorkspaceFolders(workspaceDetails.workspaceFolders, contentFragment, showFolderGrouping);
+  } else {
+    if (contentFragment.childNodes.length === 0) {
+      uiManager.showError('No Workspace Open', 'No workspace folder open in VS Code. Some options may be limited.');
+    }
+  }
+  return contentFragment;
+}
 
 async function populateFloatingUiContent(uiContext: UIContext): Promise<void> {
-  if (!floatingUIPanel) return;
-  const contentArea = floatingUIPanel.querySelector(`.${CSS_PREFIX}content`) as HTMLElement;
-  const titleArea = floatingUIPanel.querySelector(`.${CSS_PREFIX}title`) as HTMLElement;
-
-  if (!contentArea || !titleArea) return;
-
   if (uiContext.mode === 'search' && uiContext.query?.trim()) {
-    titleArea.textContent = `Searching for "@${uiContext.query}"...`;
-    contentArea.innerHTML = '<p>Loading results...</p>';
     debouncedPerformSearch(uiContext.query);
     return;
   }
 
-  showLoadingStateInPanel('ContextWeaver', 'Loading workspace details...');
+  uiManager.showLoading('ContextWeaver', 'Loading workspace details...');
 
   try {
-    const response = await chrome.runtime.sendMessage({ type: 'GET_WORKSPACE_DETAILS_FOR_UI' });
+    const response = await swClient.getWorkspaceDetails();
     console.log('ContextWeaver: Workspace details response:', response);
 
-    // Clear the loading message before adding new content
-    contentArea.innerHTML = '';
+    if (response.error || !response.success) {
+      uiManager.showError('Workspace Error', response.error || 'Unknown error', response.errorCode);
+      return;
+    }
 
-    if (response.error) {
-      showErrorStateInPanel('Workspace Error', response.error, response.errorCode);
-    } else if (response.success && response.data) {
+    if (response.data) {
       if (!response.data.isTrusted) {
-        showErrorStateInPanel('Workspace Untrusted', 'Workspace not trusted. Please trust the workspace in VS Code to proceed.', 'WORKSPACE_NOT_TRUSTED');
+        uiManager.showError('Workspace Untrusted', 'Workspace not trusted. Please trust the workspace in VS Code to proceed.', 'WORKSPACE_NOT_TRUSTED');
         return;
       }
-      const activeFileButton = document.createElement('button');
-      activeFileButton.className = `${CSS_PREFIX}button`;
-      activeFileButton.textContent = "Insert Active File's Content";
-      activeFileButton.id = `${CSS_PREFIX}btn-active-file`;
-      activeFileButton.onclick = async () => {
-        console.log('ContextWeaver: "Insert Active File\'s Content" clicked');
-        activeFileButton.textContent = 'Loading Active File...';
-        activeFileButton.disabled = true;
-        try {
-          const activeFileInfoResponse = await chrome.runtime.sendMessage({ type: 'GET_ACTIVE_FILE_INFO' });
-          console.log('ContextWeaver: Active file info response:', activeFileInfoResponse);
 
-          if (activeFileInfoResponse.success && activeFileInfoResponse.data && activeFileInfoResponse.data.activeFilePath) {
-            const activeFilePath = activeFileInfoResponse.data.activeFilePath;
-            const activeFileContentSourceId = activeFileInfoResponse.data.activeFilePath; // This is the URI string
-            const isDuplicate = activeContextBlocks.some(block => block.contentSourceId === activeFileContentSourceId);
-
-            if (isDuplicate) {
-              // Notify user and abort
-              const fileName = activeFileInfoResponse.data.activeFileLabel || 'the active file'; // Use label if available
-              console.warn(LOG_PREFIX_CS, `Duplicate content source: ${activeFileContentSourceId}. Label: "${fileName}"`);
-
-              showErrorStateInPanel(`Content Already Added`, `Content from "${fileName}" is already added.`);
-
-              setTimeout(() => {
-                if (floatingUIPanel && floatingUIPanel.classList.contains(`${CSS_PREFIX}visible`)) {
-                  // Optionally, restore previous UI content or just hide
-                  hideFloatingUi();
-                }
-              }, 2000); // Hide after 2 seconds
-
-              // Reset button state before returning
-              activeFileButton.textContent = "Insert Active File's Content";
-              activeFileButton.disabled = false;
-              return; // Abort further processing
-            }
-
-            const fileContentResponse = await chrome.runtime.sendMessage({
-              type: 'GET_FILE_CONTENT',
-              payload: { filePath: activeFilePath }
-            });
-            console.log('ContextWeaver: File content response:', fileContentResponse);
-
-            if (fileContentResponse.success && fileContentResponse.data && fileContentResponse.data.fileData) {
-              const { fileData, metadata } = fileContentResponse.data; // Destructure metadata
-              const uniqueBlockId = metadata.unique_block_id || `cw-block-${Date.now()}`; // Use metadata for uniqueBlockId
-              const formattedContent = formatFileContentsForLLM([fileData]);
-              const contentToInsertInLLM = formattedContent.replace('<file_contents>', `<file_contents id="${uniqueBlockId}">`); // Inject ID
-
-              insertTextIntoLLMInput(contentToInsertInLLM, currentTargetElementForPanel);
-
-              // Add to activeContextBlocks with correct metadata
-              activeContextBlocks.push({
-                uniqueBlockId,
-                contentSourceId: metadata.content_source_id,
-                label: metadata.label,
-                type: metadata.type
-              });
-              renderContextIndicators(); // Render indicators after adding
-              hideFloatingUi();
-            } else {
-              const errorMsg = fileContentResponse.error || 'Failed to get active file content.';
-              console.error('ContextWeaver: Error getting active file content:', errorMsg);
-              showErrorStateInPanel('Active File Error', errorMsg, fileContentResponse.errorCode);
-            }
-          } else {
-            const errorMsg = activeFileInfoResponse.error || 'Could not get active file information from VS Code. Is a file editor active?';
-            console.error('ContextWeaver: Error getting active file info:', errorMsg);
-            showErrorStateInPanel('Active File Error', errorMsg, activeFileInfoResponse.errorCode);
-          }
-        } catch (e: any) {
-          console.error('ContextWeaver: Error in active file workflow:', e);
-          showErrorStateInPanel('Active File Error', e.message || 'Failed to process active file request.');
-        } finally {
-          if (floatingUIPanel && floatingUIPanel.classList.contains(`${CSS_PREFIX}visible`)) {
-            activeFileButton.textContent = "Insert Active File's Content";
-            activeFileButton.disabled = false;
-          }
-        }
-      };
-      contentArea.appendChild(activeFileButton);
-
-      // --- Insert Content of Open Files Button ---
-      const openFilesButton = document.createElement('button');
-      openFilesButton.className = `${CSS_PREFIX}button`;
-      openFilesButton.textContent = "Insert Content of Open Files";
-      openFilesButton.id = `${CSS_PREFIX}btn-open-files`;
-      openFilesButton.onclick = async () => {
-        console.log('ContextWeaver: "Insert Content of Open Files" clicked');
-        openFilesButton.textContent = 'Loading Open Files...';
-        openFilesButton.disabled = true;
-        try {
-          const openFilesResponse = await chrome.runtime.sendMessage({ type: 'GET_OPEN_FILES_FOR_UI' });
-          console.log('ContextWeaver: Open files response:', openFilesResponse);
-
-          if (openFilesResponse.success && openFilesResponse.data && Array.isArray(openFilesResponse.data.openFiles)) {
-            const activeContextSourceIds: string[] = [];
-            displayOpenFilesSelectorUI(openFilesResponse.data.openFiles, activeContextSourceIds, contentArea, titleArea);
-          } else {
-            const errorMsg = openFilesResponse.error || 'Failed to get open files list.';
-            console.error('ContextWeaver: Error getting open files list:', errorMsg);
-            showErrorStateInPanel('Open Files Error', errorMsg, openFilesResponse.errorCode);
-          }
-        } catch (e: any) {
-          console.error('ContextWeaver: Error in open files workflow:', e);
-          showErrorStateInPanel('Open Files Error', e.message || 'Failed to process open files request.');
-        } finally {
-          if (floatingUIPanel && floatingUIPanel.classList.contains(`${CSS_PREFIX}visible`) && !contentArea.querySelector(`.${CSS_PREFIX}open-files-selector`)) {
-            openFilesButton.textContent = "Insert Content of Open Files";
-            openFilesButton.disabled = false;
-          }
-        }
-      };
-      contentArea.appendChild(openFilesButton);
-
+      // Update title based on the first workspace folder name if available, otherwise default
       if (response.data.workspaceFolders && response.data.workspaceFolders.length > 0) {
-        const separator = document.createElement('hr');
-        separator.style.margin = '10px 0';
-        separator.style.borderColor = '#4a4a4a';
-        contentArea.appendChild(separator);
-
-        titleArea.textContent = response.data.vsCodeInstanceName || 'ContextWeaver';
-        const showFolderGrouping = response.data.workspaceFolders.length > 1;
-        renderWorkspaceFolders(response.data.workspaceFolders, contentArea, showFolderGrouping);
+        uiManager.updateTitle(response.data.workspaceFolders[0].name || 'ContextWeaver');
       } else {
-        titleArea.textContent = 'ContextWeaver';
-        showErrorStateInPanel('No Workspace Open', 'No workspace folder open in VS Code. Some options may be limited.');
+        uiManager.updateTitle('ContextWeaver');
       }
+
+      const generalOptionsFragment = createGeneralOptionsSection(response.data);
+      uiManager.updateContent(generalOptionsFragment);
     } else {
-      showErrorStateInPanel('Connection Issue', 'Could not retrieve workspace details. Is ContextWeaver VSCode extension running and connected?');
+      uiManager.showError('Connection Issue', 'Could not retrieve workspace details. Is ContextWeaver VSCode extension running and connected?');
     }
   } catch (error: any) {
     console.error('ContextWeaver: Error requesting workspace details from service worker:', error);
-    showErrorStateInPanel('Communication Error', error.message || 'Failed to communicate with service worker.');
+    uiManager.showError('Communication Error', error.message || 'Failed to communicate with service worker.');
   }
 }
 
-interface IndicatorUIElements {
-  container: HTMLElement | null;
-  input: HTMLElement | null;
-}
 
-function renderContextIndicators(): void {
-  const targetInput = currentTargetElementForPanel;
-  if (!targetInput) {
-    console.warn(LOG_PREFIX_CS, 'No target input for context indicators');
-    const existingIndicatorArea = document.getElementById(CONTEXT_INDICATOR_AREA_ID);
-    if (existingIndicatorArea) existingIndicatorArea.style.display = 'none';
+function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string): void {
+  console.log(LOG_PREFIX_CS, `Request to remove indicator for block ID: ${uniqueBlockId}, Type: ${blockType}`);
+  if (!uniqueBlockId || typeof uniqueBlockId !== 'string') {
+    console.error(LOG_PREFIX_CS, "Cannot remove block: uniqueId is invalid.", uniqueBlockId);
+    stateManager.removeActiveContextBlock(uniqueBlockId);
+    renderContextIndicators();
     return;
   }
 
-  let indicatorArea = document.getElementById(CONTEXT_INDICATOR_AREA_ID);
-
-  if (!indicatorArea) {
-    indicatorArea = document.createElement('div');
-    indicatorArea.id = CONTEXT_INDICATOR_AREA_ID;
-
-    let insertionPoint: HTMLElement | null = null;
-    let currentElement: HTMLElement | null = targetInput;
-    let attempts = 0;
-
-    while (currentElement && attempts < 5) {
-      if (currentElement.parentElement && currentElement.parentElement !== document.body) {
-        if (targetInput.parentElement) {
-          insertionPoint = targetInput.parentElement;
-          break;
-        }
-      }
-      currentElement = currentElement.parentElement;
-      attempts++;
-    }
-
-    if (!insertionPoint && targetInput.parentElement) {
-      insertionPoint = targetInput.parentElement;
-    }
-
-    if (insertionPoint && insertionPoint.parentElement) {
-      insertionPoint.parentElement.insertBefore(indicatorArea, insertionPoint);
-      console.log(LOG_PREFIX_CS, `Indicator area inserted before element:`, insertionPoint);
-    } else if (targetInput.parentElement) {
-      targetInput.parentElement.insertBefore(indicatorArea, targetInput);
-      console.log(LOG_PREFIX_CS, `Indicator area inserted before target input (fallback).`);
-    } else {
-      console.warn(LOG_PREFIX_CS, "Target input has no suitable parent for indicator area placement. Appending to body as last resort.");
-      document.body.appendChild(indicatorArea);
-    }
-  }
-
-  indicatorArea.innerHTML = '';
-
-  activeContextBlocks.forEach(block => {
-    const indicator = document.createElement('div');
-    indicator.className = `${CSS_PREFIX}context-indicator`;
-    indicator.dataset.uniqueBlockId = block.uniqueBlockId;
-    indicator.dataset.contentSourceId = block.contentSourceId;
-
-    const iconSpan = document.createElement('span');
-    iconSpan.className = `${CSS_PREFIX}type-icon`;
-    switch (block.type) {
-      case 'file_content': iconSpan.textContent = '📄'; break;
-      case 'folder_content': iconSpan.textContent = '📁'; break;
-      case 'codebase_content': iconSpan.textContent = '📚'; break;
-      case 'file_tree': iconSpan.textContent = '🌲'; break;
-      case 'code_snippet': iconSpan.textContent = '✂️'; break;
-      default: iconSpan.textContent = '❔';
-    }
-    indicator.appendChild(iconSpan);
-
-    const labelSpan = document.createElement('span');
-    labelSpan.textContent = block.label;
-    labelSpan.style.marginLeft = '4px';
-    indicator.appendChild(labelSpan);
-
-    const closeBtn = document.createElement('button');
-    closeBtn.className = `${CSS_PREFIX}indicator-close-btn`;
-    closeBtn.textContent = '×';
-    closeBtn.dataset.uniqueBlockId = block.uniqueBlockId;
-    closeBtn.dataset.blockType = block.type;
-
-    closeBtn.onclick = () => {
-      const uniqueId = closeBtn.dataset.uniqueBlockId;
-      const blockType = closeBtn.dataset.blockType;
-      if (!uniqueId) {
-        console.error(LOG_PREFIX_CS, "Close button clicked, but no uniqueBlockId found in dataset.");
-        return;
-      }
-      console.log(LOG_PREFIX_CS, `Close indicator clicked for block ID: ${uniqueId}`);
-
-      if (!uniqueId || typeof uniqueId !== 'string') {
-        console.error(LOG_PREFIX_CS, "Cannot remove block: uniqueId is invalid.", uniqueId);
-        activeContextBlocks = activeContextBlocks.filter(b => b.uniqueBlockId !== closeBtn.dataset.uniqueBlockId);
-        renderContextIndicators();
-        return;
-      }
-
-      let tagNameForRegex = '';
-      if (blockType === 'file_content' || blockType === 'folder_content' || blockType === 'codebase_content') {
-        tagNameForRegex = 'file_contents';
-      } else if (blockType === 'code_snippet') {
-        tagNameForRegex = 'code_snippet';
-      } else if (blockType === 'file_tree') {
-        tagNameForRegex = 'file_tree';
-      } else {
-        console.warn(LOG_PREFIX_CS, `Unknown blockType for removal: ${blockType}`);
-        activeContextBlocks = activeContextBlocks.filter(b => b.uniqueBlockId !== uniqueId);
-        renderContextIndicators();
-        return;
-      }
-
-      const escapedUniqueId = uniqueId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const blockRegex = new RegExp(
-        `<${tagNameForRegex}(?:\\s+[^>]*?)?\\s+id=["']${escapedUniqueId}["'](?:\\s*[^>]*)?>` +
-        `[\\s\\S]*?` +
-        `</${tagNameForRegex}>`,
-        'g'
-      );
-
-      if (currentTargetElementForPanel) {
-        if ('value' in currentTargetElementForPanel && typeof (currentTargetElementForPanel as HTMLTextAreaElement).selectionStart === 'number') {
-          const textArea = currentTargetElementForPanel as HTMLTextAreaElement;
-          const originalValue = textArea.value;
-
-          textArea.value = originalValue.replace(blockRegex, '');
-          if (originalValue.length !== textArea.value.length) {
-            console.log(LOG_PREFIX_CS, `Removed text block ${uniqueId} (type: ${blockType}, tag: ${tagNameForRegex}) from TEXTAREA value.`);
-            textArea.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
-          } else {
-            console.warn(LOG_PREFIX_CS, `Could not find/remove text block ${uniqueId} (type: ${blockType}, tag: ${tagNameForRegex}) in TEXTAREA value using regex.`);
-          }
-
-        } else if (currentTargetElementForPanel.isContentEditable) {
-          const blockInEditor = currentTargetElementForPanel.querySelector(`[id="${uniqueId}"]`);
-          if (blockInEditor && blockInEditor.tagName.toLowerCase() === tagNameForRegex) {
-            blockInEditor.remove();
-            console.log(LOG_PREFIX_CS, `Removed text block ${uniqueId} (type: ${blockType}, tag: ${tagNameForRegex}) from ContentEditable via querySelector by ID.`);
-            currentTargetElementForPanel.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
-          } else {
-            console.warn(LOG_PREFIX_CS, `Could not find text block ${uniqueId} (type: ${blockType}, tag: ${tagNameForRegex}) in ContentEditable via querySelector by ID, or tag name mismatch.`);
-          }
-        }
-      } else {
-        console.warn(LOG_PREFIX_CS, `currentTargetElementForPanel is null, cannot remove block ${uniqueId}.`);
-      }
-
-      activeContextBlocks = activeContextBlocks.filter(b => b.uniqueBlockId !== uniqueId);
-      console.log(LOG_PREFIX_CS, `activeContextBlocks after removal:`, JSON.parse(JSON.stringify(activeContextBlocks)));
-      renderContextIndicators();
-    };
-    indicator.appendChild(closeBtn);
-    indicatorArea.appendChild(indicator);
-  });
-
-  if (activeContextBlocks.length === 0) {
-    indicatorArea.style.display = 'none';
+  let tagNameForRegex = '';
+  if (blockType === 'file_content' || blockType === 'folder_content' || blockType === 'codebase_content') {
+    tagNameForRegex = 'file_contents';
+  } else if (blockType === 'code_snippet') {
+    tagNameForRegex = 'code_snippet';
+  } else if (blockType === 'file_tree') {
+    tagNameForRegex = 'file_tree';
   } else {
-    indicatorArea.style.display = 'flex';
+    console.warn(LOG_PREFIX_CS, `Unknown blockType for removal: ${blockType}`);
+    stateManager.removeActiveContextBlock(uniqueBlockId);
+    renderContextIndicators();
+    return;
   }
+
+  const escapedUniqueId = uniqueBlockId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const blockRegex = new RegExp(
+    `<${tagNameForRegex}(?:\\s+[^>]*?)?\\s+id=["']${escapedUniqueId}["'](?:\\s*[^>]*)?>` +
+    `[\\s\\S]*?` +
+    `</${tagNameForRegex}>`,
+    'g'
+  );
+
+  const currentTargetElement = stateManager.getCurrentTargetElementForPanel();
+  if (currentTargetElement) {
+    if ('value' in currentTargetElement && typeof (currentTargetElement as HTMLTextAreaElement).selectionStart === 'number') {
+      const textArea = currentTargetElement as HTMLTextAreaElement;
+      const originalValue = textArea.value;
+      textArea.value = originalValue.replace(blockRegex, '');
+      if (originalValue.length !== textArea.value.length) {
+        console.log(LOG_PREFIX_CS, `Removed text block ${uniqueBlockId} (type: ${blockType}, tag: ${tagNameForRegex}) from TEXTAREA value.`);
+        textArea.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+      } else {
+        console.warn(LOG_PREFIX_CS, `Could not find/remove text block ${uniqueBlockId} (type: ${blockType}, tag: ${tagNameForRegex}) in TEXTAREA value using regex.`);
+      }
+    } else if (currentTargetElement.isContentEditable) {
+      const blockInEditor = currentTargetElement.querySelector(`[id="${uniqueBlockId}"]`);
+      if (blockInEditor && blockInEditor.tagName.toLowerCase() === tagNameForRegex.toLowerCase()) {
+        blockInEditor.remove();
+        console.log(LOG_PREFIX_CS, `Removed text block ${uniqueBlockId} (type: ${blockType}, tag: ${tagNameForRegex}) from ContentEditable via querySelector by ID.`);
+        currentTargetElement.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+      } else {
+        console.warn(LOG_PREFIX_CS, `Could not find text block ${uniqueBlockId} (type: ${blockType}, tag: ${tagNameForRegex}) in ContentEditable via querySelector by ID, or tag name mismatch.`);
+      }
+    }
+  } else {
+    console.warn(LOG_PREFIX_CS, `currentTargetElementForPanel is null, cannot remove block ${uniqueBlockId}.`);
+  }
+
+  stateManager.removeActiveContextBlock(uniqueBlockId);
+  console.log(LOG_PREFIX_CS, `activeContextBlocks after removal (from stateManager):`, JSON.parse(JSON.stringify(stateManager.getActiveContextBlocks())));
+  renderContextIndicators();
 }
 
+uiManager.setIndicatorCallbacks(handleRemoveContextIndicator);
+
+function renderContextIndicators(): void {
+  uiManager.renderContextIndicators(
+    stateManager.getActiveContextBlocks(),
+    stateManager.getCurrentTargetElementForPanel()
+  );
+}
+
+
 // --- Text Insertion ---
-function insertTextIntoLLMInput(textToInsert: string, targetInput: HTMLElement | null, triggerQuery?: string): void {
+function insertTextIntoLLMInput(
+  textToInsert: string,
+  targetInput: HTMLElement | null,
+  triggerQuery?: string // This is the query part only, e.g., "search_term"
+): void {
   if (!targetInput) {
-    console.error(`${LOG_PREFIX_CS} No target input field to insert text into.`);
+    console.error(LOG_PREFIX_CS, 'No target input field to insert text into.');
     return;
   }
   targetInput.focus();
 
-  let insertValue = '';
+  const fullTriggerTextToReplace = triggerQuery ? `@${triggerQuery}` : '@'; // The text we aim to replace
+
+  if (targetInput instanceof HTMLTextAreaElement) {
+    handleTextAreaInsertion(targetInput, textToInsert, fullTriggerTextToReplace, !!triggerQuery);
+  } else if (targetInput.isContentEditable) {
+    handleContentEditableInsertion(targetInput, textToInsert, fullTriggerTextToReplace, !!triggerQuery);
+  } else {
+    console.warn(LOG_PREFIX_CS, 'Target input field is neither a textarea nor contenteditable.');
+    return;
+  }
+  console.log(LOG_PREFIX_CS, 'Text insertion attempt completed.');
+}
+
+function handleTextAreaInsertion(
+  textArea: HTMLTextAreaElement,
+  textToInsert: string,
+  fullTriggerToReplace: string,
+  isSearchTrigger: boolean // Was this triggered by a search query (e.g. @query) or general (@)?
+): void {
+  const originalValue = textArea.value;
+  const selectionStart = textArea.selectionStart || 0;
+  const selectionEnd = textArea.selectionEnd || 0;
   let triggerReplaced = false;
 
-  if ('value' in targetInput && typeof (targetInput as HTMLTextAreaElement).selectionStart === 'number') {
-    const textArea = targetInput as HTMLTextAreaElement;
-    insertValue = textArea.value;
-    const fullTriggerText = triggerQuery ? `@${triggerQuery}` : '@';
-
-    let lastAtIndex = -1;
-    let searchStartIndex = (textArea.selectionStart || insertValue.length) - fullTriggerText.length;
+  // Attempt to replace the trigger query only if it makes sense
+  // (i.e., if a triggerQuery was provided or if it's just "@" very close to the cursor)
+  if (fullTriggerToReplace.length > 0) {
+    // Search backwards from the character just before the original selectionStart
+    // or from the end of the trigger if selectionStart is within/after it.
+    let searchStartIndex = selectionStart - fullTriggerToReplace.length;
     if (searchStartIndex < 0) searchStartIndex = 0;
 
-    for (let i = searchStartIndex; i >= 0; i--) {
-      if (insertValue.substring(i).startsWith(fullTriggerText)) {
+    // More precise search: find the last occurrence of fullTriggerToReplace that ends at or before selectionStart
+    // and is reasonably close to the cursor.
+    let lastAtIndex = -1;
+    // Iterate backwards to find the closest valid trigger
+    for (let i = textBeforeCursor(textArea, selectionStart).lastIndexOf(fullTriggerToReplace); i >= 0; i = textBeforeCursor(textArea, i).lastIndexOf(fullTriggerToReplace)) {
+      // Check if the found trigger is "standalone" or part of a larger word (e.g. email@domain.com)
+      // This check might be too complex or unnecessary if the trigger detection regex is already robust.
+      // For now, let's assume the trigger detection was specific enough.
+
+      // Condition: The trigger must end at or before the original cursor position (selectionStart)
+      // and be "close enough" to where the cursor was.
+      // "Close enough" means the cursor was at the end of the trigger or just after it.
+      if ((i + fullTriggerToReplace.length <= selectionStart) && (selectionStart - (i + fullTriggerToReplace.length) < 5)) {
         lastAtIndex = i;
         break;
       }
     }
 
+    // If we found a trigger to replace:
     if (lastAtIndex !== -1) {
-      if (triggerQuery || ((textArea.selectionStart || insertValue.length) - (lastAtIndex + fullTriggerText.length) < 5)) {
-        textArea.value = insertValue.substring(0, lastAtIndex) + textToInsert + insertValue.substring(lastAtIndex + fullTriggerText.length);
-        textArea.selectionStart = textArea.selectionEnd = lastAtIndex + textToInsert.length;
-        triggerReplaced = true;
-      }
+      textArea.value = originalValue.substring(0, lastAtIndex) +
+        textToInsert +
+        originalValue.substring(lastAtIndex + fullTriggerToReplace.length);
+      textArea.selectionStart = textArea.selectionEnd = lastAtIndex + textToInsert.length;
+      triggerReplaced = true;
+      console.log(LOG_PREFIX_CS, `Replaced trigger "${fullTriggerToReplace}" in textarea.`);
     }
+  }
 
-    if (!triggerReplaced) {
-      const start = textArea.selectionStart || 0;
-      const end = textArea.selectionEnd || 0;
-      textArea.value = insertValue.substring(0, start) + textToInsert + insertValue.substring(end);
-      textArea.selectionStart = textArea.selectionEnd = start + textToInsert.length;
-    }
-    textArea.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+  if (!triggerReplaced) {
+    // Fallback: Insert at cursor or replace selection if no trigger was replaced
+    textArea.value = originalValue.substring(0, selectionStart) +
+      textToInsert +
+      originalValue.substring(selectionEnd);
+    textArea.selectionStart = textArea.selectionEnd = selectionStart + textToInsert.length;
+    console.log(LOG_PREFIX_CS, 'Inserted text at cursor/selection in textarea (no trigger replaced).');
+  }
 
-  } else if (targetInput.isContentEditable) {
-    const selection = window.getSelection();
-    if (selection && selection.rangeCount > 0) {
-      const range = selection.getRangeAt(0);
+  textArea.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+}
 
-      // TODO: Implement robust trigger replacement for contentEditable.
-      // This is complex. For now, just delete current selection and insert.
-      range.deleteContents();
+// Helper to get text before cursor in a textarea
+function textBeforeCursor(textArea: HTMLTextAreaElement, cursorPos: number): string {
+  return textArea.value.substring(0, cursorPos);
+}
 
-      // textToInsert is the string: <file_contents id="...">...</file_contents>
-      // We need to insert this as HTML content.
-      const tempDoc = document.implementation.createHTMLDocument();
-      const tempContainer = tempDoc.createElement('div');
-      tempContainer.innerHTML = textToInsert; // Let browser parse the string into a node
-
-      const nodeToInsert = tempContainer.firstChild;
-
-      if (nodeToInsert) {
-        range.insertNode(nodeToInsert.cloneNode(true)); // Insert a clone
-        if (nodeToInsert.nextSibling) { // If there were multiple top-level elements (should not happen with our structure)
-          let current: ChildNode | null = nodeToInsert.nextSibling;
-          while (current) {
-            range.insertNode(current.cloneNode(true));
-            current = current.nextSibling;
-          }
-        }
-        // Collapse range to the end of inserted content
-        if (range.endContainer.lastChild) { // Check if endContainer has a lastChild
-          range.setStartAfter(range.endContainer.lastChild);
-          range.setEndAfter(range.endContainer.lastChild);
-        } else if (nodeToInsert) { // Fallback to after the inserted node itself
-          range.setStartAfter(nodeToInsert);
-          range.setEndAfter(nodeToInsert);
-        }
-
-      } else {
-        // Fallback if parsing failed, insert as text (less ideal)
-        const textNode = document.createTextNode(textToInsert);
-        range.insertNode(textNode);
-        range.setStartAfter(textNode);
-        range.setEndAfter(textNode);
-      }
-
-      selection.removeAllRanges();
-      selection.addRange(range);
-      targetInput.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
-    } else {
-      console.warn(`${LOG_PREFIX_CS} Cannot insert into contentEditable without a selection range.`);
-    }
-  } else {
-    console.warn(`${LOG_PREFIX_CS} Target input field is neither a textarea nor contenteditable with selection support.`);
+function handleContentEditableInsertion(
+  targetInput: HTMLElement,
+  textToInsert: string,
+  fullTriggerToReplace: string,
+  isSearchTrigger: boolean
+): void {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) {
+    console.warn(LOG_PREFIX_CS, 'Cannot insert into contentEditable: No selection or range.');
+    // Fallback: try to append if no selection? Or just return? For now, return.
     return;
   }
-  console.log(`${LOG_PREFIX_CS} Text inserted.`);
+
+  let range = selection.getRangeAt(0);
+  let triggerReplaced = false;
+
+  // --- Best-effort trigger replacement for contentEditable ---
+  if (fullTriggerToReplace.length > 0 && range.collapsed) { // Only attempt if range is a cursor (collapsed)
+    const container = range.startContainer;
+    const offset = range.startOffset;
+
+    if (container.nodeType === Node.TEXT_NODE && container.textContent) {
+      const textContentBeforeCursor = container.textContent.substring(0, offset);
+      const lastAtIndex = textContentBeforeCursor.lastIndexOf(fullTriggerToReplace);
+
+      // Check if the found trigger is "close enough" to the cursor
+      if (lastAtIndex !== -1 && (offset - (lastAtIndex + fullTriggerToReplace.length) < 5)) {
+        // Create a new range covering the trigger text
+        const triggerRange = document.createRange();
+        triggerRange.setStart(container, lastAtIndex);
+        triggerRange.setEnd(container, lastAtIndex + fullTriggerToReplace.length);
+
+        selection.removeAllRanges(); // Important before modifying range
+        selection.addRange(triggerRange); // Select the trigger text
+        range = triggerRange; // Update the range to be the trigger text range
+        triggerReplaced = true;
+        console.log(LOG_PREFIX_CS, `Identified trigger "${fullTriggerToReplace}" in contentEditable for replacement.`);
+      }
+    }
+  }
+  // --- End of best-effort trigger replacement ---
+
+  // Delete contents of the current range (either original selection or the identified trigger)
+  range.deleteContents();
+
+  // Insert the new HTML content
+  // The existing logic for parsing textToInsert (HTML string) into nodes is good.
+  const tempDoc = document.implementation.createHTMLDocument();
+  const tempContainer = tempDoc.createElement('div');
+  tempContainer.innerHTML = textToInsert;
+
+  // Insert nodes one by one from tempContainer to maintain order and handle multiple root nodes if any
+  // (though our format typically has one root like <file_contents>)
+  let lastInsertedNode: Node | null = null;
+  while (tempContainer.firstChild) {
+    const nodeToInsert = tempContainer.firstChild;
+    range.insertNode(nodeToInsert);
+    lastInsertedNode = nodeToInsert;
+  }
+
+  // Collapse range to the end of inserted content
+  if (lastInsertedNode) {
+    range.setStartAfter(lastInsertedNode);
+    range.setEndAfter(lastInsertedNode);
+  }
+  selection.removeAllRanges();
+  selection.addRange(range);
+
+  if (triggerReplaced) {
+    console.log(LOG_PREFIX_CS, `Replaced trigger and inserted text in contentEditable.`);
+  } else {
+    console.log(LOG_PREFIX_CS, `Inserted text at cursor/selection in contentEditable (no trigger replaced or not applicable).`);
+  }
+
+  targetInput.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
 }
+
 
 // --- Event Listener Attachment ---
 function attachListenerToInputField(inputField: HTMLElement, config: LLMInputConfig): void {
   if (config.attachedElement && config.attachedElement.isSameNode(inputField) && eventHandlers.has(inputField)) {
-    return; // Already attached to this exact element
+    return;
   }
-  // If previously attached to a different element for this config, remove old listener
   if (config.attachedElement && eventHandlers.has(config.attachedElement)) {
     const oldHandler = eventHandlers.get(config.attachedElement);
     if (oldHandler) {
-      config.attachedElement.removeEventListener('input', oldHandler); // Use 'input'
+      config.attachedElement.removeEventListener('input', oldHandler);
       eventHandlers.delete(config.attachedElement);
     }
   }
 
   console.log(`ContextWeaver: Attaching listener to input field:`, inputField, `with selector: ${config.selector}`);
-  inputField.dataset.cwSelector = config.selector; // For potential debugging or re-identification
+  inputField.dataset.cwSelector = config.selector;
 
   const handleSpecificEvent = (event: Event) => {
     const fieldToRead = inputField as HTMLTextAreaElement | HTMLElement;
@@ -1455,38 +787,84 @@ function attachListenerToInputField(inputField: HTMLElement, config: LLMInputCon
       cursorPos = (fieldToRead as HTMLTextAreaElement).selectionStart || 0;
     }
 
-    const atMatch = /@(\S*)$/.exec(rawValue.substring(0, cursorPos));
+    // --- Step 1: Detect Trigger ---
+    // Regex looks for '@' followed by zero or more non-whitespace characters, AT THE END of the substring up to the cursor.
+    const textBeforeCursor = rawValue.substring(0, cursorPos);
+    const atMatch = /@(\S*)$/.exec(textBeforeCursor);
 
     if (atMatch) {
-      const fullTrigger = atMatch[0];
-      const query = atMatch[1];
+      const fullTriggerText = atMatch[0]; // e.g., "@" or "@searchQuery"
+      const queryText = atMatch[1];     // e.g., "" or "searchQuery"
 
-      if (floatingUIPanel && floatingUIPanel.classList.contains(`${CSS_PREFIX}visible`) && currentTargetElementForPanel !== inputField) {
-        hideFloatingUi();
+      // --- Step 2: Determine UI Mode and Action ---
+      // Hide UI if it's visible for a different input field
+      if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible') &&
+        stateManager.getCurrentTargetElementForPanel() !== inputField) {
+        uiManager.hide(); // This will also trigger stateManager.onUiHidden() via its callback
       }
 
-      if (query.length > 0) {
-        console.log(LOG_PREFIX_CS, `Search trigger detected. Query: "${query}"`);
-        showFloatingUi(inputField, { mode: 'search', query: query });
+      stateManager.setCurrentTargetElementForPanel(inputField); // Set current target
+
+      if (queryText.length > 0) {
+        // Search Mode: Triggered if there are non-whitespace characters after @
+        console.log(LOG_PREFIX_CS, `Search trigger detected. Query: "${queryText}"`);
+        stateManager.setOriginalQueryTextFromUI(queryText);
+        uiManager.show(
+          inputField,
+          `Searching for "@${queryText}"...`,
+          uiManager.createParagraph({ classNames: [`${LOCAL_CSS_PREFIX}loading-text`], textContent: 'Loading results...' }),
+          () => {
+            console.log(LOG_PREFIX_CS, "UI hidden (search mode), callback from UIManager.");
+            stateManager.onUiHidden();
+          }
+        );
+        populateFloatingUiContent({ mode: 'search', query: queryText });
       } else {
-        const charAfterAt = rawValue.charAt(rawValue.substring(0, cursorPos).lastIndexOf('@') + 1);
-        if (charAfterAt === ' ' || fullTrigger === '@') {
-          console.log(LOG_PREFIX_CS, "General trigger detected (e.g. '@' or '@ ')");
-          showFloatingUi(inputField, { mode: 'general' });
-        } else if (query.length === 0 && fullTrigger.length > 1) {
-          console.log(LOG_PREFIX_CS, "General trigger detected ('@' alone)");
-          showFloatingUi(inputField, { mode: 'general' });
+        // General Mode: Triggered if it's just "@" or "@ " (space after @)
+        // The regex ensures `queryText` is empty if it's just "@".
+        // We also need to consider if the character immediately after "@" in the raw input is a space,
+        // or if the trigger is at the very end of the input.
+        const charImmediatelyAfterAt = rawValue.charAt(textBeforeCursor.lastIndexOf('@') + 1);
+        const isAtAloneOrFollowedBySpace = fullTriggerText === '@' || charImmediatelyAfterAt === ' ';
+
+        if (isAtAloneOrFollowedBySpace) {
+          console.log(LOG_PREFIX_CS, "General trigger detected ('@' or '@ ' or '@' at end of query).");
+          stateManager.setOriginalQueryTextFromUI(undefined); // No specific query text for general mode
+          uiManager.show(
+            inputField,
+            'ContextWeaver',
+            uiManager.createParagraph({ classNames: [`${LOCAL_CSS_PREFIX}loading-text`], textContent: 'Loading options...' }),
+            () => {
+              console.log(LOG_PREFIX_CS, "UI hidden (general mode), callback from UIManager.");
+              stateManager.onUiHidden();
+            }
+          );
+          populateFloatingUiContent({ mode: 'general' });
+        } else {
+          // This case might occur if the regex matches "@" but the character after it is not a space,
+          // and queryText is empty (e.g. user typed "@a" then deleted "a" but cursor is still after @).
+          // In this scenario, we probably don't want to show the general UI yet,
+          // as the user might be about to type a search query.
+          // So, if it's not clearly a search and not clearly "@" or "@ ", we can choose to hide or do nothing.
+          // Hiding seems safer to avoid a lingering general UI if the user is mid-typing a search query.
+          if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible') &&
+            stateManager.getCurrentTargetElementForPanel()?.isSameNode(inputField)) {
+            console.log(LOG_PREFIX_CS, "Ambiguous '@' trigger (not search, not general), hiding UI if currently shown for this input.");
+            uiManager.hide();
+          }
         }
       }
     } else {
-      if (floatingUIPanel && floatingUIPanel.classList.contains(`${CSS_PREFIX}visible`) && currentTargetElementForPanel?.isSameNode(inputField)) {
-        console.log(LOG_PREFIX_CS, "No valid '@' trigger found, hiding UI.");
-        hideFloatingUi();
+      // No valid "@" trigger ending at the cursor. Hide UI if it's currently shown for this input field.
+      if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible') &&
+        stateManager.getCurrentTargetElementForPanel()?.isSameNode(inputField)) {
+        console.log(LOG_PREFIX_CS, "No valid '@' trigger found at cursor, hiding UI.");
+        uiManager.hide();
       }
     }
   };
 
-  inputField.addEventListener('input', handleSpecificEvent); // Use 'input' for better real-time detection
+  inputField.addEventListener('input', handleSpecificEvent);
   eventHandlers.set(inputField, handleSpecificEvent);
   config.attachedElement = inputField;
   config.isAttached = true;
@@ -1494,7 +872,6 @@ function attachListenerToInputField(inputField: HTMLElement, config: LLMInputCon
 
 // --- Initialization and Observation ---
 function initializeTriggerDetection(): void {
-  injectFloatingUiCss();
   const currentHostname = window.location.hostname;
   console.log(`ContextWeaver: Initializing trigger detection on ${currentHostname}`);
 
@@ -1506,41 +883,33 @@ function initializeTriggerDetection(): void {
         attachListenerToInputField(inputField, config);
       } else {
         console.log(`ContextWeaver: Input field ${config.selector} not found immediately. Setting up MutationObserver.`);
-        observeForElement(config); // Start observing if not found initially
+        observeForElement(config);
       }
     }
   }
 }
 
 function observeForElement(config: LLMInputConfig): void {
-  // Check if already attached to a valid element for this config
   if (config.isAttached && config.attachedElement && document.body.contains(config.attachedElement)) {
     return;
   }
-
-  config.isAttached = false; // Reset attachment status
+  config.isAttached = false;
   config.attachedElement = null;
 
   const observer = new MutationObserver((mutationsList, obs) => {
-    // Check again if already attached by another mutation or if element disappeared
     if (config.isAttached && config.attachedElement && document.body.contains(config.attachedElement)) {
       return;
     }
-
     const inputField = document.querySelector(config.selector) as HTMLElement;
     if (inputField) {
       console.log(`ContextWeaver: Element with selector ${config.selector} found/re-found by MutationObserver.`);
       attachListenerToInputField(inputField, config);
-      // obs.disconnect(); // Optionally disconnect if you only need to find it once per page load/major DOM change
-      // For SPAs, might need to keep observing or re-observe on navigation events.
     }
   });
-
   console.log(`ContextWeaver: Setting up/re-arming MutationObserver for selector: ${config.selector}`);
   observer.observe(document.body, { childList: true, subtree: true });
 }
 
-// --- Script Execution Start ---
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initializeTriggerDetection);
 } else {
@@ -1552,7 +921,6 @@ function findActiveLLMInput(): HTMLElement | null {
   for (const config of llmInputsConfig) {
     if (currentHostname.includes(config.hostSuffix)) {
       const inputField = document.querySelector(config.selector) as HTMLElement;
-      // Check if the field is visible and interactable (basic check)
       if (inputField && inputField.offsetParent !== null) {
         console.log(LOG_PREFIX_CS, "findActiveLLMInput: Found active LLM input field:", inputField);
         return inputField;
@@ -1563,22 +931,21 @@ function findActiveLLMInput(): HTMLElement | null {
   return null;
 }
 
-// Listen for messages from the service worker (or other parts of the extension)
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log("ContextWeaver (contentScript.ts): Message received", message);
 
   if (message.type === 'push' && message.command === 'push_snippet') {
-    const snippetData = message.payload; // This is SnippetPayload from VSCE
+    const snippetData = message.payload;
     console.log("ContextWeaver: Received snippet to insert:", snippetData);
 
-    let targetInputElement = currentTargetElementForPanel;
+    let targetInputElement = stateManager.getCurrentTargetElementForPanel();
     if (!targetInputElement) {
       console.log(LOG_PREFIX_CS, "currentTargetElementForPanel is null, attempting to find active LLM input for snippet insertion.");
       targetInputElement = findActiveLLMInput();
     }
 
     if (targetInputElement) {
-      if (snippetData.metadata) { // Ensure metadata exists
+      if (snippetData.metadata) {
         const uniqueBlockId = snippetData.metadata.unique_block_id || `cw-snippet-${Date.now()}`;
         const langId = snippetData.language || 'plaintext';
         let formattedSnippet = `<code_snippet id="${uniqueBlockId}">\n`;
@@ -1589,18 +956,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         formattedSnippet += `\`\`\`\n`;
         formattedSnippet += `</code_snippet>`;
 
-        // Update currentTargetElementForPanel if we found a new one,
-        // so renderContextIndicators can use it.
-        if (!currentTargetElementForPanel && targetInputElement) {
-          currentTargetElementForPanel = targetInputElement;
+        if (!stateManager.getCurrentTargetElementForPanel() && targetInputElement) {
+          stateManager.setCurrentTargetElementForPanel(targetInputElement);
         }
         insertTextIntoLLMInput(formattedSnippet, targetInputElement);
 
-        activeContextBlocks.push({
-          uniqueBlockId: snippetData.metadata.unique_block_id,
-          contentSourceId: snippetData.metadata.content_source_id,
+        stateManager.addActiveContextBlock({
+          unique_block_id: snippetData.metadata.unique_block_id,
+          content_source_id: snippetData.metadata.content_source_id,
           label: snippetData.metadata.label,
-          type: snippetData.metadata.type // Should be 'code_snippet'
+          type: snippetData.metadata.type,
+          workspaceFolderName: snippetData.metadata.workspaceFolderName,
+          workspaceFolderUri: snippetData.metadata.workspaceFolderUri
         });
         console.log(LOG_PREFIX_CS, `Added snippet to activeContextBlocks:`, snippetData.metadata);
         renderContextIndicators();
@@ -1610,501 +977,365 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } else {
       console.warn("ContextWeaver: No target LLM input element known or found for snippet insertion.");
     }
-    return false; // No async response needed from here
+    return false;
   } else if (message.type === 'ERROR_FROM_SERVICE_WORKER' || message.type === 'ERROR_FROM_VSCE_IPC') {
     console.error(`ContextWeaver: Error received: ${message.payload.message}`);
-    if (floatingUIPanel && floatingUIPanel.classList.contains(`${CSS_PREFIX}visible`)) {
-      showErrorStateInPanel('Extension Error', message.payload.message, message.payload.errorCode || 'N/A');
+    if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible')) {
+      uiManager.showError('Extension Error', message.payload.message, message.payload.errorCode || 'N/A');
     }
     return false;
   }
-  // Handle other messages if necessary
-  return false; // Default to not sending an async response
+  return false;
 });
 
-/**
- * @description Displays a UI for selecting from a list of open files.
- * @param openFilesList - Array of open file objects from the service worker. Each object should have { path, name, workspaceFolderUri, workspaceFolderName }
- * @param activeContextSourceIds - Array of content_source_ids for currently inserted blocks.
- * @param contentArea - The HTMLElement where the UI should be rendered.
- * @param titleArea - The HTMLElement for the floating UI's title.
- */
-function renderWorkspaceFolders(workspaceFolders: any[], contentArea: HTMLElement, showFolderGrouping: boolean): void {
+
+function renderWorkspaceFolders(workspaceFolders: any[], targetContentArea: DocumentFragment, showFolderGrouping: boolean): void {
   workspaceFolders.forEach(folder => {
-    let targetContainer = contentArea; // Default to contentArea for single folder case
+    let sectionContainer: DocumentFragment | HTMLDivElement = targetContentArea;
 
     if (showFolderGrouping) {
-      const folderSection = document.createElement('div');
-      folderSection.className = `${CSS_PREFIX}folder-section`;
-
-      const folderTitle = document.createElement('div');
-      folderTitle.className = `${CSS_PREFIX}folder-title`;
-      folderTitle.textContent = folder.name || 'Workspace Folder';
-      folderSection.appendChild(folderTitle);
-      contentArea.appendChild(folderSection); // Append the section first
-      targetContainer = folderSection; // Set target to the section for buttons
+      const folderSectionDiv = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}folder-section`] });
+      const folderTitleDiv = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}folder-title`], textContent: folder.name || 'Workspace Folder' });
+      folderSectionDiv.appendChild(folderTitleDiv);
+      targetContentArea.appendChild(folderSectionDiv);
+      sectionContainer = folderSectionDiv;
     }
 
-    // File Tree button
-    const fileTreeButton = document.createElement('button');
-    fileTreeButton.className = `${CSS_PREFIX}button`;
-    fileTreeButton.textContent = `File Tree for ${folder.name}`;
-    fileTreeButton.id = `${CSS_PREFIX}btn-file-tree-${folder.uri.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    fileTreeButton.onclick = async () => {
-      const contentSourceId = `${folder.uri}::file_tree`;
-      const isDuplicate = activeContextBlocks.some(block => block.contentSourceId === contentSourceId);
-
-      if (isDuplicate) {
-        contentArea.innerHTML = `<p>File Tree for '${folder.name}' is already added.</p>`;
-        setTimeout(() => hideFloatingUi(), 2000);
-        return;
-      }
-
-      fileTreeButton.disabled = true;
-      fileTreeButton.textContent = `Loading file tree for ${folder.name}...`;
-      showLoadingStateInPanel(`Processing ${folder.name}`, `Fetching file tree...`);
-
-      try {
-        const response = await chrome.runtime.sendMessage({
-          type: 'GET_FILE_TREE',
-          payload: { workspaceFolderUri: folder.uri }
+    const fileTreeButton = uiManager.createButton(`File Tree for ${folder.name}`, {
+      id: `${LOCAL_CSS_PREFIX}btn-file-tree-${folder.uri.replace(/[^a-zA-Z0-9]/g, '_')}`,
+      onClick: async () => {
+        await processContentInsertion({
+          name: `File Tree - ${folder.name}`,
+          contentSourceId: `${folder.uri}::file_tree`,
+          type: 'file_tree',
+          workspaceFolderUri: folder.uri
         });
-
-        if (response.success && response.data?.fileTreeString) {
-          const { fileTreeString, metadata } = response.data;
-          const uniqueBlockId = metadata.unique_block_id;
-
-          // Inject uniqueBlockId into the <file_tree> tag
-          const contentToInsertInLLM = fileTreeString.replace('<file_tree>', `<file_tree id="${uniqueBlockId}">`);
-
-          insertTextIntoLLMInput(contentToInsertInLLM, currentTargetElementForPanel, originalQueryTextFromUI);
-
-          activeContextBlocks.push({
-            uniqueBlockId,
-            contentSourceId: metadata.content_source_id,
-            label: metadata.label,
-            type: metadata.type
-          });
-
-          renderContextIndicators();
-          hideFloatingUi();
-        } else {
-          showErrorStateInPanel('File Tree Error', response.error || 'Failed to get file tree.', response.errorCode);
-        }
-      } catch (error: any) {
-        console.error(LOG_PREFIX_CS, 'Error fetching file tree:', error);
-        showErrorStateInPanel('File Tree Error', error.message || 'Failed to get file tree.');
-      } finally {
-        fileTreeButton.disabled = false;
-        fileTreeButton.textContent = `File Tree for ${folder.name}`;
       }
-    };
-    targetContainer.appendChild(fileTreeButton); // Append to targetContainer
+    });
+    sectionContainer.appendChild(fileTreeButton);
 
-    // Full Codebase button  
-    const fullCodebaseButton = document.createElement('button');
-    fullCodebaseButton.className = `${CSS_PREFIX}button`;
-    fullCodebaseButton.textContent = `Full Codebase for ${folder.name}`;
-    fullCodebaseButton.id = `${CSS_PREFIX}btn-full-codebase-${folder.uri.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    fullCodebaseButton.onclick = async () => {
-      const contentSourceId = `${folder.uri}::codebase`;
-      const isDuplicate = activeContextBlocks.some(block => block.contentSourceId === contentSourceId);
-
-      if (isDuplicate) {
-        contentArea.innerHTML = `<p>Full codebase for '${folder.name}' is already added.</p>`;
-        setTimeout(() => hideFloatingUi(), 2000);
-        return;
-      }
-
-      fullCodebaseButton.disabled = true;
-      fullCodebaseButton.textContent = `Loading full codebase for ${folder.name}...`;
-      showLoadingStateInPanel(`Processing ${folder.name}`, `Fetching full codebase...`);
-
-      try {
-        const response = await chrome.runtime.sendMessage({
-          type: 'GET_ENTIRE_CODEBASE',
-          payload: { workspaceFolderUri: folder.uri }
+    const fullCodebaseButton = uiManager.createButton(`Full Codebase for ${folder.name}`, {
+      id: `${LOCAL_CSS_PREFIX}btn-full-codebase-${folder.uri.replace(/[^a-zA-Z0-9]/g, '_')}`,
+      onClick: async () => {
+        await processContentInsertion({
+          name: `Entire Codebase - ${folder.name}`,
+          contentSourceId: `${folder.uri}::codebase`,
+          type: 'codebase_content',
+          workspaceFolderUri: folder.uri
         });
-
-        if (response.success && response.data?.filesData) {
-          const { filesData, metadata } = response.data;
-          const uniqueBlockId = metadata.unique_block_id;
-          const formattedContent = formatFileContentsForLLM(filesData);
-          const contentToInsertInLLM = formattedContent.replace('<file_contents>', `<file_contents id="${uniqueBlockId}">`);
-
-          insertTextIntoLLMInput(contentToInsertInLLM, currentTargetElementForPanel, originalQueryTextFromUI);
-
-          activeContextBlocks.push({
-            uniqueBlockId,
-            contentSourceId: metadata.content_source_id,
-            label: metadata.label,
-            type: metadata.type
-          });
-
-          renderContextIndicators();
-          hideFloatingUi();
-        } else {
-          showErrorStateInPanel('Codebase Error', response.error || 'Failed to get codebase.', response.errorCode);
-        }
-      } catch (error: any) {
-        console.error(LOG_PREFIX_CS, 'Error fetching codebase:', error);
-        showErrorStateInPanel('Codebase Error', error.message || 'Failed to get codebase.');
-      } finally {
-        fullCodebaseButton.disabled = false;
-        fullCodebaseButton.textContent = `Full Codebase for ${folder.name}`;
       }
-    };
-    targetContainer.appendChild(fullCodebaseButton); // Append to targetContainer
+    });
+    sectionContainer.appendChild(fullCodebaseButton);
   });
 }
 
-function renderBrowseView(browseResponse: any, parentFolderUri: string, parentFolderName: string, workspaceFolderUri: string | null): void {
-  if (!floatingUIPanel) return;
+// Helper for individual browse item
+function createBrowseItemElement(entry: CWDirectoryEntry): HTMLDivElement { // Use aliased type
+  const itemDiv = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}browse-item`] });
 
-  const contentArea = floatingUIPanel.querySelector(`.${CSS_PREFIX}content`) as HTMLElement;
-  const titleArea = floatingUIPanel.querySelector(`.${CSS_PREFIX}title`) as HTMLElement;
-  if (!contentArea || !titleArea) return;
-
-  if (!browseResponse.success || !browseResponse.data?.entries) {
-    showErrorStateInPanel(`Error Browsing ${parentFolderName}`, browseResponse.error || 'Failed to load folder contents.');
-    return;
-  }
-
-  contentArea.innerHTML = '';
-
-  if (browseResponse.data.filterTypeApplied === 'default') {
-    const filterStatusMessage = document.createElement('p');
-    filterStatusMessage.className = `${CSS_PREFIX}filter-status-text`;
-    filterStatusMessage.textContent = '(Using default ignore rules for this listing)';
-    contentArea.appendChild(filterStatusMessage);
-  }
-
-  const listContainer = document.createElement('div');
-  listContainer.style.maxHeight = '250px';
-  listContainer.style.overflowY = 'auto';
-  listContainer.style.marginBottom = '10px';
-
-  browseResponse.data.entries.forEach((entry: any) => {
-    const itemDiv = document.createElement('div');
-    itemDiv.className = `${CSS_PREFIX}browse-item`;
-    itemDiv.style.padding = '6px 8px';
-    itemDiv.style.marginBottom = '4px';
-    itemDiv.style.borderRadius = '3px';
-    itemDiv.style.display = 'flex';
-    itemDiv.style.alignItems = 'center';
-
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.checked = true;
-    checkbox.style.marginRight = '8px';
-    checkbox.dataset.uri = entry.uri;
-    checkbox.dataset.type = entry.type;
-    checkbox.dataset.contentSourceId = entry.content_source_id;
-
-    const isDuplicate = activeContextBlocks.some(block => block.contentSourceId === entry.content_source_id);
-    if (isDuplicate) {
-      checkbox.disabled = true;
-      itemDiv.style.opacity = '0.6';
-      itemDiv.title = 'Already added to context';
+  const checkbox = uiManager.createCheckbox({
+    checked: true,
+    dataset: {
+      uri: entry.uri,
+      type: entry.type,
+      contentSourceId: entry.content_source_id,
+      name: entry.name // Add name for processContentInsertion
     }
-
-    const iconSpan = document.createElement('span');
-    iconSpan.textContent = entry.type === 'file' ? '📄' : '📁';
-    iconSpan.style.marginRight = '8px';
-
-    const nameSpan = document.createElement('span');
-    nameSpan.textContent = entry.name;
-
-    itemDiv.appendChild(checkbox);
-    itemDiv.appendChild(iconSpan);
-    itemDiv.appendChild(nameSpan);
-    listContainer.appendChild(itemDiv);
   });
 
-  contentArea.appendChild(listContainer);
+  const isDuplicate = stateManager.isDuplicateContentSource(entry.content_source_id);
+  if (isDuplicate) {
+    checkbox.disabled = true;
+    itemDiv.style.opacity = '0.6';
+    itemDiv.title = 'Already added to context';
+  }
 
-  const buttonContainer = document.createElement('div');
-  buttonContainer.style.marginTop = '10px';
+  const iconSpan = uiManager.createSpan({ textContent: entry.type === 'file' ? '📄' : '📁', style: { marginRight: '8px' } });
+  const nameSpan = uiManager.createSpan({ textContent: entry.name });
 
-  const insertButton = document.createElement('button');
-  insertButton.className = `${CSS_PREFIX}button`;
-  insertButton.textContent = 'Insert Selected Items';
-  insertButton.type = 'button';
-  insertButton.onclick = async () => {
-    const selectedEntries = Array.from(listContainer.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:checked:not(:disabled)'))
-      .map(cb => ({
-        uri: cb.dataset.uri!,
-        type: cb.dataset.type! as 'file' | 'folder',
-        contentSourceId: cb.dataset.contentSourceId!
-      }));
+  itemDiv.appendChild(checkbox);
+  itemDiv.appendChild(iconSpan);
+  itemDiv.appendChild(nameSpan);
+  return itemDiv;
+}
 
-    if (selectedEntries.length === 0) {
-      contentArea.innerHTML = '<p>No items selected.</p>';
-      return;
-    }
+// Helper for browse view buttons
+function createBrowseViewButtons(
+  listContainer: HTMLElement,
+  parentFolderUri: string,
+  parentFolderName: string,
+  workspaceFolderUri: string | null
+): HTMLDivElement {
+  const buttonContainer = uiManager.createDiv({ style: { marginTop: '10px' } });
+  const insertButton = uiManager.createButton('Insert Selected Items', {
+    onClick: async () => {
+      interface SelectedBrowseEntry { // Define local interface for clarity
+        uri: string;
+        type: 'file' | 'folder';
+        contentSourceId: string;
+        name: string;
+      }
 
-    insertButton.disabled = true;
-    insertButton.textContent = `Loading ${selectedEntries.length} selected items...`;
+      const selectedEntries: SelectedBrowseEntry[] = Array.from(listContainer.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:checked:not(:disabled)'))
+        .map(cb => ({
+          uri: cb.dataset.uri!,
+          type: cb.dataset.type! as 'file' | 'folder',
+          contentSourceId: cb.dataset.contentSourceId!,
+          name: cb.dataset.name! // Added missing 'name' property
+        }));
 
-    const progressDiv = document.createElement('div');
-    progressDiv.className = `${CSS_PREFIX}progress`;
-    progressDiv.style.marginTop = '10px';
-    contentArea.appendChild(progressDiv);
+      if (selectedEntries.length === 0) {
+        const tempMsg = uiManager.createParagraph({ textContent: 'No items selected.', style: { color: 'orange' } });
+        buttonContainer.appendChild(tempMsg);
+        uiManager.updateContent(uiManager.createDiv({ children: [listContainer, buttonContainer, tempMsg] })); // Re-render with message
+        setTimeout(() => { if (tempMsg.parentNode) tempMsg.parentNode.removeChild(tempMsg); }, 2000);
+        return;
+      }
 
-    let successCount = 0;
-    let failureCount = 0;
+      insertButton.disabled = true;
+      insertButton.textContent = `Loading ${selectedEntries.length} selected items...`;
+      const progressDiv = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}progress`], style: { marginTop: '10px' } });
+      buttonContainer.appendChild(progressDiv);
+      uiManager.updateContent(uiManager.createDiv({ children: [listContainer, buttonContainer, progressDiv] })); // Re-render with progress
 
-    try {
-      for (let i = 0; i < selectedEntries.length; i++) {
-        const entry = selectedEntries[i];
-        progressDiv.textContent = `Processing item ${i + 1} of ${selectedEntries.length}...`;
+      let successCount = 0;
+      let failureCount = 0;
+      let allContentToInsert = "";
+      const newContextBlocks: ContextBlockMetadata[] = [];
 
-        let success = false;
-        if (entry.type === 'file') {
-          success = await insertFileContent(entry.uri, originalQueryTextFromUI);
-        } else if (entry.type === 'folder') {
-          success = await insertFolderContent(entry.uri, workspaceFolderUri, originalQueryTextFromUI);
+      try {
+        for (let i = 0; i < selectedEntries.length; i++) {
+          const entry = selectedEntries[i];
+          progressDiv.textContent = `Processing item ${i + 1} of ${selectedEntries.length}: ${entry.name}...`;
+
+          try {
+            let responsePayload: FileContentResponsePayload | FolderContentResponsePayload;
+            if (entry.type === 'file') {
+              responsePayload = await swClient.getFileContent(entry.uri);
+            } else { // 'folder'
+              responsePayload = await swClient.getFolderContent(entry.uri, workspaceFolderUri);
+            }
+
+            if (responsePayload.success && responsePayload.data) {
+              const actualData = responsePayload.data as any;
+              const filesToFormat = entry.type === 'file' ? [actualData.fileData] : actualData.filesData;
+              const metadataFromResponse = actualData.metadata as ContextBlockMetadata;
+
+              const uniqueBlockId = metadataFromResponse.unique_block_id || `cw-block-${Date.now()}`;
+              const formattedContent = formatFileContentsForLLM(filesToFormat);
+              const contentTag = 'file_contents'; // Always file_contents for these types
+              allContentToInsert += formattedContent.replace(
+                `<${contentTag}>`,
+                `<${contentTag} id="${uniqueBlockId}">`
+              ) + "\n\n";
+              newContextBlocks.push({ ...metadataFromResponse, unique_block_id: uniqueBlockId });
+              successCount++;
+            } else {
+              failureCount++;
+              console.warn(LOG_PREFIX_CS, `Failed to get content for ${entry.name}: ${responsePayload.error || 'No data'}`);
+            }
+          } catch (innerError: any) {
+            failureCount++;
+            console.error(LOG_PREFIX_CS, `Error fetching content for ${entry.name}:`, innerError);
+          }
         }
 
-        if (success) {
-          successCount++;
+        if (successCount > 0) {
+          insertTextIntoLLMInput(allContentToInsert.trim(), stateManager.getCurrentTargetElementForPanel(), stateManager.getOriginalQueryTextFromUI());
+          newContextBlocks.forEach(block => stateManager.addActiveContextBlock(block));
           renderContextIndicators();
+          uiManager.hide();
         } else {
-          failureCount++;
+          uiManager.showError('Insertion Failed', 'Failed to insert any of the selected items.');
+        }
+        if (failureCount > 0) console.warn(LOG_PREFIX_CS, `${failureCount} items failed to insert.`);
+      } catch (error: any) {
+        console.error(LOG_PREFIX_CS, 'Error processing selected items:', error);
+        uiManager.showError('Insertion Error', error.message || 'Failed to process selected items.');
+      } finally {
+        if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible')) {
+          insertButton.disabled = false;
+          insertButton.textContent = 'Insert Selected Items';
+          if (progressDiv.parentNode) progressDiv.parentNode.removeChild(progressDiv);
         }
       }
-
-      if (successCount > 0) {
-        hideFloatingUi();
-      } else {
-        showErrorStateInPanel('Insertion Failed', 'Failed to insert any of the selected items.');
-        insertButton.disabled = false;
-        insertButton.textContent = 'Insert Selected Items';
-      }
-
-      if (failureCount > 0) {
-        console.warn(LOG_PREFIX_CS, `${failureCount} items failed to insert.`);
-      }
-
-    } catch (error: any) {
-      console.error(LOG_PREFIX_CS, 'Error processing selected items:', error);
-      showErrorStateInPanel('Insertion Error', error.message || 'Failed to process selected items.');
-      insertButton.disabled = false;
-      insertButton.textContent = 'Insert Selected Items';
     }
-  };
+  });
   buttonContainer.appendChild(insertButton);
 
-  const backButton = document.createElement('button');
-  backButton.className = `${CSS_PREFIX}button`;
-  backButton.textContent = 'Back';
-  backButton.style.marginLeft = '10px';
-  backButton.onclick = () => {
-    if (searchResponse && searchQuery) {
-      renderSearchResults(searchResponse, searchQuery);
-    } else {
-      contentArea.innerHTML = '<p>Could not restore previous search results.</p>';
+  const backButton = uiManager.createButton('Back', {
+    style: { marginLeft: '10px' },
+    onClick: () => {
+      const currentSearchResponse = stateManager.getSearchResponse();
+      const currentSearchQuery = stateManager.getSearchQuery();
+      if (currentSearchResponse && currentSearchQuery) {
+        renderSearchResults(currentSearchResponse, currentSearchQuery);
+      } else {
+        uiManager.showError('Navigation Error', 'Could not restore previous search results.');
+      }
     }
-  };
+  });
   buttonContainer.appendChild(backButton);
-
-  contentArea.appendChild(buttonContainer);
+  return buttonContainer;
 }
 
-function displayOpenFilesSelectorUI(
-  openFilesList: { path: string; name: string; workspaceFolderUri: string | null; workspaceFolderName: string | null }[],
-  activeContextSourceIds: string[],
-  contentArea: HTMLElement,
-  titleArea: HTMLElement
-): void {
-  contentArea.innerHTML = ''; // Clear previous content
-  titleArea.textContent = 'Select Open Files';
-  contentArea.classList.add(`${CSS_PREFIX}open-files-selector`); // Add a class for potential specific styling
-
-  if (openFilesList.length === 0) {
-    showErrorStateInPanel('No Open Files', 'No open (saved) files found in trusted workspace(s).');
-    const backButton = document.createElement('button');
-    backButton.className = `${CSS_PREFIX}button`;
-    backButton.textContent = 'Back';
-    backButton.onclick = () => {
-      contentArea.classList.remove(`${CSS_PREFIX}open-files-selector`);
-      populateFloatingUiContent({ mode: 'general' }); // Go back to main view
-    };
-    contentArea.appendChild(backButton);
+function renderBrowseView(browseResponse: ListFolderContentsResponsePayload, parentFolderUri: string, parentFolderName: string, workspaceFolderUri: string | null): void {
+  if (!browseResponse.success || !browseResponse.data?.entries) {
+    uiManager.showError(`Error Browsing ${parentFolderName}`, browseResponse.error || 'Failed to load folder contents.', browseResponse.errorCode);
     return;
   }
 
-  const form = document.createElement('form');
-  const listContainer = document.createElement('div');
-  listContainer.style.maxHeight = '250px';
-  listContainer.style.overflowY = 'auto';
-  listContainer.style.marginBottom = '10px';
+  const contentFragment = document.createDocumentFragment();
+  uiManager.updateTitle(`Browsing: ${parentFolderName}`);
 
-  const groupedOpenFilesMap = groupItemsByWorkspace(openFilesList);
+
+  if (browseResponse.data.filterTypeApplied === 'default') {
+    const filterStatusMessage = uiManager.createParagraph({ classNames: [`${LOCAL_CSS_PREFIX}filter-status-text`], textContent: '(Using default ignore rules for this listing)' });
+    contentFragment.appendChild(filterStatusMessage);
+  }
+
+  const listContainer = uiManager.createDiv({ style: { maxHeight: '250px', overflowY: 'auto', marginBottom: '10px' } });
+
+  browseResponse.data.entries.forEach((entry: CWDirectoryEntry) => { // Use aliased type
+    const itemDiv = createBrowseItemElement(entry);
+    listContainer.appendChild(itemDiv);
+  });
+  contentFragment.appendChild(listContainer);
+
+  const buttonContainer = createBrowseViewButtons(listContainer, parentFolderUri, parentFolderName, workspaceFolderUri);
+  contentFragment.appendChild(buttonContainer);
+  uiManager.updateContent(contentFragment);
+}
+
+// Helper for individual open file list item
+function createOpenFilesListItem(file: { path: string; name: string; workspaceFolderUri: string | null; workspaceFolderName: string | null }, groupedOpenFilesMapSize: number): HTMLDivElement {
+  const listItem = uiManager.createDiv({ style: { marginBottom: '5px', padding: '3px', borderBottom: '1px solid #3a3a3a' } });
+  const checkboxId = `${LOCAL_CSS_PREFIX}openfile-${file.path.replace(/[^a-zA-Z0-9]/g, '_')}`;
+  const checkbox = uiManager.createCheckbox({ id: checkboxId, checked: true, dataset: { value: file.path } });
+
+  let labelText = file.name;
+  // Check if there's only one workspace or if it's an 'unknown_workspace' group
+  if (file.workspaceFolderName && (groupedOpenFilesMapSize === 0 || (groupedOpenFilesMapSize === 1 && groupItemsByWorkspace([file]).keys().next().value === 'unknown_workspace'))) { // Corrected .keys().next().value
+    labelText += ` (${file.workspaceFolderName})`;
+  }
+  const label = uiManager.createLabel(labelText, checkboxId, { style: { fontSize: '13px' } });
+
+  if (stateManager.isDuplicateContentSource(file.path)) {
+    checkbox.disabled = true;
+    label.style.textDecoration = 'line-through';
+    label.title = 'This file has already been added to the context.';
+    const alreadyAddedSpan = uiManager.createSpan({ textContent: ' (already added)', style: { fontStyle: 'italic', color: '#888' } });
+    label.appendChild(alreadyAddedSpan);
+  }
+  listItem.appendChild(checkbox);
+  listItem.appendChild(label);
+  return listItem;
+}
+
+// Helper for open files form and buttons
+function createOpenFilesFormElements(
+  openFilesList: { path: string; name: string; workspaceFolderUri: string | null; workspaceFolderName: string | null }[],
+  groupedOpenFilesMap: Map<string, GroupedWorkspaceItems<{ path: string; name: string; workspaceFolderUri: string | null; workspaceFolderName: string | null }>>
+): HTMLFormElement {
+  const form = document.createElement('form');
+  const listContainer = uiManager.createDiv({ style: { maxHeight: '250px', overflowY: 'auto', marginBottom: '10px' } });
 
   if (groupedOpenFilesMap.size > 1) {
-    // Multiple workspaces, render with group headers
-    for (const [workspaceKey, groupData] of groupedOpenFilesMap.entries()) {
-      const groupHeader = document.createElement('div');
-      groupHeader.className = `${CSS_PREFIX}group-header`;
-      groupHeader.textContent = groupData.name;
+    for (const [_workspaceKey, groupData] of groupedOpenFilesMap.entries()) {
+      const groupHeader = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}group-header`], textContent: groupData.name });
       listContainer.appendChild(groupHeader);
-
       groupData.items.forEach(file => {
-        const listItem = document.createElement('div');
-        listItem.style.marginBottom = '5px';
-        listItem.style.padding = '3px';
-        listItem.style.borderBottom = '1px solid #3a3a3a';
-
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.value = file.path; // Store file URI string as value
-        checkbox.id = `${CSS_PREFIX}openfile-${file.path.replace(/[^a-zA-Z0-9]/g, '_')}`; // Create a safe ID
-        checkbox.style.marginRight = '8px';
-        checkbox.checked = true; // Default to checked state
-
-        const label = document.createElement('label');
-        label.htmlFor = checkbox.id;
-        let labelText = file.name;
-        // Omit workspace name in label if under a group header
-        label.textContent = labelText;
-        label.style.fontSize = '13px';
-
-        // FR-CE-007 V1.3: Duplicate check
-        // Assuming file.path is the content_source_id for individual files
-        if (activeContextSourceIds.includes(file.path)) {
-          checkbox.disabled = true;
-          label.style.textDecoration = 'line-through';
-          label.title = 'This file has already been added to the context.';
-          const alreadyAddedSpan = document.createElement('span');
-          alreadyAddedSpan.textContent = ' (already added)';
-          alreadyAddedSpan.style.fontStyle = 'italic';
-          alreadyAddedSpan.style.color = '#888';
-          label.appendChild(alreadyAddedSpan);
-        }
-
-        listItem.appendChild(checkbox);
-        listItem.appendChild(label);
+        const listItem = createOpenFilesListItem(file, groupedOpenFilesMap.size);
         listContainer.appendChild(listItem);
       });
     }
   } else {
-    // Single workspace or no workspace info, render as flat list
     openFilesList.forEach(file => {
-      const listItem = document.createElement('div');
-      listItem.style.marginBottom = '5px';
-      listItem.style.padding = '3px';
-      listItem.style.borderBottom = '1px solid #3a3a3a';
-
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      checkbox.value = file.path; // Store file URI string as value
-      checkbox.id = `${CSS_PREFIX}openfile-${file.path.replace(/[^a-zA-Z0-9]/g, '_')}`; // Create a safe ID
-      checkbox.style.marginRight = '8px';
-      checkbox.checked = true; // Default to checked state
-
-      const label = document.createElement('label');
-      label.htmlFor = checkbox.id;
-      let labelText = file.name;
-
-      // Only add workspace name if it's a single unknown workspace or no workspace info
-      if (file.workspaceFolderName && (groupedOpenFilesMap.size === 0 || groupedOpenFilesMap.keys().next().value === 'unknown_workspace')) {
-        labelText += ` (${file.workspaceFolderName})`;
-      }
-      label.textContent = labelText;
-      label.style.fontSize = '13px';
-
-      // FR-CE-007 V1.3: Duplicate check
-      // Assuming file.path is the content_source_id for individual files
-      if (activeContextSourceIds.includes(file.path)) {
-        checkbox.disabled = true;
-        label.style.textDecoration = 'line-through';
-        label.title = 'This file has already been added to the context.';
-        const alreadyAddedSpan = document.createElement('span');
-        alreadyAddedSpan.textContent = ' (already added)';
-        alreadyAddedSpan.style.fontStyle = 'italic';
-        alreadyAddedSpan.style.color = '#888';
-        label.appendChild(alreadyAddedSpan);
-      }
-
-      listItem.appendChild(checkbox);
-      listItem.appendChild(label);
+      const listItem = createOpenFilesListItem(file, groupedOpenFilesMap.size);
       listContainer.appendChild(listItem);
     });
   }
   form.appendChild(listContainer);
 
-  const insertButton = document.createElement('button');
-  insertButton.className = `${CSS_PREFIX}button`;
-  insertButton.textContent = 'Insert Selected Files';
-  insertButton.type = 'button'; // Important to prevent form submission if inside a form
-  insertButton.onclick = async () => {
-    const selectedFiles = Array.from(form.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:checked:not(:disabled)'))
-      .map(cb => cb.value);
+  const insertButton = uiManager.createButton('Insert Selected Files', {
+    onClick: async () => {
+      const selectedFiles = Array.from(form.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:checked:not(:disabled)'))
+        .map(cb => cb.dataset.value!);
 
-    if (selectedFiles.length === 0) {
-      // Consider a small inline message instead of alert
-      const tempMsg = document.createElement('p');
-      tempMsg.textContent = 'No new files selected.';
-      tempMsg.style.color = 'orange';
-      contentArea.insertBefore(tempMsg, form.nextSibling); // Insert after the form
-      setTimeout(() => tempMsg.remove(), 2000);
-      return;
-    }
-
-    insertButton.textContent = 'Loading Content...';
-    insertButton.disabled = true;
-
-    try {
-      const response = await chrome.runtime.sendMessage({
-        type: 'GET_CONTENTS_FOR_SELECTED_OPEN_FILES',
-        payload: { fileUris: selectedFiles }
-      });
-
-      if (response.success && response.data) {
-        const successfulFiles = response.data as { fileData: any, metadata: any }[]; // From serviceWorker response
-        let allContentToInsert = "";
-
-        successfulFiles.forEach(item => {
-          const formatted = formatFileContentsForLLM([item.fileData]); // formatFileContentsForLLM expects an array
-          allContentToInsert += formatted + "\n\n"; // Add some spacing between file blocks
-          // TODO: Add context block indicator using item.metadata
-          // TODO: Update activeContextSourceIds with item.metadata.content_source_id
-          console.log("ContextWeaver: Would add indicator for:", item.metadata);
-        });
-
-        if (allContentToInsert.trim()) {
-          insertTextIntoLLMInput(allContentToInsert.trim(), currentTargetElementForPanel);
-        }
-        hideFloatingUi();
-
-        if (response.errors && response.errors.length > 0) {
-          // Handle errors for files that failed to load (e.g., show a toast or log)
-          console.warn('ContextWeaver: Some files failed to load:', response.errors);
-        }
-
-      } else {
-        showErrorStateInPanel('File Content Error', response.error || 'Unknown error fetching content.', response.errorCode);
+      if (selectedFiles.length === 0) {
+        const tempMsg = uiManager.createParagraph({ textContent: 'No new files selected.', style: { color: 'orange' } });
+        form.appendChild(tempMsg);
+        setTimeout(() => { if (tempMsg.parentNode) tempMsg.parentNode.removeChild(tempMsg); }, 2000);
+        return;
       }
-    } catch (e: any) {
-      console.error('ContextWeaver: Error requesting selected files content:', e);
-      showErrorStateInPanel('File Content Error', e.message || 'Failed to process request.');
-    } finally {
-      // No need to reset button state here as UI will be hidden or re-rendered on error
+
+      insertButton.textContent = 'Loading Content...';
+      insertButton.disabled = true;
+
+      try {
+        const response = await swClient.getContentsForSelectedOpenFiles(selectedFiles);
+
+        if (response.success && response.data) {
+          const successfulFiles = response.data;
+          let allContentToInsert = "";
+          successfulFiles.forEach(item => {
+            const formatted = formatFileContentsForLLM([item.fileData]);
+            const uniqueBlockId = item.metadata.unique_block_id || `cw-block-${Date.now()}`;
+            const contentTag = item.metadata.type === 'code_snippet' ? 'code_snippet' : 'file_contents';
+            allContentToInsert += formatted.replace(`<${contentTag}>`, `<${contentTag} id="${uniqueBlockId}">`) + "\n\n";
+            stateManager.addActiveContextBlock({ ...item.metadata, unique_block_id: uniqueBlockId });
+          });
+
+          if (allContentToInsert.trim()) {
+            insertTextIntoLLMInput(allContentToInsert.trim(), stateManager.getCurrentTargetElementForPanel());
+            renderContextIndicators();
+          }
+          uiManager.hide();
+          if (response.errors && response.errors.length > 0) {
+            console.warn('ContextWeaver: Some files failed to load:', response.errors);
+          }
+        } else {
+          uiManager.showError('File Content Error', response.error || 'Unknown error fetching content.', response.errorCode);
+        }
+      } catch (e: any) {
+        console.error('ContextWeaver: Error requesting selected files content:', e);
+        uiManager.showError('File Content Error', e.message || 'Failed to process request.');
+      }
     }
-  };
+  });
   form.appendChild(insertButton);
 
-  const backButton = document.createElement('button');
-  backButton.className = `${CSS_PREFIX}button`;
-  backButton.textContent = 'Back';
-  backButton.type = 'button';
-  backButton.style.marginLeft = '10px';
-  backButton.onclick = () => {
-    contentArea.classList.remove(`${CSS_PREFIX}open-files-selector`);
-    populateFloatingUiContent({ mode: 'general' }); // Go back to main view
-  };
+  const backButton = uiManager.createButton('Back', {
+    style: { marginLeft: '10px' },
+    onClick: () => {
+      populateFloatingUiContent({ mode: 'general' });
+    }
+  });
   form.appendChild(backButton);
 
-  contentArea.appendChild(form);
+  return form;
+}
+
+function displayOpenFilesSelectorUI(
+  openFilesList: { path: string; name: string; workspaceFolderUri: string | null; workspaceFolderName: string | null }[] // Corrected type to array
+): void {
+  uiManager.updateTitle('Select Open Files');
+  const contentFragment = document.createDocumentFragment();
+  const selectorWrapper = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}open-files-selector`] });
+
+
+  if (openFilesList.length === 0) {
+    uiManager.showError('No Open Files', 'No open (saved) files found in trusted workspace(s).');
+    const backButton = uiManager.createButton('Back', { onClick: () => populateFloatingUiContent({ mode: 'general' }) });
+    selectorWrapper.appendChild(uiManager.createParagraph({ textContent: 'No open (saved) files found in trusted workspace(s).' }));
+    selectorWrapper.appendChild(backButton);
+    uiManager.updateContent(selectorWrapper);
+    return;
+  }
+
+  const groupedOpenFilesMap = groupItemsByWorkspace(openFilesList);
+  const form = createOpenFilesFormElements(openFilesList, groupedOpenFilesMap);
+
+  selectorWrapper.appendChild(form);
+  uiManager.updateContent(selectorWrapper);
 }

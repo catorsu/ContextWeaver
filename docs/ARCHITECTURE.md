@@ -68,7 +68,10 @@ ContextWeaver/
 │   │   │   ├── contentScript.ts
 │   │   │   ├── options.ts
 │   │   │   ├── popup.ts
-│   │   │   └── serviceWorker.ts
+│   │   │   ├── serviceWorker.ts
+│   │   │   ├── uiManager.ts         // ADDED
+│   │   │   ├── stateManager.ts      // ADDED
+│   │   │   └── serviceWorkerClient.ts // ADDED
 │   │   ├── images/            # Static image assets
 │   │   ├── .eslintrc.json     # ESLint configuration
 │   │   ├── manifest.json      # CE manifest
@@ -77,7 +80,10 @@ ContextWeaver/
 │   │   ├── popup.html
 │   │   └── options.html
 │   └── shared/                # Shared code
-│       ├── src/               # Source files for shared code (currently empty)
+│       ├── src/               # Source files for shared code
+│       │   ├── data-models.ts     // ADDED
+│       │   ├── ipc-types.ts       // ADDED
+│       │   └── index.ts           // ADDED
 │       ├── package.json       # NPM manifest
 │       └── tsconfig.json      # TypeScript configuration
 ├── .gitignore                 # Specifies gitignored files
@@ -131,8 +137,11 @@ Accurate and current structural documentation is mandatory for project integrity
     *   **IPC Client:** Connecting to the VSCE server, sending requests, and handling responses.
     *   **State Management:** Managing the state of active context blocks and duplicate content prevention.
 *   **Key Modules (Planned/Conceptual):**
-    *   `contentScript.ts`: Injected into LLM web pages to handle UI triggers (e.g., `@` for general options, `@query` for real-time search). Manages DOM manipulation, creation, display, and logic of the floating UI panel (including dynamic rendering of search results, folder browsing views, and context selection options) and context block indicators. Includes helper functions like `showLoadingStateInPanel` for displaying a standardized loading indicator, `showErrorStateInPanel` for displaying standardized error messages, and `groupItemsByWorkspace` for organizing data from multi-root workspaces. Communicates with the service worker for data fetching (workspace details, search, file/folder content, directory listings).
-    *   `serviceWorker.ts`: Manages the IPC client connection to VSCE (via an internal `IPCClient` class which also handles loading its configuration like port from `chrome.storage.sync`). Actively listens to Chrome tab events (`onActivated`, `onUpdated`) to detect active LLM tabs and registers them with the VSCE using the `register_active_target` IPC command. Handles messages from content scripts (acting as a bridge to VSCE for requests like search, file/folder content fetching, directory listings). Forwards VSCE responses to the originating requester. Forwards VSCE push messages (like snippets) to the specific target tab's content script using `chrome.tabs.sendMessage`, and potentially maintains other background state.
+    *   `contentScript.ts`: Injected into LLM web pages. Responsible for detecting user triggers (e.g., `@`), orchestrating UI interactions by utilizing `UIManager`, managing application state via `StateManager`, and delegating communication with the service worker to `ServiceWorkerClient`. Retains high-level logic for event handling, text insertion into LLM inputs, and coordinating different extension functionalities.
+    *   `serviceWorker.ts`: Manages the IPC client connection (via an internal `IPCClient` class) to the VSCE. The `IPCClient` has been refactored to use shared TypeScript types for robust communication and features improved connection management. The service worker actively listens to Chrome tab events to register active LLM tabs with VSCE. It handles messages from `contentScript.ts` (received via `serviceWorkerClient.ts`), relays requests to VSCE, and forwards VSCE responses and push messages (like snippets) appropriately.
+*   `uiManager.ts`: Encapsulates all logic related to the creation, styling, display, and updates of the floating UI panel and context block indicators. Provides DOM utility functions for creating common UI elements (buttons, divs, etc.) and manages UI-specific event listeners (e.g., for dismissal).
+*   `stateManager.ts`: Centralizes the management of client-side state for `contentScript.ts`, including the list of active context blocks (`activeContextBlocks`), current search query and response, the target LLM input element, and the original trigger query text. Provides methods for safe access and modification of this state.
+*   `serviceWorkerClient.ts`: Acts as an abstraction layer (API client) for `contentScript.ts` to communicate with `serviceWorker.ts`. It offers specific, typed methods for each kind of request (e.g., fetching workspace details, performing searches), internally handling the construction of messages for `chrome.runtime.sendMessage` and processing responses.
     *   `options.ts`: Handles the logic for the extension's options page, including saving settings like the IPC port to `chrome.storage.sync`.
 *   `popup.ts`: Handles the logic for the browser action popup (`popup.html`), providing users with quick access to status information and links (e.g., to the options page).
 *   **Technology Stack:**
@@ -154,13 +163,16 @@ Accurate and current structural documentation is mandatory for project integrity
 
 ## 5. Data Model (Key Structures)
 
-*(This section will be populated with important data structures as they are defined, especially those used in IPC or for internal state management. Refer to `Software_Requirements_Specification.md` section 3.3 for initial data formatting requirements for LLM insertion.)*
+The primary data structures, especially those used for Inter-Plugin Communication (IPC) and for representing core entities like context blocks, files, and search results, are now formally defined as TypeScript interfaces within the `packages/shared/src/` directory.
 
-*   **Context Block Metadata:** (As per FR-IPC-005)
-    *   `unique_block_id`: string
-    *   `content_source_id`: string
-    *   `type`: string (e.g., "file_tree", "file_content", "code_snippet")
-    *   `label`: string
+Key data models include:
+*   **`ContextBlockMetadata`**: Defined in `packages/shared/src/data-models.ts`. Describes the metadata for each block of content inserted into the LLM chat.
+*   **`FileData`**: Defined in `packages/shared/src/data-models.ts`. Represents the content and properties of a single file.
+*   **`SearchResult`**: Defined in `packages/shared/src/data-models.ts`. Structure for items returned by the workspace search.
+*   **`DirectoryEntry`**: Defined in `packages/shared/src/data-models.ts`. Structure for items listed in a directory.
+*   **IPC Payloads**: All request, response, and push message payloads are defined as interfaces in `packages/shared/src/ipc-types.ts`.
+
+Refer to these TypeScript files for the authoritative definitions of these structures. The `docs/IPC_Protocol_Design.md` provides a human-readable overview that aims to mirror these type definitions.
 
 ## 6. Key Design Decisions & Rationale
 
@@ -175,6 +187,14 @@ Accurate and current structural documentation is mandatory for project integrity
     *   **Rationale:** Simplified user setup and reduced friction. Security relies on the VSCE server binding exclusively to `localhost`, mitigating external access risks. The risk from other local malicious software was deemed acceptable for V1 given the nature of data exchanged. (See `TROUBLESHOOTING_AND_LESSONS_LEARNED.md` entry `[2025-05-28] - IPC Simplification...`)
 *   **[2025-06-02] Decision:** Use `chrome.tabs.sendMessage(targetTabId, ...)` for forwarding `push_snippet` messages from CE Service Worker to Content Script.
     *   **Rationale:** Resolved "Receiving end does not exist" errors encountered when using `chrome.runtime.sendMessage`. Targeting the specific content script via its known `targetTabId` (provided in the snippet payload) proved more reliable for this push mechanism. (See `TROUBLESHOOTING_AND_LESSONS_LEARNED.md` entry `[2025-06-02] - Snippet Push from VSCE Not Received by CE Content Script`)
+*   **[June 05, 2025] Decision:** Introduced a `packages/shared/src` module for defining common TypeScript types for IPC and data models.
+    *   **Rationale:** To enforce type safety, ensure consistency between the Chrome Extension (CE) and VS Code Extension (VSCE), improve maintainability, and adhere to DRY (Don't Repeat Yourself) principles for the IPC contract. This makes the communication protocol explicit and verifiable at compile-time.
+*   **[June 05, 2025] Decision:** Modularized the main Chrome Extension content script (`contentScript.ts`) by extracting responsibilities into `UIManager.ts` (UI rendering and DOM utilities), `StateManager.ts` (client-side state management), and `ServiceWorkerClient.ts` (abstraction for communication with the service worker).
+    *   **Rationale:** To improve separation of concerns, reduce the complexity of `contentScript.ts`, enhance readability, maintainability, and the potential for future testing, adhering to the Single Responsibility Principle (SRP).
+*   **[June 05, 2025] Decision:** Refined connection management logic within `IPCClient` (in `serviceWorker.ts`) and integrated shared types for all IPC messages handled by `IPCClient` (service worker) and `IPCServer` (VS Code extension).
+    *   **Rationale:** To improve the stability and predictability of the WebSocket connection and retry mechanisms. Using shared types ensures robust, type-safe communication between the browser and VS Code components.
+*   **[June 05, 2025] Decision:** Aligned the return types of core VS Code Extension services (`fileSystemService.ts`, `searchService.ts`) with the shared types.
+    *   **Rationale:** To reduce the need for data transformation or casting within `ipcServer.ts`, making the data flow from services to IPC responses more direct and type-safe.
 
 ## 7. Security Considerations
 

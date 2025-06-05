@@ -7,6 +7,9 @@
     "vscode:build": "echo \"VSCE build script placeholder\"",
     "chrome:build": "echo \"CE build script placeholder\""
   },
+  "workspaces": [
+    "packages/*"
+  ],
   "keywords": [
     "vscode-extension",
     "chrome-extension",

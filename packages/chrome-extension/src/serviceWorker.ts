@@ -5,6 +5,24 @@
  * @module ContextWeaver/CE
  */
 
+import {
+    // Request Payloads (for methods sending requests)
+    RegisterActiveTargetRequestPayload, GetFileTreeRequestPayload, GetFileContentRequestPayload,
+    GetFolderContentRequestPayload, GetEntireCodebaseRequestPayload, SearchWorkspaceRequestPayload,
+    GetFilterInfoRequestPayload, ListFolderContentsRequestPayload,
+    // Response Payloads (for resolving promises)
+    GenericAckResponsePayload, FileTreeResponsePayload, FileContentResponsePayload,
+    FolderContentResponsePayload, EntireCodebaseResponsePayload, ActiveFileInfoResponsePayload,
+    OpenFilesResponsePayload, SearchWorkspaceResponsePayload, WorkspaceDetailsResponsePayload,
+    FilterInfoResponsePayload, ListFolderContentsResponsePayload, ErrorResponsePayload,
+    // Push Payloads
+    PushSnippetPayload,
+    // IPC Message Structure Types
+    IPCMessageRequest, IPCMessageResponse, IPCMessagePush, AnyIPCMessage, IPCBaseMessage,
+    // Data Models (if directly used, e.g. ContextBlockMetadata)
+    ContextBlockMetadata
+} from '@contextweaver/shared';
+
 const LOG_PREFIX_SW = '[ContextWeaver CE-SW]';
 
 class IPCClient {
@@ -14,6 +32,7 @@ class IPCClient {
     private resolveConnectionPromise: (() => void) | null = null;
     private rejectConnectionPromise: ((reason?: any) => void) | null = null;
     public isIntentionalDisconnect: boolean = false;
+    // Correctly type the pendingRequests map
     private pendingRequests: Map<string, { resolve: (value: any) => void, reject: (reason?: any) => void }> = new Map();
 
 
@@ -35,49 +54,53 @@ class IPCClient {
     }
 
     private initializeConnectionPromise() {
-        console.log(LOG_PREFIX_SW, 'Initializing new connectionPromise.');
-        this.connectionPromise = new Promise((resolve, reject) => {
-            this.resolveConnectionPromise = resolve;
-            this.rejectConnectionPromise = reject;
-        });
+        // Only create a new promise if one isn't already pending resolution/rejection
+        if (!this.connectionPromise || (this.resolveConnectionPromise === null && this.rejectConnectionPromise === null)) {
+            console.log(LOG_PREFIX_SW, 'Initializing new connectionPromise.');
+            this.connectionPromise = new Promise((resolve, reject) => {
+                this.resolveConnectionPromise = resolve;
+                this.rejectConnectionPromise = reject;
+            });
+        }
     }
 
     public async ensureConnected(): Promise<void> {
         console.log(LOG_PREFIX_SW, 'ensureConnected called.');
         console.log(LOG_PREFIX_SW, `  Current ws state: ${this.ws ? this.ws.readyState : 'null'}`);
-        console.log(LOG_PREFIX_SW, `  connectionPromise exists: ${!!this.connectionPromise}`);
+        console.log(LOG_PREFIX_SW, `  connectionPromise exists: ${!!this.connectionPromise}, resolve: ${!!this.resolveConnectionPromise}, reject: ${!!this.rejectConnectionPromise}`);
 
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             console.log(LOG_PREFIX_SW, 'ensureConnected: Already connected.');
             return Promise.resolve();
         }
 
-        if (!this.connectionPromise ||
-            (this.ws && (this.ws.readyState === WebSocket.CLOSED || this.ws.readyState === WebSocket.CLOSING)) ||
-            (!this.resolveConnectionPromise && !this.rejectConnectionPromise)
-        ) {
-            console.log(LOG_PREFIX_SW, 'ensureConnected: Connection not ready, closed, or promise stale. Re-initiating connectWithRetry.');
-            this.connectWithRetry(); // This will re-initialize connectionPromise if needed
+        // If there's no active WebSocket, or it's closing/closed,
+        // or if there's no pending connection promise, initiate connection.
+        if (!this.ws || this.ws.readyState === WebSocket.CLOSED || this.ws.readyState === WebSocket.CLOSING || !this.connectionPromise) {
+            console.log(LOG_PREFIX_SW, 'ensureConnected: Connection not ready or promise stale. Re-initiating connectWithRetry.');
+            this.connectWithRetry(); // This will call initializeConnectionPromise if needed
         } else {
             console.log(LOG_PREFIX_SW, 'ensureConnected: Waiting on existing connectionPromise.');
         }
-        return this.connectionPromise!;
+
+        return this.connectionPromise!; // Return the current or newly created promise
     }
 
 
-    private connect(): void {
+    private connect(): void { // This method attempts a single connection
         console.log(LOG_PREFIX_SW, 'connect() called.');
         if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
             console.log(LOG_PREFIX_SW, 'connect: WebSocket connection already open or connecting.');
             if (this.ws.readyState === WebSocket.OPEN && this.resolveConnectionPromise) {
-                this.resolveConnectionPromise();
+                this.resolveConnectionPromise(); // Resolve if already open and promise was pending
+                this.resolveConnectionPromise = null;
+                this.rejectConnectionPromise = null;
             }
             return;
         }
 
-        if (!this.connectionPromise || (!this.resolveConnectionPromise && !this.rejectConnectionPromise)) {
-            this.initializeConnectionPromise();
-        }
+        // Ensure a promise exists for this attempt
+        this.initializeConnectionPromise();
 
         const serverUrl = `ws://127.0.0.1:${this.port}`;
         console.log(LOG_PREFIX_SW, `Attempting to connect to VSCE IPC Server at ${serverUrl}`);
@@ -89,9 +112,10 @@ class IPCClient {
                 console.log(LOG_PREFIX_SW, `Successfully connected to ${serverUrl}`);
                 if (this.resolveConnectionPromise) {
                     this.resolveConnectionPromise();
-                    this.resolveConnectionPromise = null;
-                    this.rejectConnectionPromise = null;
                 }
+                // Nullify promise handlers after resolution/rejection
+                this.resolveConnectionPromise = null;
+                this.rejectConnectionPromise = null;
             };
 
             this.ws.onmessage = (event) => {
@@ -100,12 +124,14 @@ class IPCClient {
 
             this.ws.onclose = (event) => {
                 const wasIntentional = this.isIntentionalDisconnect;
-                this.isIntentionalDisconnect = false;
+                this.isIntentionalDisconnect = false; // Reset flag
 
+                const reason = `Disconnected from ${serverUrl}. Code: ${event.code}, Reason: ${event.reason}. Clean: ${event.wasClean}`;
                 if (wasIntentional) {
-                    console.log(LOG_PREFIX_SW, `Intentionally disconnected from ${serverUrl}. Code: ${event.code}, Reason: ${event.reason}.`);
+                    console.log(LOG_PREFIX_SW, `Intentionally ${reason}`);
                 } else {
-                    console.warn(LOG_PREFIX_SW, `Disconnected from ${serverUrl}. Code: ${event.code}, Reason: ${event.reason}. Clean: ${event.wasClean}`);
+                    console.warn(LOG_PREFIX_SW, `Unintentionally ${reason}`);
+                    // Notify UI about unexpected disconnect
                     chrome.runtime.sendMessage({
                         type: "IPC_CONNECTION_STATUS",
                         payload: { status: "disconnected_unexpectedly", message: `Unexpectedly disconnected from VS Code. Code: ${event.code}, Reason: ${event.reason}. Will attempt to reconnect.` }
@@ -113,53 +139,62 @@ class IPCClient {
                 }
 
                 const currentReject = this.rejectConnectionPromise;
-                this.ws = null;
+                this.ws = null; // Clear WebSocket instance
+
                 if (currentReject && !wasIntentional) {
-                    currentReject(new Error('Connection closed unexpectedly.'));
-                    this.resolveConnectionPromise = null;
-                    this.rejectConnectionPromise = null;
+                    currentReject(new Error(`Connection closed unexpectedly. ${reason}`));
                 }
+                // Nullify promise handlers after resolution/rejection
+                this.resolveConnectionPromise = null;
+                this.rejectConnectionPromise = null;
+                // Do NOT re-initialize connectionPromise here, connectWithRetry will handle it.
             };
 
             this.ws.onerror = (errorEvent) => {
-                console.error(LOG_PREFIX_SW, `WebSocket error with ${serverUrl}:`, errorEvent);
-                const currentWs = this.ws;
-                this.ws = null;
+                const errorMsg = `WebSocket error with ${serverUrl}: ${errorEvent.type}`;
+                console.error(LOG_PREFIX_SW, errorMsg, errorEvent);
+
+                const currentWs = this.ws; // Capture current ws before nulling
+                this.ws = null; // Clear WebSocket instance
 
                 const currentReject = this.rejectConnectionPromise;
                 if (currentReject) {
-                    currentReject(new Error('WebSocket error.'));
-                    this.resolveConnectionPromise = null;
-                    this.rejectConnectionPromise = null;
+                    currentReject(new Error(`WebSocket error. ${errorMsg}`));
                 }
+                // Nullify promise handlers
+                this.resolveConnectionPromise = null;
+                this.rejectConnectionPromise = null;
 
                 if (currentWs && (currentWs.readyState === WebSocket.OPEN || currentWs.readyState === WebSocket.CONNECTING)) {
-                    currentWs.close();
+                    currentWs.close(); // Attempt to clean up the problematic socket
                 }
                 chrome.runtime.sendMessage({
                     type: "IPC_CONNECTION_STATUS",
                     payload: { status: "connection_error", message: `WebSocket error connecting to VS Code. Retrying...` }
                 }).catch(err => console.warn(LOG_PREFIX_SW, "Error sending IPC_CONNECTION_STATUS (connection_error) message:", err));
+                // Do NOT re-initialize connectionPromise here, connectWithRetry will handle it.
             };
         } catch (error) {
-            console.error(LOG_PREFIX_SW, `Error initializing WebSocket connection to ${serverUrl}:`, error);
+            const errorMsg = `Error initializing WebSocket connection to ${serverUrl}: ${error}`;
+            console.error(LOG_PREFIX_SW, errorMsg);
             const currentReject = this.rejectConnectionPromise;
             if (currentReject) {
-                currentReject(error);
-                this.resolveConnectionPromise = null;
-                this.rejectConnectionPromise = null;
+                currentReject(new Error(errorMsg));
             }
+            this.resolveConnectionPromise = null;
+            this.rejectConnectionPromise = null;
         }
     }
 
     public connectWithRetry(maxRetries = 5, delay = 3000): void {
         let attempt = 0;
-        if (!this.connectionPromise || (!this.resolveConnectionPromise && !this.rejectConnectionPromise)) {
-            this.initializeConnectionPromise();
-        }
+
+        // Always ensure a fresh promise for a new retry sequence
+        this.initializeConnectionPromise();
 
         const tryConnect = () => {
             if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                // If already connected (e.g., by a concurrent call or previous success), resolve.
                 if (this.resolveConnectionPromise) {
                     this.resolveConnectionPromise();
                     this.resolveConnectionPromise = null;
@@ -169,24 +204,36 @@ class IPCClient {
             }
             attempt++;
             console.log(LOG_PREFIX_SW, `Connection attempt ${attempt}`);
-            this.connect();
+
+            this.connect(); // This attempts one connection and uses/resolves/rejects this.connectionPromise
 
             this.connectionPromise!
                 .then(() => {
                     console.log(LOG_PREFIX_SW, "Connection successful after retry.");
+                    // Promise already resolved by connect()'s onopen
                 })
-                .catch((error) => {
+                .catch((error) => { // This catch is for the current attempt's promise
                     console.error(LOG_PREFIX_SW, `Connection attempt ${attempt} failed:`, error.message);
-                    this.initializeConnectionPromise(); // Prepare for next attempt
+
+                    // Prepare for the next attempt by ensuring a new promise can be created
+                    this.resolveConnectionPromise = null;
+                    this.rejectConnectionPromise = null;
+                    this.connectionPromise = null; // Allow initializeConnectionPromise to create a new one
+
                     if (attempt < maxRetries) {
                         setTimeout(tryConnect, delay);
                     } else {
-                        console.error(LOG_PREFIX_SW, "Max connection retries reached.");
-                        if (this.rejectConnectionPromise) {
-                            this.rejectConnectionPromise(new Error('Max connection retries reached.'));
-                            this.resolveConnectionPromise = null;
-                            this.rejectConnectionPromise = null;
+                        // Initialize new promise for final rejection
+                        this.initializeConnectionPromise();
+                        const maxRetriesError = new Error('Max connection retries reached.');
+                        console.error(LOG_PREFIX_SW, maxRetriesError.message);
+                        // Type assertion to help TypeScript understand the property is not null after initializeConnectionPromise
+                        const rejectFn = this.rejectConnectionPromise as ((reason?: any) => void) | null;
+                        if (rejectFn) { // Use the newly initialized promise's reject
+                            rejectFn(maxRetriesError);
                         }
+                        this.resolveConnectionPromise = null;
+                        this.rejectConnectionPromise = null;
                         chrome.runtime.sendMessage({
                             type: "IPC_CONNECTION_STATUS",
                             payload: { status: "failed_max_retries", message: `Could not connect to VS Code after ${maxRetries} attempts. Please check settings.` }
@@ -198,62 +245,74 @@ class IPCClient {
     }
 
     private handleServerMessage(messageData: any): void {
-        console.log(LOG_PREFIX_SW, 'handleServerMessage: Raw data received from server:', messageData); // Log raw data
+        console.log(LOG_PREFIX_SW, 'handleServerMessage: Raw data received from server:', messageData);
 
         try {
-            const message = JSON.parse(messageData as string);
-            console.log(LOG_PREFIX_SW, 'handleServerMessage: Parsed message from server:', message); // Log parsed message
+            const message = JSON.parse(messageData as string) as AnyIPCMessage; // Use shared umbrella type
+            console.log(LOG_PREFIX_SW, 'handleServerMessage: Parsed message from server:', message);
 
             if (message.type === 'response' || message.type === 'error_response') {
                 const requestState = this.pendingRequests.get(message.message_id);
                 if (requestState) {
-                    if (message.payload?.success === false || message.type === 'error_response') {
-                        requestState.reject(message.payload || { error: 'Unknown error from server', errorCode: message.payload?.errorCode || 'UNKNOWN_SERVER_ERROR' });
+                    if (message.type === 'error_response' || (message.payload as any)?.success === false) {
+                        // Ensure payload is treated as ErrorResponsePayload or a success:false response
+                        const errorPayload = message.payload as ErrorResponsePayload | { success: false, error: string, errorCode: string };
+                        console.warn(LOG_PREFIX_SW, `Error response for message_id ${message.message_id}:`, errorPayload);
+                        requestState.reject(errorPayload); // Reject with the full error payload
                     } else {
-                        requestState.resolve(message.payload); // Entire payload is passed
+                        // The resolve function in pendingRequests now expects the specific TResPayload type
+                        requestState.resolve(message.payload); // message.payload is already the correct TResPayload
                     }
                     this.pendingRequests.delete(message.message_id);
                 } else {
                     console.warn(LOG_PREFIX_SW, 'handleServerMessage: Received response for unknown message_id:', message.message_id);
                 }
             } else if (message.type === 'push') {
-                console.log(LOG_PREFIX_SW, `handleServerMessage: Detected 'push' message type. Command: ${message.command}`);
+                const pushMessage = message as IPCMessagePush; // Narrow down to IPCPush
+                console.log(LOG_PREFIX_SW, `handleServerMessage: Detected 'push' message type. Command: ${pushMessage.command}`);
 
-                if (message.command === 'push_snippet' && message.payload && message.payload.targetTabId) {
-                    const targetTabId = message.payload.targetTabId;
-                    console.log(LOG_PREFIX_SW, `handleServerMessage: Forwarding 'push_snippet' to specific tabId: ${targetTabId}. Message:`, message);
-                    chrome.tabs.sendMessage(targetTabId, message) // Use chrome.tabs.sendMessage
-                        .then(response => {
-                            if (chrome.runtime.lastError) {
-                                console.warn(LOG_PREFIX_SW, `Error sending push_snippet to tab ${targetTabId}: ${chrome.runtime.lastError.message}`);
-                            } else {
-                                // console.log(LOG_PREFIX_SW, `Push_snippet message sent to tab ${targetTabId}, response from content script (if any):`, response);
-                            }
-                        })
-                        .catch(e => {
-                            // This catch might not be reliably hit for "no receiving end" with tabs.sendMessage,
-                            // chrome.runtime.lastError is often the way for that.
-                            console.warn(LOG_PREFIX_SW, `Error explicitly sending push_snippet message to tab ${targetTabId}:`, e);
-                        });
-                    console.log(LOG_PREFIX_SW, 'handleServerMessage: Specifically received and processed push_snippet, attempted to send to tab:', message.payload);
-                } else if (message.command === 'push_snippet') {
-                    // Fallback or error if targetTabId is missing, though it should always be there
-                    console.warn(LOG_PREFIX_SW, `handleServerMessage: 'push_snippet' received without targetTabId in payload. Broadcasting instead. Payload:`, message.payload);
-                    chrome.runtime.sendMessage(message).catch(e => console.warn(LOG_PREFIX_SW, "Error broadcasting push_snippet (fallback):", e));
+                if (pushMessage.command === 'push_snippet') {
+                    const snippetPayload = pushMessage.payload as PushSnippetPayload; // Typed payload
+                    if (snippetPayload && snippetPayload.targetTabId) {
+                        const targetTabId = snippetPayload.targetTabId;
+                        console.log(LOG_PREFIX_SW, `handleServerMessage: Forwarding 'push_snippet' to specific tabId: ${targetTabId}.`);
+                        // Send the whole pushMessage (which includes type, command, etc.)
+                        chrome.tabs.sendMessage(targetTabId, pushMessage)
+                            .then(response => {
+                                if (chrome.runtime.lastError) {
+                                    console.warn(LOG_PREFIX_SW, `Error sending push_snippet to tab ${targetTabId}: ${chrome.runtime.lastError.message}`);
+                                } else {
+                                    // console.log(LOG_PREFIX_SW, `Push_snippet message sent to tab ${targetTabId}, response from content script (if any):`, response);
+                                }
+                            })
+                            .catch(e => {
+                                // This catch might not be reliably hit for "no receiving end" with tabs.sendMessage,
+                                // chrome.runtime.lastError is often the way for that.
+                                console.warn(LOG_PREFIX_SW, `Error explicitly sending push_snippet message to tab ${targetTabId}:`, e);
+                            });
+                        console.log(LOG_PREFIX_SW, 'handleServerMessage: Specifically received and processed push_snippet, attempted to send to tab:', snippetPayload);
+                    } else {
+                        console.warn(LOG_PREFIX_SW, `handleServerMessage: 'push_snippet' received without targetTabId. Payload:`, snippetPayload);
+                        // Fallback: broadcast the full pushMessage
+                        chrome.runtime.sendMessage(pushMessage).catch(e => console.warn(LOG_PREFIX_SW, "Error broadcasting push_snippet (fallback):", e));
+                    }
                 } else {
-                    // For other potential push messages that aren't snippets, or if snippet is missing targetTabId
-                    console.log(LOG_PREFIX_SW, `handleServerMessage: Forwarding generic push message to all listeners. Command: ${message.command}`);
-                    chrome.runtime.sendMessage(message).catch(e => console.warn(LOG_PREFIX_SW, "Error broadcasting generic push message:", e));
+                    // For other potential push messages
+                    console.log(LOG_PREFIX_SW, `handleServerMessage: Forwarding generic push message to all listeners. Command: ${pushMessage.command}`);
+                    chrome.runtime.sendMessage(pushMessage).catch(e => console.warn(LOG_PREFIX_SW, "Error broadcasting generic push message:", e));
                 }
             } else {
-                console.warn(LOG_PREFIX_SW, 'handleServerMessage: Received unknown message type from server:', message.type);
+                console.warn(LOG_PREFIX_SW, 'handleServerMessage: Received unknown message type from server:', (message as any).type);
             }
         } catch (error) {
             console.error(LOG_PREFIX_SW, 'handleServerMessage: Error processing server message:', error, 'Raw data:', messageData);
         }
     }
 
-    public async sendRequest(command: string, payload: any = {}): Promise<any> {
+    public async sendRequest<TReqPayload, TResPayload>(
+        command: IPCMessageRequest['command'], // Use the command union type
+        payload: TReqPayload
+    ): Promise<TResPayload> { // Return the specific expected response payload
         console.log(LOG_PREFIX_SW, `sendRequest: Attempting to send '${command}'. Ensuring connection first.`);
         await this.ensureConnected();
 
@@ -261,11 +320,13 @@ class IPCClient {
 
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
             console.error(LOG_PREFIX_SW, `sendRequest: WebSocket not connected or not open (State: ${this.ws ? this.ws.readyState : 'null'}). Cannot send request '${command}'.`);
-            throw new Error('WebSocket not connected.');
+            // Propagate a more specific error that can be caught by the caller
+            throw new Error(`IPC_CLIENT_NOT_CONNECTED: WebSocket not connected for command '${command}'.`);
         }
 
         const message_id = crypto.randomUUID();
-        const message = {
+        // Construct the message using the shared IPCMessageRequest structure
+        const message: IPCBaseMessage & { type: "request", command: typeof command, payload: TReqPayload } = {
             protocol_version: "1.0",
             message_id,
             type: "request",
@@ -273,8 +334,12 @@ class IPCClient {
             payload
         };
 
-        return new Promise((resolve, reject) => {
-            this.pendingRequests.set(message_id, { resolve, reject });
+        return new Promise<TResPayload>((resolve, reject) => {
+            // Correctly store the resolve and reject functions from the Promise constructor
+            this.pendingRequests.set(message_id, {
+                resolve: resolve,
+                reject: reject
+            });
             try {
                 this.ws!.send(JSON.stringify(message));
                 console.log(LOG_PREFIX_SW, `Sent request: ${command}`, message);
@@ -283,29 +348,63 @@ class IPCClient {
                 this.pendingRequests.delete(message_id);
                 reject(error);
             }
+            // Timeout logic remains the same
             setTimeout(() => {
                 if (this.pendingRequests.has(message_id)) {
                     const pendingRequest = this.pendingRequests.get(message_id);
-                    console.warn(LOG_PREFIX_SW, `Request timed out: ${command} (ID: ${message_id})`);
-                    pendingRequest?.reject(new Error(`Request ${command} timed out`));
+                    const timeoutError = new Error(`IPC_REQUEST_TIMEOUT: Request ${command} (ID: ${message_id}) timed out`);
+                    console.warn(LOG_PREFIX_SW, timeoutError.message);
+                    pendingRequest?.reject(timeoutError);
                     this.pendingRequests.delete(message_id);
                 }
-            }, 30000); // 30 second timeout
+            }, 30000);
         });
     }
 
-    async getWorkspaceDetails(): Promise<any> { return this.sendRequest('get_workspace_details', {}); }
-    async getFileTree(workspaceFolderUri: string | null): Promise<any> {
-        return this.sendRequest('get_file_tree', { workspaceFolderUri });
+    async getWorkspaceDetails(): Promise<WorkspaceDetailsResponsePayload> {
+        return this.sendRequest<{}, WorkspaceDetailsResponsePayload>('get_workspace_details', {});
     }
-    async getFileContent(filePath: string): Promise<any> { return this.sendRequest('get_file_content', { filePath }); }
-    async getFolderContent(folderPath: string, workspaceFolderUri: string): Promise<any> { return this.sendRequest('get_folder_content', { folderPath, workspaceFolderUri }); }
-    async getEntireCodebase(workspaceFolderUri: string | null): Promise<any> { return this.sendRequest('get_entire_codebase', { workspaceFolderUri }); }
-    async getActiveFileInfo(): Promise<any> { return this.sendRequest('get_active_file_info'); }
-    async getOpenFiles(): Promise<any> { return this.sendRequest('get_open_files'); }
-    async searchWorkspace(query: string, workspaceFolderUri: string | null): Promise<any> { return this.sendRequest('search_workspace', { query, workspaceFolderUri }); }
-    async getFilterInfo(workspaceFolderUri: string | null): Promise<any> { return this.sendRequest('get_filter_info'); }
-    async listFolderContents(folderUri: string, workspaceFolderUri: string | null): Promise<any> { return this.sendRequest('list_folder_contents', { folderUri, workspaceFolderUri }); }
+    async getFileTree(workspaceFolderUri: string | null): Promise<FileTreeResponsePayload> {
+        return this.sendRequest<GetFileTreeRequestPayload, FileTreeResponsePayload>(
+            'get_file_tree', { workspaceFolderUri }
+        );
+    }
+    async getFileContent(filePath: string): Promise<FileContentResponsePayload> {
+        return this.sendRequest<GetFileContentRequestPayload, FileContentResponsePayload>(
+            'get_file_content', { filePath }
+        );
+    }
+    async getFolderContent(folderPath: string, workspaceFolderUri: string): Promise<FolderContentResponsePayload> {
+        return this.sendRequest<GetFolderContentRequestPayload, FolderContentResponsePayload>(
+            'get_folder_content', { folderPath, workspaceFolderUri }
+        );
+    }
+    async getEntireCodebase(workspaceFolderUri: string | null): Promise<EntireCodebaseResponsePayload> {
+        return this.sendRequest<GetEntireCodebaseRequestPayload, EntireCodebaseResponsePayload>(
+            'get_entire_codebase', { workspaceFolderUri }
+        );
+    }
+    async getActiveFileInfo(): Promise<ActiveFileInfoResponsePayload> {
+        return this.sendRequest<{}, ActiveFileInfoResponsePayload>('get_active_file_info', {});
+    }
+    async getOpenFiles(): Promise<OpenFilesResponsePayload> {
+        return this.sendRequest<{}, OpenFilesResponsePayload>('get_open_files', {});
+    }
+    async searchWorkspace(query: string, workspaceFolderUri: string | null): Promise<SearchWorkspaceResponsePayload> {
+        return this.sendRequest<SearchWorkspaceRequestPayload, SearchWorkspaceResponsePayload>(
+            'search_workspace', { query, workspaceFolderUri }
+        );
+    }
+    async getFilterInfo(workspaceFolderUri: string | null): Promise<FilterInfoResponsePayload> {
+        return this.sendRequest<GetFilterInfoRequestPayload, FilterInfoResponsePayload>(
+            'get_filter_info', { workspaceFolderUri }
+        );
+    }
+    async listFolderContents(folderUri: string, workspaceFolderUri: string | null): Promise<ListFolderContentsResponsePayload> {
+        return this.sendRequest<ListFolderContentsRequestPayload, ListFolderContentsResponsePayload>(
+            'list_folder_contents', { folderUri, workspaceFolderUri }
+        );
+    }
 
 
     public isConnected(): boolean {
@@ -325,262 +424,322 @@ class IPCClient {
 
 const ipcClient = new IPCClient();
 
+// Define types for messages contentScript sends to serviceWorker
+// These are not IPC messages themselves, but describe the action for the service worker
+interface SWApiRequestMessage {
+    type: string; // e.g., 'SEARCH_WORKSPACE', 'GET_FILE_CONTENT'
+    payload?: any; // Payload type will be refined in each handler
+}
+
+// New interfaces for messages from options/popup
+interface OptionsPageMessage {
+    action: 'settingsUpdated' | 'reconnectIPC' | 'getIPCConnectionStatus';
+    payload?: any; // Specific payload for each action
+    status?: string; // For getIPCConnectionStatus response
+    port?: number; // For getIPCConnectionStatus response
+    message?: string; // For getIPCConnectionStatus response
+}
+
+type IncomingRuntimeMessage = SWApiRequestMessage | OptionsPageMessage | IPCMessagePush; // Added IPCMessagePush for direct pushes from VSCE
+
 // --- Message Handling from Content Scripts / UI ---
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message: IncomingRuntimeMessage, sender, sendResponse) => {
     console.log(LOG_PREFIX_SW, 'Message received in service worker:', message, 'from sender:', sender?.tab?.id, sender?.url);
 
-    if (message.type === 'GET_WORKSPACE_DETAILS_FOR_UI') {
-        console.log(LOG_PREFIX_SW, 'Handling GET_WORKSPACE_DETAILS_FOR_UI');
-        ipcClient.getWorkspaceDetails()
-            .then(responsePayload => { // responsePayload is the entire payload from VSCE
-                console.log(LOG_PREFIX_SW, 'Response for get_workspace_details:', responsePayload);
-                if (responsePayload.success === false) { // Check success flag from VSCE payload
-                    sendResponse({ success: false, error: responsePayload.error || 'Failed to get workspace details from VSCE.' });
-                } else {
-                    sendResponse({ success: true, data: responsePayload.data }); // Pass VSCE's data object directly
-                }
-            })
-            .catch(error => {
-                console.error(LOG_PREFIX_SW, 'Error in get_workspace_details IPC call:', error);
-                sendResponse({ success: false, error: error.message || 'IPC call failed for get_workspace_details.' });
-            });
-        return true; // Indicates async response
-    } else if (message.type === 'GET_FILE_TREE') {
-        const { workspaceFolderUri } = message.payload;
-        console.log(LOG_PREFIX_SW, `Handling GET_FILE_TREE for URI: ${workspaceFolderUri}`);
-        ipcClient.getFileTree(workspaceFolderUri)
-            .then(responsePayload => { // responsePayload is the entire payload from VSCE
-                console.log(LOG_PREFIX_SW, 'Response for get_file_tree (raw payload from VSCE):', responsePayload);
+    if ('type' in message) { // Handle messages from contentScript (via serviceWorkerClient) or direct IPC pushes
+        const typedMessage = message as SWApiRequestMessage | IPCMessagePush; // Type assertion for this block
 
-                if (responsePayload.success === false) {
-                    sendResponse({ success: false, error: responsePayload.error || 'Failed to get file tree from VSCE.' });
-                } else if (responsePayload.data && responsePayload.data.fileTreeString !== undefined) {
-                    // Construct the response for contentScript as expected
-                    sendResponse({
-                        success: true,
-                        data: { // Nest fileTreeString and metadata under data
-                            fileTreeString: responsePayload.data.fileTreeString,
-                            metadata: responsePayload.data.metadata
-                        },
-                        // Pass other relevant top-level fields from VSCE response
-                        workspaceFolderName: responsePayload.data.metadata?.workspaceFolderName || responsePayload.workspaceFolderName,
-                        filterType: responsePayload.filterType,
-                        workspaceFolderUri: responsePayload.workspaceFolderUri
-                    });
+        if (typedMessage.type === 'push') { // Handle direct IPC pushes (e.g., snippets)
+            const pushMessage = typedMessage as IPCMessagePush;
+            if (pushMessage.command === 'push_snippet') {
+                const snippetPayload = pushMessage.payload as PushSnippetPayload;
+                if (snippetPayload && snippetPayload.targetTabId) {
+                    const targetTabId = snippetPayload.targetTabId;
+                    console.log(LOG_PREFIX_SW, `handleServerMessage: Forwarding 'push_snippet' to specific tabId: ${targetTabId}.`);
+                    chrome.tabs.sendMessage(targetTabId, pushMessage)
+                        .then(response => {
+                            if (chrome.runtime.lastError) {
+                                console.warn(LOG_PREFIX_SW, `Error sending push_snippet to tab ${targetTabId}: ${chrome.runtime.lastError.message}`);
+                            } else {
+                                // console.log(LOG_PREFIX_SW, `Push_snippet message sent to tab ${targetTabId}, response from content script (if any):`, response);
+                            }
+                        })
+                        .catch(e => {
+                            console.warn(LOG_PREFIX_SW, `Error explicitly sending push_snippet message to tab ${targetTabId}:`, e);
+                        });
+                    console.log(LOG_PREFIX_SW, 'handleServerMessage: Specifically received and processed push_snippet, attempted to send to tab:', snippetPayload);
                 } else {
-                    sendResponse({ success: false, error: 'Invalid file tree data from VSCE (missing data object or fileTreeString).' });
+                    console.warn(LOG_PREFIX_SW, `handleServerMessage: 'push_snippet' received without targetTabId. Payload:`, snippetPayload);
+                    chrome.runtime.sendMessage(pushMessage).catch(e => console.warn(LOG_PREFIX_SW, "Error broadcasting push_snippet (fallback):", e));
                 }
-            })
-            .catch(error => {
-                console.error(LOG_PREFIX_SW, 'Error in get_file_tree IPC call:', error);
-                sendResponse({ success: false, error: error.message || 'IPC call failed for get_file_tree.' });
-            });
-        return true; // Indicates async response
-    } else if (message.type === 'GET_ACTIVE_FILE_INFO') {
-        console.log(LOG_PREFIX_SW, 'Handling GET_ACTIVE_FILE_INFO');
-        ipcClient.getActiveFileInfo()
-            .then(responsePayload => {
-                console.log(LOG_PREFIX_SW, 'Response for get_active_file_info:', responsePayload);
-                if (responsePayload.success === false) {
-                    sendResponse({ success: false, error: responsePayload.error || 'Failed to get active file info from VSCE.' });
-                } else {
-                    sendResponse({ success: true, data: responsePayload.data });
-                }
-            })
-            .catch(error => {
-                console.error(LOG_PREFIX_SW, 'Error in get_active_file_info IPC call:', error);
-                sendResponse({ success: false, error: error.message || 'IPC call failed for get_active_file_info.' });
-            });
-        return true;
-    } else if (message.type === 'GET_FILE_CONTENT') {
-        const { filePath } = message.payload;
-        console.log(LOG_PREFIX_SW, `Handling GET_FILE_CONTENT for path: ${filePath}`);
-        ipcClient.getFileContent(filePath)
-            .then(responsePayload => {
-                console.log(LOG_PREFIX_SW, 'Response for get_file_content:', responsePayload);
-                if (responsePayload.success === false) {
-                    sendResponse({ success: false, error: responsePayload.error || 'Failed to get file content from VSCE.' });
-                } else {
-                    sendResponse({ success: true, data: responsePayload.data });
-                }
-            })
-            .catch(error => {
-                console.error(LOG_PREFIX_SW, 'Error in get_file_content IPC call:', error);
-                sendResponse({ success: false, error: error.message || 'IPC call failed for get_file_content.' });
-            });
-        return true;
-    } else if (message.type === 'GET_ENTIRE_CODEBASE') {
-        const { workspaceFolderUri } = message.payload;
-        console.log(LOG_PREFIX_SW, `Handling GET_ENTIRE_CODEBASE for URI: ${workspaceFolderUri}`);
-        ipcClient.getEntireCodebase(workspaceFolderUri)
-            .then(responsePayload => { // responsePayload is the entire payload from VSCE
-                console.log(LOG_PREFIX_SW, 'Response for get_entire_codebase (raw payload from VSCE):', responsePayload);
-                if (responsePayload.success === false) {
-                    sendResponse({ success: false, error: responsePayload.error || 'Failed to get entire codebase from VSCE.' });
-                } else if (responsePayload.data && Array.isArray(responsePayload.data.filesData)) { // Check for filesData
-                    sendResponse({
-                        success: true,
-                        data: { // Pass filesData and metadata
-                            filesData: responsePayload.data.filesData,
-                            metadata: responsePayload.data.metadata
-                        },
-                        workspaceFolderName: responsePayload.data.metadata?.workspaceFolderName || responsePayload.workspaceFolderName,
-                        filterType: responsePayload.filterType,
-                        projectPath: responsePayload.projectPath,
-                        workspaceFolderUri: responsePayload.workspaceFolderUri
-                    });
-                } else {
-                    sendResponse({ success: false, error: 'Invalid codebase data from VSCE (missing data.filesData array).' });
-                }
-            })
-            .catch(error => {
-                console.error(LOG_PREFIX_SW, 'Error in get_entire_codebase IPC call:', error);
-                sendResponse({ success: false, error: error.message || 'IPC call failed for get_entire_codebase.' });
-            });
-        return true; // Indicates async response
-    } else if (message.action === 'settingsUpdated') {
-        console.log(LOG_PREFIX_SW, 'Settings updated message received. Reloading configuration and reconnecting.');
-        ipcClient.loadConfiguration().then(() => {
-            ipcClient.disconnect();
-            ipcClient.connectWithRetry();
-        });
-        return false;
-    } else if (message.action === 'reconnectIPC') {
-        console.log(LOG_PREFIX_SW, 'Received reconnectIPC message. Forcing reconnection.');
-        ipcClient.disconnect();
-        ipcClient.connectWithRetry();
-        return false;
-    } else if (message.action === 'getIPCConnectionStatus') {
-        console.log(LOG_PREFIX_SW, 'Received request for current IPC status.');
-        if (ipcClient.isConnected()) {
-            sendResponse({
-                type: "IPC_CONNECTION_STATUS",
-                payload: { status: "connected", port: ipcClient.port, message: `Currently connected to VS Code on port ${ipcClient.port}.` }
-            });
-        } else {
-            sendResponse({
-                type: "IPC_CONNECTION_STATUS",
-                payload: { status: "disconnected_unexpectedly", message: "Currently not connected to VS Code." }
-            });
-        }
-        return false;
-    } else if (message.type === 'GET_OPEN_FILES_FOR_UI') {
-        console.log(LOG_PREFIX_SW, 'Handling GET_OPEN_FILES_FOR_UI');
-        ipcClient.getOpenFiles()
-            .then(responsePayload => {
-                console.log(LOG_PREFIX_SW, 'Response for get_open_files:', responsePayload);
-                if (responsePayload.success === false) {
-                    sendResponse({ success: false, error: responsePayload.error || 'Failed to get open files list from VSCE.' });
-                } else {
-                    sendResponse({ success: true, data: responsePayload.data });
-                }
-            })
-            .catch(error => {
-                console.error(LOG_PREFIX_SW, 'Error in get_open_files IPC call:', error);
-                sendResponse({ success: false, error: error.message || 'IPC call failed for get_open_files.' });
-            });
-        return true;
-    } else if (message.type === 'GET_CONTENTS_FOR_SELECTED_OPEN_FILES') {
-        const { fileUris } = message.payload as { fileUris: string[] };
-        console.log(LOG_PREFIX_SW, `Handling GET_CONTENTS_FOR_SELECTED_OPEN_FILES for URIs:`, fileUris);
-
-        if (!Array.isArray(fileUris) || fileUris.length === 0) {
-            sendResponse({ success: false, error: 'No file URIs provided.' });
-            return false;
-        }
-
-        const fetchPromises = fileUris.map(uri =>
-            ipcClient.getFileContent(uri)
-                .then(responsePayload => {
-                    if (responsePayload.success === false || !responsePayload.data || !responsePayload.data.fileData) {
-                        console.warn(LOG_PREFIX_SW, `Failed to get content for ${uri}: ${responsePayload.error || 'No fileData'}`);
-                        return { uri, success: false, error: responsePayload.error || 'Failed to retrieve content.', fileData: null, metadata: null };
-                    }
-                    return {
-                        uri,
-                        success: true,
-                        fileData: responsePayload.data.fileData,
-                        metadata: responsePayload.data.metadata || null
-                    };
+            } else {
+                console.log(LOG_PREFIX_SW, `handleServerMessage: Forwarding generic push message to all listeners. Command: ${pushMessage.command}`);
+                chrome.runtime.sendMessage(pushMessage).catch(e => console.warn(LOG_PREFIX_SW, "Error broadcasting generic push message:", e));
+            }
+        } else if (typedMessage.type === 'GET_WORKSPACE_DETAILS_FOR_UI') {
+            console.log(LOG_PREFIX_SW, 'Handling GET_WORKSPACE_DETAILS_FOR_UI');
+            ipcClient.getWorkspaceDetails()
+                .then((responsePayload: WorkspaceDetailsResponsePayload) => { // Explicitly type here for clarity
+                    console.log(LOG_PREFIX_SW, 'Response for get_workspace_details:', responsePayload);
+                    // The responsePayload is already correctly typed due to IPCClient method's return type
+                    sendResponse(responsePayload); // Send the whole typed payload back
                 })
                 .catch(error => {
-                    console.error(LOG_PREFIX_SW, `Error fetching content for ${uri}:`, error);
-                    return { uri, success: false, error: error.message || 'IPC call failed.', fileData: null, metadata: null };
-                })
-        );
-
-        Promise.all(fetchPromises)
-            .then(results => {
-                const successfulFilesData = results.filter(r => r.success).map(r => ({ fileData: r.fileData, metadata: r.metadata }));
-                const erroredFiles = results.filter(r => !r.success).map(r => ({ uri: r.uri, error: r.error }));
-
-                console.log(LOG_PREFIX_SW, `Processed selected files. Success: ${successfulFilesData.length}, Errors: ${erroredFiles.length}`);
-                sendResponse({
-                    success: true,
-                    data: successfulFilesData,
-                    errors: erroredFiles
+                    console.error(LOG_PREFIX_SW, 'Error in get_workspace_details IPC call:', error);
+                    sendResponse({ success: false, error: error.message || 'IPC call failed for get_workspace_details.' });
                 });
-            })
-            .catch(error => {
-                console.error(LOG_PREFIX_SW, 'Unexpected error in Promise.all for GET_CONTENTS_FOR_SELECTED_OPEN_FILES:', error);
-                sendResponse({ success: false, error: error.message || 'Failed to process multiple file content requests.' });
+            return true; // Indicates async response
+        } else if (typedMessage.type === 'GET_FILE_TREE') {
+            const payload = typedMessage.payload as GetFileTreeRequestPayload;
+            console.log(LOG_PREFIX_SW, `Handling GET_FILE_TREE for URI: ${payload.workspaceFolderUri}`);
+            ipcClient.getFileTree(payload.workspaceFolderUri)
+                .then((responsePayload: FileTreeResponsePayload) => { // responsePayload is the entire payload from VSCE
+                    console.log(LOG_PREFIX_SW, 'Response for get_file_tree (raw payload from VSCE):', responsePayload);
+
+                    if (responsePayload.success === false) {
+                        sendResponse({ success: false, error: responsePayload.error || 'Failed to get file tree from VSCE.' });
+                    } else if (responsePayload.data && responsePayload.data.fileTreeString !== undefined) {
+                        // Construct the response for contentScript as expected
+                        sendResponse({
+                            success: true,
+                            data: { // Nest fileTreeString and metadata under data
+                                fileTreeString: responsePayload.data.fileTreeString,
+                                metadata: responsePayload.data.metadata
+                            },
+                            // Corrected: workspaceFolderName is only in metadata, not top-level
+                            workspaceFolderName: responsePayload.data.metadata?.workspaceFolderName,
+                            filterType: responsePayload.filterType,
+                            workspaceFolderUri: responsePayload.workspaceFolderUri
+                        });
+                    } else {
+                        sendResponse({ success: false, error: 'Invalid file tree data from VSCE (missing data object or fileTreeString).' });
+                    }
+                })
+                .catch(error => {
+                    console.error(LOG_PREFIX_SW, 'Error in get_file_tree IPC call:', error);
+                    sendResponse({ success: false, error: error.message || 'IPC call failed for get_file_tree.' });
+                });
+            return true; // Indicates async response
+        } else if (typedMessage.type === 'GET_ACTIVE_FILE_INFO') {
+            console.log(LOG_PREFIX_SW, 'Handling GET_ACTIVE_FILE_INFO');
+            ipcClient.getActiveFileInfo()
+                .then((responsePayload: ActiveFileInfoResponsePayload) => {
+                    console.log(LOG_PREFIX_SW, 'Response for get_active_file_info:', responsePayload);
+                    if (responsePayload.success === false) {
+                        sendResponse({ success: false, error: responsePayload.error || 'Failed to get active file info from VSCE.' });
+                    } else {
+                        sendResponse({ success: true, data: responsePayload.data });
+                    }
+                })
+                .catch(error => {
+                    console.error(LOG_PREFIX_SW, 'Error in get_active_file_info IPC call:', error);
+                    sendResponse({ success: false, error: error.message || 'IPC call failed for get_active_file_info.' });
+                });
+            return true;
+        } else if (typedMessage.type === 'GET_FILE_CONTENT') {
+            const payload = typedMessage.payload as GetFileContentRequestPayload;
+            console.log(LOG_PREFIX_SW, `Handling GET_FILE_CONTENT for path: ${payload.filePath}`);
+            ipcClient.getFileContent(payload.filePath)
+                .then((responsePayload: FileContentResponsePayload) => {
+                    console.log(LOG_PREFIX_SW, 'Response for get_file_content:', responsePayload);
+                    if (responsePayload.success === false) {
+                        sendResponse({ success: false, error: responsePayload.error || 'Failed to get file content from VSCE.' });
+                    } else {
+                        sendResponse({ success: true, data: responsePayload.data });
+                    }
+                })
+                .catch(error => {
+                    console.error(LOG_PREFIX_SW, 'Error in get_file_content IPC call:', error);
+                    sendResponse({ success: false, error: error.message || 'IPC call failed for get_file_content.' });
+                });
+            return true;
+        } else if (typedMessage.type === 'GET_ENTIRE_CODEBASE') {
+            const payload = typedMessage.payload as GetEntireCodebaseRequestPayload;
+            console.log(LOG_PREFIX_SW, `Handling GET_ENTIRE_CODEBASE for URI: ${payload.workspaceFolderUri}`);
+            ipcClient.getEntireCodebase(payload.workspaceFolderUri)
+                .then((responsePayload: EntireCodebaseResponsePayload) => { // responsePayload is the entire payload from VSCE
+                    console.log(LOG_PREFIX_SW, 'Response for get_entire_codebase (raw payload from VSCE):', responsePayload);
+                    if (responsePayload.success === false) {
+                        sendResponse({ success: false, error: responsePayload.error || 'Failed to get entire codebase from VSCE.' });
+                    } else if (responsePayload.data && Array.isArray(responsePayload.data.filesData)) { // Check for filesData
+                        sendResponse({
+                            success: true,
+                            data: { // Pass filesData and metadata
+                                filesData: responsePayload.data.filesData,
+                                metadata: responsePayload.data.metadata
+                            },
+                            workspaceFolderName: responsePayload.data.metadata?.workspaceFolderName,
+                            filterType: responsePayload.filterType,
+                            projectPath: responsePayload.projectPath,
+                            workspaceFolderUri: responsePayload.workspaceFolderUri
+                        });
+                    } else {
+                        sendResponse({ success: false, error: 'Invalid codebase data from VSCE (missing data.filesData array).' });
+                    }
+                })
+                .catch(error => {
+                    console.error(LOG_PREFIX_SW, 'Error in get_entire_codebase IPC call:', error);
+                    sendResponse({ success: false, error: error.message || 'IPC call failed for get_entire_codebase.' });
+                });
+            return true; // Indicates async response
+        } else if (typedMessage.type === 'GET_OPEN_FILES_FOR_UI') {
+            console.log(LOG_PREFIX_SW, 'Handling GET_OPEN_FILES_FOR_UI');
+            ipcClient.getOpenFiles()
+                .then((responsePayload: OpenFilesResponsePayload) => {
+                    console.log(LOG_PREFIX_SW, 'Response for get_open_files:', responsePayload);
+                    if (responsePayload.success === false) {
+                        sendResponse({ success: false, error: responsePayload.error || 'Failed to get open files list from VSCE.' });
+                    } else {
+                        sendResponse({ success: true, data: responsePayload.data });
+                    }
+                })
+                .catch(error => {
+                    console.error(LOG_PREFIX_SW, 'Error in get_open_files IPC call:', error);
+                    sendResponse({ success: false, error: error.message || 'IPC call failed for get_open_files.' });
+                });
+            return true;
+        } else if (typedMessage.type === 'GET_CONTENTS_FOR_SELECTED_OPEN_FILES') {
+            // This message type is internal to CE, not a direct IPC command.
+            // Its payload is an array of file URIs.
+            const fileUris = typedMessage.payload.fileUris as string[]; // Corrected: fileUris
+            console.log(LOG_PREFIX_SW, `Handling GET_CONTENTS_FOR_SELECTED_OPEN_FILES for URIs:`, fileUris);
+
+            if (!Array.isArray(fileUris) || fileUris.length === 0) {
+                sendResponse({ success: false, error: 'No file URIs provided.' });
+                return false;
+            }
+
+            const fetchPromises = fileUris.map(uri =>
+                ipcClient.getFileContent(uri) // This call is now typed
+                    .then(responsePayload => {
+                        if (responsePayload.success === false || !responsePayload.data || !responsePayload.data.fileData) {
+                            console.warn(LOG_PREFIX_SW, `Failed to get content for ${uri}: ${responsePayload.error || 'No fileData'}`);
+                            return { uri, success: false, error: responsePayload.error || 'Failed to retrieve content.', fileData: null, metadata: null };
+                        }
+                        return {
+                            uri,
+                            success: true,
+                            fileData: responsePayload.data.fileData,
+                            metadata: responsePayload.data.metadata || null
+                        };
+                    })
+                    .catch(error => {
+                        console.error(LOG_PREFIX_SW, `Error fetching content for ${uri}:`, error);
+                        return { uri, success: false, error: error.message || 'IPC call failed.', fileData: null, metadata: null };
+                    })
+            );
+
+            Promise.all(fetchPromises)
+                .then(results => {
+                    const successfulFilesData = results.filter(r => r.success).map(r => ({ fileData: r.fileData, metadata: r.metadata }));
+                    const erroredFiles = results.filter(r => !r.success).map(r => ({ uri: r.uri, error: r.error }));
+
+                    console.log(LOG_PREFIX_SW, `Processed selected files. Success: ${successfulFilesData.length}, Errors: ${erroredFiles.length}`);
+                    sendResponse({
+                        success: true,
+                        data: successfulFilesData,
+                        errors: erroredFiles
+                    });
+                })
+                .catch(error => {
+                    console.error(LOG_PREFIX_SW, 'Unexpected error in Promise.all for GET_CONTENTS_FOR_SELECTED_OPEN_FILES:', error);
+                    sendResponse({ success: false, error: error.message || 'Failed to process multiple file content requests.' });
+                });
+            return true;
+        } else if (typedMessage.type === 'GET_FOLDER_CONTENT') {
+            const payload = typedMessage.payload as GetFolderContentRequestPayload;
+            console.log(LOG_PREFIX_SW, `Handling GET_FOLDER_CONTENT for path: ${payload.folderPath}`);
+            ipcClient.getFolderContent(payload.folderPath, payload.workspaceFolderUri)
+                .then((responsePayload: FolderContentResponsePayload) => {
+                    console.log(LOG_PREFIX_SW, 'Response for get_folder_content:', responsePayload);
+                    if (responsePayload.success === false) {
+                        sendResponse({ success: false, error: responsePayload.error || 'Failed to get folder content from VSCE.' });
+                    } else {
+                        sendResponse({ success: true, data: responsePayload.data });
+                    }
+                })
+                .catch(error => {
+                    console.error(LOG_PREFIX_SW, 'Error in get_folder_content IPC call:', error);
+                    sendResponse({ success: false, error: error.message || 'IPC call failed for get_folder_content.' });
+                });
+            return true;
+        } else if (typedMessage.type === 'LIST_FOLDER_CONTENTS') {
+            const payload = typedMessage.payload as ListFolderContentsRequestPayload;
+            console.log(LOG_PREFIX_SW, `Handling LIST_FOLDER_CONTENTS for URI: ${payload.folderUri}, Workspace: ${payload.workspaceFolderUri}`);
+            ipcClient.listFolderContents(payload.folderUri, payload.workspaceFolderUri)
+                .then((responsePayload: ListFolderContentsResponsePayload) => {
+                    console.log(LOG_PREFIX_SW, 'Response for list_folder_contents:', responsePayload);
+                    if (responsePayload.success === false) {
+                        sendResponse({ success: false, error: responsePayload.error || 'Failed to get folder contents from VSCE.' });
+                    } else {
+                        sendResponse({ success: true, data: responsePayload.data });
+                    }
+                })
+                .catch(error => {
+                    console.error(LOG_PREFIX_SW, 'Error in list_folder_contents IPC call:', error);
+                    sendResponse({ success: false, error: error.message || 'IPC call failed for list_folder_contents.' });
+                });
+            return true;
+        } else if (typedMessage.type === 'SEARCH_WORKSPACE') {
+            const payload = typedMessage.payload as SearchWorkspaceRequestPayload;
+            console.log(LOG_PREFIX_SW, `Handling SEARCH_WORKSPACE for query: "${payload.query}", folder: ${payload.workspaceFolderUri}`);
+            ipcClient.searchWorkspace(payload.query, payload.workspaceFolderUri)
+                .then((responsePayload: SearchWorkspaceResponsePayload) => {
+                    console.log(LOG_PREFIX_SW, 'Response for search_workspace:', responsePayload);
+                    if (responsePayload.success === false) {
+                        sendResponse({ success: false, error: responsePayload.error || 'Failed to get search results from VSCE.' });
+                    } else {
+                        sendResponse({ success: true, data: responsePayload.data });
+                    }
+                })
+                .catch(error => {
+                    console.error(LOG_PREFIX_SW, 'Error in search_workspace IPC call:', error);
+                    sendResponse({ success: false, error: error.message || 'IPC call failed for search_workspace.' });
+                });
+            return true;
+        } else {
+            console.warn(LOG_PREFIX_SW, `Received unhandled message type: ${typedMessage.type}`);
+            return false;
+        }
+    } else if ('action' in message) { // Handle messages from options/popup pages
+        const optionsMessage = message as OptionsPageMessage;
+        if (optionsMessage.action === 'settingsUpdated') {
+            console.log(LOG_PREFIX_SW, 'Settings updated message received. Reloading configuration and reconnecting.');
+            ipcClient.loadConfiguration().then(() => {
+                ipcClient.disconnect();
+                ipcClient.connectWithRetry();
             });
-        return true;
-    } else if (message.type === 'GET_FOLDER_CONTENT') {
-        const { folderPath, workspaceFolderUri } = message.payload;
-        console.log(LOG_PREFIX_SW, `Handling GET_FOLDER_CONTENT for path: ${folderPath}`);
-        ipcClient.getFolderContent(folderPath, workspaceFolderUri)
-            .then(responsePayload => {
-                console.log(LOG_PREFIX_SW, 'Response for get_folder_content:', responsePayload);
-                if (responsePayload.success === false) {
-                    sendResponse({ success: false, error: responsePayload.error || 'Failed to get folder content from VSCE.' });
-                } else {
-                    sendResponse({ success: true, data: responsePayload.data });
-                }
-            })
-            .catch(error => {
-                console.error(LOG_PREFIX_SW, 'Error in get_folder_content IPC call:', error);
-                sendResponse({ success: false, error: error.message || 'IPC call failed for get_folder_content.' });
-            });
-        return true;
-    } else if (message.type === 'LIST_FOLDER_CONTENTS') {
-        const { folderUri, workspaceFolderUri } = message.payload;
-        console.log(LOG_PREFIX_SW, `Handling LIST_FOLDER_CONTENTS for URI: ${folderUri}, Workspace: ${workspaceFolderUri}`);
-        ipcClient.listFolderContents(folderUri, workspaceFolderUri)
-            .then(responsePayload => {
-                console.log(LOG_PREFIX_SW, 'Response for list_folder_contents:', responsePayload);
-                if (responsePayload.success === false) {
-                    sendResponse({ success: false, error: responsePayload.error || 'Failed to get folder contents from VSCE.' });
-                } else {
-                    sendResponse({ success: true, data: responsePayload.data });
-                }
-            })
-            .catch(error => {
-                console.error(LOG_PREFIX_SW, 'Error in list_folder_contents IPC call:', error);
-                sendResponse({ success: false, error: error.message || 'IPC call failed for list_folder_contents.' });
-            });
-        return true;
-    } else if (message.type === 'SEARCH_WORKSPACE') {
-        const { query, workspaceFolderUri } = message.payload;
-        console.log(LOG_PREFIX_SW, `Handling SEARCH_WORKSPACE for query: "${query}", folder: ${workspaceFolderUri}`);
-        ipcClient.searchWorkspace(query, workspaceFolderUri)
-            .then(responsePayload => {
-                console.log(LOG_PREFIX_SW, 'Response for search_workspace:', responsePayload);
-                if (responsePayload.success === false) {
-                    sendResponse({ success: false, error: responsePayload.error || 'Failed to get search results from VSCE.' });
-                } else {
-                    sendResponse({ success: true, data: responsePayload.data });
-                }
-            })
-            .catch(error => {
-                console.error(LOG_PREFIX_SW, 'Error in search_workspace IPC call:', error);
-                sendResponse({ success: false, error: error.message || 'IPC call failed for search_workspace.' });
-            });
-        return true;
-    } else {
-        console.warn(LOG_PREFIX_SW, `Received unhandled message type/action: ${message.type || message.action}`);
-        return false;
+            return false;
+        } else if (optionsMessage.action === 'reconnectIPC') {
+            console.log(LOG_PREFIX_SW, 'Received reconnectIPC message. Forcing reconnection.');
+            // This message is from options.ts, which also handles its own status updates.
+            // No need to send IPC_CONNECTION_STATUS from here immediately, as options.ts expects it from the SW's
+            // onclose/onerror/onopen handlers.
+            ipcClient.disconnect();
+            ipcClient.connectWithRetry();
+            return false;
+        } else if (optionsMessage.action === 'getIPCConnectionStatus') {
+            console.log(LOG_PREFIX_SW, 'Received request for current IPC status.');
+            if (ipcClient.isConnected()) {
+                sendResponse({
+                    action: "ipcConnectionStatus", // Echo action for options.ts listener
+                    status: "connected",
+                    port: ipcClient.port,
+                    message: `Currently connected to VS Code on port ${ipcClient.port}.`
+                });
+            } else {
+                sendResponse({
+                    action: "ipcConnectionStatus", // Echo action for options.ts listener
+                    status: "disconnected_unexpectedly",
+                    message: "Currently not connected to VS Code."
+                });
+            }
+            return false;
+        }
     }
+
+    console.warn(LOG_PREFIX_SW, `Received unhandled message:`, message);
+    return false;
 });
 
 
@@ -672,10 +831,10 @@ async function checkAndRegisterTab(tabId: number, tabUrl?: string): Promise<void
 
         if (isSupportedLLM) {
             console.log(LOG_PREFIX_SW, `Supported LLM tab identified: ID ${tabId}, Host ${host}. Registering with VSCE.`);
-            await ipcClient.sendRequest('register_active_target', {
-                tabId: tabId,
-                llmHost: host
-            });
+            await ipcClient.sendRequest<RegisterActiveTargetRequestPayload, GenericAckResponsePayload>(
+                'register_active_target',
+                { tabId: tabId, llmHost: host }
+            );
             console.log(LOG_PREFIX_SW, `Registration request sent for tabId ${tabId}, host ${host}.`);
         } else {
             // console.log(LOG_PREFIX_SW, `Tab ${tabId} (${host}) is not a supported LLM host.`);

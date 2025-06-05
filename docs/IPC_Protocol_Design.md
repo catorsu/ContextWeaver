@@ -3,6 +3,8 @@
 **Version:** 1.0.1
 **Date:** June 02, 2025
 
+**Important Note:** This document provides a human-readable overview of the IPC protocol. For the definitive and normative specification of all message structures, request/response payloads, and shared data models, please refer to the TypeScript interfaces defined in the `packages/shared/src/` directory, primarily within `ipc-types.ts` and `data-models.ts`. In case of any discrepancy, the TypeScript definitions are authoritative.
+
 ## 1. Overview
 
 This document defines the Inter-Plugin Communication (IPC) protocol used between the ContextWeaver VS Code Extension (VSCE) and the Chrome Extension (CE).
@@ -15,15 +17,15 @@ This document defines the Inter-Plugin Communication (IPC) protocol used between
 
 ## 2. Core Message Structure
 
-All messages exchanged between the VSCE and CE will adhere to the following JSON structure:
+All messages exchanged between the VSCE and CE will adhere to a base JSON structure. The specific `command` and `payload` fields are determined by the `type` of the message, as detailed in the shared TypeScript definitions (e.g., `IPCMessageRequest`, `IPCMessageResponse`).
 
+**Base Structure (see `IPCBaseMessage` in `shared/ipc-types.ts`):**
 ```json
 {
   "protocol_version": "1.0",
-  "message_id": "string",    // Unique UUID for requests, echoed in responses. Not required for pushes.
-  "type": "request | response | push | error_response", // Category of the message
-  "command": "string",       // Specific action or event name
-  "payload": {}              // Command-specific data object
+  "message_id": "string",    // Unique UUID for requests, echoed in responses. Optional for pushes.
+  "type": "request | response | push | error_response" // Category of the message
+  // "command" and "payload" are specific to each message type and command combination.
 }
 ```
 
@@ -74,7 +76,7 @@ Requests the content of a specific file.
 *   **`payload`**:
     ```json
     {
-      "filePath": "string" // Normalized, absolute path to the file
+      "filePath": "string" // Normalized, absolute path or URI string to the file
     }
     ```
 *   **VSCE Response**: `response_file_content` (see 3.2.3)
@@ -89,7 +91,7 @@ Requests the concatenated content of all files within a specified folder (respec
 *   **`payload`**:
     ```json
     {
-      "folderPath": "string", // Normalized, absolute path to the folder
+      "folderPath": "string", // Normalized, absolute path or URI string to the folder
       "workspaceFolderUri": "string" // URI of the workspace folder this folderPath belongs to. Required.
     }
     ```
@@ -106,10 +108,10 @@ Requests the concatenated content of all files in a workspace (respecting filter
 *   **`payload`**:
     ```json
     {
-      "workspaceFolderUri": "string" // URI of the specific workspace folder (required)
+      "workspaceFolderUri": "string | null" // URI of the specific workspace folder. If null, the VSCE will attempt to use the active workspace.
     }
     ```
-    The `workspaceFolderUri` field is required and specifies the URI of the workspace folder for which the entire codebase content is requested.
+    The `workspaceFolderUri` field specifies the URI of the workspace folder for which the entire codebase content is requested. If null, the VSCE will attempt to use the active workspace.
 *   **VSCE Response**: `response_entire_codebase` (see 3.2.5)
 
 ---
@@ -195,7 +197,7 @@ Requests a listing of immediate files and subdirectories within a specified fold
     ```json
     {
       "folderUri": "string", // URI of the folder whose contents are to be listed
-      "workspaceFolderUri": "string" // URI of the workspace folder this folderUri belongs to (for context, filtering)
+      "workspaceFolderUri": "string | null" // URI of the workspace folder this folderUri belongs to (for context, filtering). Null if not applicable or single root.
     }
     ```
 *   **VSCE Response**: `response_list_folder_contents` (see 3.2.13)
@@ -244,8 +246,10 @@ Response to `get_file_tree`.
         }
       } | null,
       "error": "string | null", // Present if success is false
+  "errorCode": "string | null", // Optional error code
+  "errorCode": "string | null", // Optional error code
       "workspaceFolderUri": "string | null", // URI of the workspace folder this tree is for
-      "filterType": "'gitignore' | 'default' | 'none'" // Indicates which filter was applied or if none (e.g. untrusted workspace)
+      "filterType": "'gitignore' | 'default' | 'none' | 'not_applicable'" // Indicates which filter was applied or if none (e.g. untrusted workspace)
     }
     ```
 
@@ -310,10 +314,12 @@ Response to `get_folder_content`.
           "workspaceFolderName": "string | null"
         }
       } | null,
-      "error": "string | null", // Present if success is false
-      "folderPath": "string", // Original requested folder path
-      "filterType": "'gitignore' | 'default' | 'none'"
-    }
+  "error": "string | null", // Present if success is false
+  "errorCode": "string | null", // Optional error code
+  "folderPath": "string", // Original requested folder path
+  "filterType": "'gitignore' | 'default' | 'none' | 'not_applicable'", // Updated to include 'not_applicable'
+  "workspaceFolderUri": "string | null" // Added from ipcServer.ts implementation
+}
     ```
 
 ---
@@ -342,14 +348,17 @@ Response to `get_entire_codebase`.
           "content_source_id": "string", // e.g., "uri_of_specified_workspace_folder::codebase"
           "type": "codebase_content",
           "label": "string", // e.g., "Entire Codebase - [folder_name]"
-          "workspaceFolderUri": "string", // URI of the processed workspace folder
-          "workspaceFolderName": "string" // Name of the processed workspace folder
-        }
-      } | null,
-      "error": "string | null", // Present if success is false
-      "workspaceFolderUri": "string | null",
-      "filterType": "'gitignore' | 'default' | 'none'" // Indicates the filter type applied during content collection.
+      "workspaceFolderUri": "string | null", // URI of the processed workspace folder
+      "workspaceFolderName": "string | null" // Name of the processed workspace folder
     }
+  } | null,
+  "error": "string | null", // Present if success is false
+  "errorCode": "string | null", // Optional error code
+  "workspaceFolderUri": "string | null",
+  "filterType": "'gitignore' | 'default' | 'none' | 'not_applicable'", // Indicates the filter type applied during content collection.
+  "workspaceFolderName": "string | null", // Added from ipcServer.ts implementation
+  "projectPath": "string | null" // Added from ipcServer.ts implementation
+}
     ```
 
 ---
@@ -369,8 +378,9 @@ Response to `get_active_file_info`.
         "workspaceFolderUri": "string | null",
         "workspaceFolderName": "string | null"
       } | null,
-      "error": "string | null" // e.g., "No active text editor found."
-    }
+  "error": "string | null", // e.g., "No active text editor found."
+  "errorCode": "string | null" // Optional error code
+}
     ```
 
 ---
@@ -395,8 +405,9 @@ Response to `get_open_files`.
           // ... more files
         ]
       } | null,
-      "error": "string | null"
-    }
+  "error": "string | null",
+  "errorCode": "string | null" // Optional error code
+}
     ```
 
 ---
@@ -412,18 +423,21 @@ Response to `search_workspace`.
       "success": "boolean",
       "data": { // Present if success is true
         "results": [
-          {
+          { // Structure of each item in the results array
             "path": "string", // Normalized path
             "name": "string", // Name for display
             "type": "'file' | 'folder'",
-            "content_source_id": "string", // Normalized URI/path for duplicate checking
-            "workspaceFolderUri": "string | null",
-            "workspaceFolderName": "string | null"
+            "uri": "string", // Full URI string of the entry
+            "content_source_id": "string", // Canonical ID, typically same as URI string
+            "workspaceFolderUri": "string", // URI of the workspace folder (non-nullable as per shared type)
+            "workspaceFolderName": "string", // Name of the workspace folder (non-nullable as per shared type)
+            "filterTypeApplied": "'gitignore' | 'default' | 'none' | 'not_applicable' | null" // Optional, type FilterType
           }
           // ... more results
         ]
       } | null,
       "error": "string | null", // Present if success is false
+      "errorCode": "string | null", // Optional error code
       "query": "string" // Original search query
     }
     ```
@@ -467,11 +481,12 @@ Response to `get_filter_info`.
     {
       "success": "boolean",
       "data": { // Present if success is true
-        "filterType": "'gitignore' | 'default' | 'none'", // 'none' if untrusted or no workspace
-        "workspaceFolderUri": "string | null"
-      } | null,
-      "error": "string | null"
-    }
+    "filterType": "'gitignore' | 'default' | 'none' | 'not_applicable'", // 'none' if untrusted or no workspace
+    "workspaceFolderUri": "string | null"
+  } | null,
+  "error": "string | null",
+  "errorCode": "string | null" // Optional error code
+}
     ```
 
 ---
@@ -496,8 +511,9 @@ Response to `get_workspace_details`.
           // ... more folders if multi-root
         ] | null
       } | null,
-      "error": "string | null" // Present if success is false
-    }
+  "error": "string | null", // Present if success is false
+  "errorCode": "string | null" // Optional error code
+}
     ```
 
 ---
@@ -511,9 +527,10 @@ A generic error response if a more specific one isn't suitable, or for unhandled
     ```json
     {
       "success": false, // Always false for error_response
-      "error": "string", // Detailed error message
-      "originalCommand": "string | null" // Command that triggered this error, if applicable
-    }
+  "error": "string", // Detailed error message
+  "errorCode": "string", // Specific error code
+  "originalCommand": "string | null" // Optional: command that triggered this error
+}
     ```
 
 ---
@@ -538,8 +555,8 @@ Response to `list_folder_contents`.
           // ... more entries
         ],
         "parentFolderUri": "string", // Echo back the requested folderUri
-        "filterTypeApplied": "'gitignore' | 'default' | 'none'"
-      } | null,
+    "filterTypeApplied": "'gitignore' | 'default' | 'none' | 'not_applicable'"
+  } | null,
       "error": "string | null", // Present if success is false
       "errorCode": "string | null" // Optional error code
     }
@@ -581,33 +598,16 @@ VSCE pushes a selected code snippet to the CE.
 
 ## 4. ContextBlockMetadata Structure
 
-This object is included in VSCE responses when providing data that will be inserted into the LLM chat and requires a visual indicator in the CE.
+This object is included in VSCE responses when providing data that will be inserted into the LLM chat and requires a visual indicator in the CE. It is defined in `packages/shared/src/data-models.ts` as follows:
 
 ```json
 {
-  "unique_block_id": "string", // UUID, e.g., "a1b2c3d4-e5f6-7890-1234-567890abcdef"
-                           // Generated by VSCE for each distinct content block sent.
-                           // Used by CE to identify and remove specific blocks from LLM input.
-
-  "content_source_id": "string", // Canonical identifier for the source content itself.
-                               // Used by CE for duplicate checking (except for snippets).
-                               // Examples:
-                               // - File Tree: "workspace_uri::file_tree"
-                               // - Entire Codebase: "workspace_uri::codebase"
-                               // - File Content: "normalized_file_uri" (e.g., "file:///c:/project/file.ts")
-                               // - Folder Content: "normalized_folder_uri" (e.g., "file:///c:/project/src/")
-                               // - Snippet: "normalized_file_uri::snippet::start_line-end_line" (e.g., "file:///c:/project/file.ts::snippet::10-25")
-
-  "type": "string",        // Type of content, e.g., "file_tree", "file_content", "folder_content", "codebase_content", "code_snippet"
-
-  "label": "string",         // User-friendly label for the indicator in CE.
-                           // Examples: "File Tree", "auth.py", "src/components/", "Entire Codebase", "utils.js (10-25)"
-
-  "workspaceFolderUri": "string | null", // URI of the workspace folder this content belongs to (for multi-root support).
-                                      // Null if not applicable or single root.
-
-  "workspaceFolderName": "string | null" // Name of the workspace folder (for multi-root display in CE).
-                                       // Null if not applicable or single root.
+  "unique_block_id": "string", // UUID, e.g., "a1b2c3d4-e5f6-7890-1234-567890abcdef". Generated by VSCE for each distinct content block sent. Used by CE to identify and remove specific blocks from LLM input.
+  "content_source_id": "string", // Canonical identifier for the source content itself. Used by CE for duplicate checking (except for snippets). Examples: "workspace_uri::file_tree", "normalized_file_uri", etc.
+  "type": "'file_tree' | 'file_content' | 'folder_content' | 'codebase_content' | 'code_snippet'", // Type of content.
+  "label": "string",         // User-friendly label for the indicator in CE. Examples: "File Tree", "auth.py", "src/components/", "Entire Codebase", "utils.js (10-25)"
+  "workspaceFolderUri": "string | null", // URI of the workspace folder this content belongs to. Null if not applicable or single root.
+  "workspaceFolderName": "string | null" // Name of the workspace folder. Null if not applicable or single root.
 }
 ```
 

@@ -13,7 +13,7 @@
     "activationEvents": [
         "onStartupFinished"
     ],
-    "main": "./dist/extension.js",
+    "main": "./dist/src/extension.js",
     "contributes": {
         "commands": [
             {
@@ -57,7 +57,8 @@
     "dependencies": {
         "ignore": "^5.3.1",
         "uuid": "^9.0.1",
-        "ws": "^8.17.0"
+        "ws": "^8.17.0",
+        "@contextweaver/shared": "file:../shared"
     },
     "devDependencies": {
         "@types/jest": "^29.5.14",
