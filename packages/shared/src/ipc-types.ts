@@ -219,6 +219,7 @@ export interface WorkspaceDetailsResponseData {
         name: string;
         isTrusted: boolean; // Overall workspace trust applied here
     }> | null;
+    workspaceName?: string; // Optional workspace name for UI display
 }
 /**
  * Response payload for a workspace details request.

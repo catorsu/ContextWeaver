@@ -45,6 +45,7 @@ export interface SearchResult {
     content_source_id: string; // Canonical ID, typically same as URI string
     workspaceFolderUri: string; // URI of the workspace folder this result belongs to
     workspaceFolderName: string; // Name of the workspace folder
+    relativePath: string; // Relative path from the workspace root
     filterTypeApplied?: FilterType; // ADDED: Optional field
 }
 

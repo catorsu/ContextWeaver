@@ -66,8 +66,7 @@ ContextWeaver/
 │   ├── chrome-extension/      # Chrome Extension (CE)
 │   │   ├── src/               # Source files for CE
 │   │   │   ├── contentScript.ts
-│   │   │   ├── options.ts
-│   │   │   ├── popup.ts
+│   │   │   ├── popup.ts           // Handles settings and connection management
 │   │   │   ├── serviceWorker.ts
 │   │   │   ├── uiManager.ts         // ADDED
 │   │   │   ├── stateManager.ts      // ADDED
@@ -77,8 +76,7 @@ ContextWeaver/
 │   │   ├── manifest.json      # CE manifest
 │   │   ├── package.json       # NPM manifest
 │   │   ├── tsconfig.json      # TypeScript configuration
-│   │   ├── popup.html
-│   │   └── options.html
+│   │   └── popup.html         // Main popup UI with settings
 │   └── shared/                # Shared code
 │       ├── src/               # Source files for shared code
 │       │   ├── data-models.ts     // ADDED
@@ -137,14 +135,13 @@ Accurate and current structural documentation is mandatory for project integrity
     *   **IPC Client:** Connecting to the VSCE server, sending requests, and handling responses.
     *   **State Management:** Managing the state of active context blocks and duplicate content prevention.
 *   **Key Modules (Planned/Conceptual):**
-    *   `contentScript.ts`: Injected into LLM web pages. Responsible for detecting user triggers (e.g., `@`), orchestrating UI interactions by utilizing `UIManager`, managing application state via `StateManager`, and delegating communication with the service worker to `ServiceWorkerClient`. Retains high-level logic for event handling, text insertion into LLM inputs, and coordinating different extension functionalities.
-    *   `serviceWorker.ts`: Manages the IPC client connection (via an internal `IPCClient` class) to the VSCE. The `IPCClient` has been refactored to use shared TypeScript types for robust communication and features improved connection management. The service worker actively listens to Chrome tab events to register active LLM tabs with VSCE. It handles messages from `contentScript.ts` (received via `serviceWorkerClient.ts`), relays requests to VSCE, and forwards VSCE responses and push messages (like snippets) appropriately.
-*   `uiManager.ts`: Encapsulates all logic related to the creation, styling, display, and updates of the floating UI panel and context block indicators. Provides DOM utility functions for creating common UI elements (buttons, divs, etc.) and manages UI-specific event listeners (e.g., for dismissal).
-*   `stateManager.ts`: Centralizes the management of client-side state for `contentScript.ts`, including the list of active context blocks (`activeContextBlocks`), current search query and response, the target LLM input element, and the original trigger query text. Provides methods for safe access and modification of this state.
-*   `serviceWorkerClient.ts`: Acts as an abstraction layer (API client) for `contentScript.ts` to communicate with `serviceWorker.ts`. It offers specific, typed methods for each kind of request (e.g., fetching workspace details, performing searches), internally handling the construction of messages for `chrome.runtime.sendMessage` and processing responses.
-    *   `options.ts`: Handles the logic for the extension's options page, including saving settings like the IPC port to `chrome.storage.sync`.
-*   `popup.ts`: Handles the logic for the browser action popup (`popup.html`), providing users with quick access to status information and links (e.g., to the options page).
-*   **Technology Stack:**
+    *   `contentScript.ts`: Injected into LLM web pages. Responsible for detecting user triggers (`@`), orchestrating UI interactions by utilizing `UIManager`, managing application state via `StateManager`, and delegating communication with the service worker to `ServiceWorkerClient`.
+    *   `serviceWorker.ts`: Manages the IPC client connection to the VSCE. Handles messages from `contentScript.ts`, relays requests to VSCE, and forwards VSCE responses and push messages.
+    *   `uiManager.ts`: Encapsulates all logic related to the floating UI panel and context indicators. Provides methods for creating UI elements, managing display state, and handling notifications (toasts) and loading overlays.
+    *   `stateManager.ts`: Centralizes the management of client-side state for `contentScript.ts`, including active context blocks, search state, and the target LLM input element.
+    *   `serviceWorkerClient.ts`: Acts as an abstraction layer (API client) for `contentScript.ts` to communicate with `serviceWorker.ts`.
+    *   `popup.ts`: Handles the logic for the browser action popup (`popup.html`), which now contains all user-facing settings (IPC port) and connection management controls.
+    *   **Technology Stack:**
     *   TypeScript/JavaScript
     *   Chrome Extension APIs (Content Scripts, Service Workers, Storage, etc.)
     *   HTML, CSS (for UI elements)

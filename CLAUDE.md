@@ -1,5 +1,27 @@
 # ContextWeaver Project Guidelines
 
+## Build Commands
+
+### TypeScript Compilation Check
+To ensure your TypeScript code compiles correctly across the monorepo:
+
+1. **Build shared types first** (required after modifying shared interfaces):
+   ```bash
+   cd packages/shared && npm run build
+   ```
+
+2. **Compile VS Code extension**:
+   ```bash
+   cd packages/vscode-extension && npm run compile
+   ```
+
+3. **Build Chrome extension**:
+   ```bash
+   cd packages/chrome-extension && npm run build
+   ```
+
+**IMPORTANT**: Always run these commands in order after making changes to shared types to ensure all packages compile successfully.
+
 ## TypeScript Commenting Rules
 
 **IMPORTANT: YOU MUST follow these rules when generating or modifying TypeScript (`.ts`) code.**

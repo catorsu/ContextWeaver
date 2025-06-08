@@ -366,7 +366,7 @@ export class IPCServer {
                 data: {
                     workspaceFolders: details || [], // Ensure it's an array even if null
                     isTrusted: this.workspaceService.isWorkspaceTrusted(),
-                    // vsCodeInstanceName: vscode.env.appName // This was in original, but not in shared type. Keeping it out for strictness.
+                    workspaceName: vscode.workspace.name // Add the workspace name
                 },
                 error: null,
                 errorCode: undefined
@@ -449,7 +449,7 @@ export class IPCServer {
                 unique_block_id: uuidv4(),
                 content_source_id: `${targetWorkspaceFolder.uri.toString()}::file_tree`,
                 type: "file_tree",
-                label: `File Tree - ${targetWorkspaceFolder.name}`,
+                label: targetWorkspaceFolder.name,
                 workspaceFolderUri: targetWorkspaceFolder.uri.toString(),
                 workspaceFolderName: targetWorkspaceFolder.name
             };
@@ -642,7 +642,7 @@ export class IPCServer {
                 unique_block_id: uuidv4(),
                 content_source_id: `${targetWorkspaceFolder.uri.toString()}::codebase`,
                 type: "codebase_content",
-                label: `Entire Codebase - ${workspaceName}`,
+                label: workspaceName,
                 workspaceFolderUri: targetWorkspaceFolder.uri.toString(),
                 workspaceFolderName: workspaceName
             };

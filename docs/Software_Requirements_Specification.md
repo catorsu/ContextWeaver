@@ -189,8 +189,8 @@ The target users are software developers and other technical users who:
     *   Each indicator shall display:
         *   An icon visually representing the type of content (e.g., a generic tree icon for file tree, folder icon, file icon, snippet icon).
         *   A label:
-            *   For "Insert Project File Directory Structure": "File Tree - [WorkspaceFolderName]" (where [WorkspaceFolderName] is the name of the relevant workspace folder)
-            *   For "Insert Entire Codebase Content": "Entire Codebase"
+            *   For "Insert Project File Directory Structure": "[WorkspaceFolderName]" (where [WorkspaceFolderName] is the name of the relevant workspace folder)
+            *   For "Insert Entire Codebase Content": "[WorkspaceFolderName]" (where [WorkspaceFolderName] is the name of the relevant workspace folder)
             *   For "Insert Active File's Content": The file name with extension (e.g., `auth.py`).
             *   For "Insert Content of Currently Open Files": One indicator per inserted file if multiple are selected from "Open Files".
             *   For "Insert Searched File Content": The file name with extension (e.g., `utils.js`).
@@ -214,7 +214,7 @@ The target users are software developers and other technical users who:
 
 *   **FR-VSCE-001: Data Provider - File System Structure:**
     *   The VSCE shall be able to traverse the active workspace folder(s) and generate a textual representation of the file and folder hierarchy.
-    *   This structure, along with metadata for its indicator (type: "file_tree", label: "File Tree - [WorkspaceFolderName]", unique_block_id, where [WorkspaceFolderName] is the name of the workspace folder), shall be provided to the CE upon request.
+    *   This structure, along with metadata for its indicator (type: "file_tree", label: "[WorkspaceFolderName]", unique_block_id, where [WorkspaceFolderName] is the name of the workspace folder), shall be provided to the CE upon request.
 
 *   **FR-VSCE-002: Data Provider - File Content:**
     *   The VSCE shall be able to read and provide the full UTF-8 text content of any specified file within the active workspace(s).
@@ -231,7 +231,7 @@ The target users are software developers and other technical users who:
     *   The VSCE shall be able to read and concatenate the content of all text files within a **specified active workspace folder** (identified by its URI in the IPC request).
     *   This operation shall respect filtering rules (see FR-VSCE-005).
     *   The order of file concatenation shall be consistent.
-    *   The content, along with metadata for its indicator (type: "codebase_content", label: `"Entire Codebase - [folder name]"` (where `[folder name]` is the name of the specified workspace folder), unique_block_id, `content_source_id`: `specified_workspaceFolderUri.toString() + "::codebase"`), shall be provided to the CE.
+    *   The content, along with metadata for its indicator (type: "codebase_content", label: `"[folder name]"` (where `[folder name]` is the name of the specified workspace folder), unique_block_id, `content_source_id`: `specified_workspaceFolderUri.toString() + "::codebase"`), shall be provided to the CE.
     *   This operation is triggered by an IPC request that includes the URI of the target workspace folder.
 
 *   **FR-VSCE-005: Filtering Logic:**
@@ -277,8 +277,8 @@ The target users are software developers and other technical users who:
     *   Token-based authentication has been removed. Communication relies on the inherent security of `localhost` binding, assuming no malicious processes are running on the user's machine attempting to spoof ContextWeaver IPC messages.
 
 *   **FR-CE-017: Manual IPC Reconnection:**
-    *   The CE shall provide a user-accessible button (e.g., in its options page) to manually trigger a reconnection attempt to the VSCE IPC server.
-    *   This button shall provide immediate feedback on the reconnection attempt status.
+*   The CE shall provide a user-accessible button (e.g., in its browser action popup) to manually trigger a reconnection attempt to the VSCE IPC server.
+*   This button shall provide immediate feedback on the reconnection attempt status.
 
 *   **FR-IPC-004: Data Exchange - CE to VSCE:**
     *   Requests for file tree, file content, folder content, entire codebase content (including the URI of the specific target workspace folder), search queries.
@@ -317,12 +317,12 @@ The floating UI should use a standardized loading indicator (CSS spinner and mes
     *   It shall use styling consistent with modern web UIs and be theme-aware if possible (respecting light/dark modes of the host page or browser).
 
 *   **UI-CE-002: Loading Indicators:**
-    *   The floating UI shall display a standardized loading indicator (CSS spinner and message) when waiting for data from the VSCE (e.g., during search, fetching large content). This indicator should be displayed in the main content area of the floating UI.
+*   The floating UI shall provide clear visual feedback when waiting for data from the VSCE. For longer operations that do not involve real-time updates (e.g., inserting a large folder), a loading overlay with a spinner may be used. For rapid, real-time operations like search-as-you-type, the UI should appear without an initial content/loading placeholder to prevent visual jitter. The UI title (e.g., "Results for '@query'") provides sufficient feedback that an operation is in progress.
 
 *   **UI-CE-003: Error and Status Messages:**
-    *   All errors (IPC, file read, etc.) shall be clearly displayed within the floating UI using a standardized error panel that includes an icon, the error message, and an optional error code.
-    *   Relevant status messages (e.g., "VS Code not connected", "No project open") shall also be displayed clearly, potentially using the same standardized error panel if appropriate for the message's severity or nature.
-    *   The CE UI shall clearly indicate if default filtering rules are in use by VSCE (e.g., when a `.gitignore` file is not found or is unparsable), based on information from VSCE. This is currently implemented for the "Browse Files" view by displaying a text message like "(Using default ignore rules for this listing)".
+*   All errors (IPC, file read, etc.) shall be displayed using non-disruptive toast notifications. These notifications should appear briefly and then automatically dismiss without interrupting the user's workflow or clearing the floating UI's content.
+*   Relevant status messages (e.g., "VS Code not connected", "No project open") shall also be displayed via toast notifications.
+*   The CE UI shall clearly indicate if default filtering rules are in use by VSCE (e.g., when a `.gitignore` file is not found or is unparsable), based on information from VSCE. This is currently implemented for the "Browse Files" view by displaying a text message like "(Using default ignore rules for this listing)".
 
 *   **UI-CE-004: Multi-Project Display:**
     *   When displaying lists of items (e.g., search results, open files) that originate from multiple workspace folders, the floating UI shall use group headers (displaying the workspace folder name) to visually separate these items.

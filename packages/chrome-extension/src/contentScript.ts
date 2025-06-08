@@ -139,8 +139,6 @@ async function performSearch(query: string): Promise<void> {
     return;
   }
 
-  uiManager.showLoading(`Searching for "@${query}"...`, 'Loading results...');
-
   try {
     console.log(LOG_PREFIX_CS, `Sending SEARCH_WORKSPACE for query: "${query}"`);
     const response = await swClient.searchWorkspace(query, null);
@@ -148,7 +146,7 @@ async function performSearch(query: string): Promise<void> {
     renderSearchResults(response, query);
   } catch (error: any) {
     console.error(LOG_PREFIX_CS, 'Error sending search request or processing response:', error);
-    uiManager.showError('Search Error', error.message || 'Unknown error performing search.');
+    uiManager.showToast(`Search Error: ${error.message || 'Unknown error performing search.'}`, 'error');
   }
 }
 
@@ -258,7 +256,7 @@ async function processContentInsertion(
 
       uiManager.hide();
     } else {
-      uiManager.showError(`Error Loading ${itemMetadata.name}`, responsePayload.error || 'Failed to get content.', responsePayload.errorCode);
+      uiManager.showToast(`Error Loading ${itemMetadata.name}: ${responsePayload.error || 'Failed to get content.'} (Code: ${responsePayload.errorCode || 'N/A'})`, 'error');
       if (itemDivForFeedback) {
         itemDivForFeedback.style.opacity = '';
         itemDivForFeedback.style.pointerEvents = '';
@@ -266,11 +264,13 @@ async function processContentInsertion(
     }
   } catch (error: any) {
     console.error(LOG_PREFIX_CS, `Error fetching content for ${itemMetadata.name}:`, error);
-    uiManager.showError(`Error Loading ${itemMetadata.name}`, error.message || 'Failed to get content.');
+    uiManager.showToast(`Error Loading ${itemMetadata.name}: ${error.message || 'Failed to get content.'}`, 'error');
     if (itemDivForFeedback) {
       itemDivForFeedback.style.opacity = '';
       itemDivForFeedback.style.pointerEvents = '';
     }
+  } finally {
+    uiManager.hideLoading();
   }
 }
 
@@ -289,6 +289,15 @@ function createSearchResultItemElement(result: SharedSearchResult, omitWorkspace
 
   const nameSpan = uiManager.createSpan({ textContent: result.name });
   itemDiv.appendChild(nameSpan);
+
+  // Add relative path for disambiguation
+  if (result.relativePath) {
+    const relativePathSpan = uiManager.createSpan({
+      classNames: [`${LOCAL_CSS_PREFIX}relative-path`],
+      textContent: ` (${result.relativePath})`
+    });
+    itemDiv.appendChild(relativePathSpan);
+  }
 
   if (!omitWorkspaceName && result.workspaceFolderName) {
     const workspaceSpan = uiManager.createSpan({ classNames: ['workspace-name'], textContent: `(${result.workspaceFolderName})` });
@@ -324,13 +333,14 @@ function createSearchResultItemElement(result: SharedSearchResult, omitWorkspace
       uiManager.updateTitle(`Folder: ${itemName}`);
       const folderUiContent = document.createDocumentFragment();
 
-      const insertAllButton = uiManager.createButton(`Insert All Content from ${itemName}`, {
+      const buttonRow = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}button-row`] });
+
+      const insertAllButton = uiManager.createButton(`➕ Insert All`, {
         id: `${LOCAL_CSS_PREFIX}btn-insert-all-${itemContentSourceId.replace(/[^a-zA-Z0-9]/g, '_')}`,
         onClick: async () => {
           insertAllButton.disabled = true;
-          insertAllButton.textContent = `Loading all content from ${itemName}...`;
+          insertAllButton.textContent = `➕ Loading...`;
           browseButton.disabled = true;
-          backButton.disabled = true;
 
           await processContentInsertion({
             name: itemName,
@@ -343,32 +353,34 @@ function createSearchResultItemElement(result: SharedSearchResult, omitWorkspace
           // Re-enable buttons if UI is still visible (e.g., if processContentInsertion showed an error)
           if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible')) {
             insertAllButton.disabled = false;
-            insertAllButton.textContent = `Insert All Content from ${itemName}`;
+            insertAllButton.textContent = `➕ Insert All`;
             browseButton.disabled = false;
-            backButton.disabled = false;
           }
         }
       });
-      folderUiContent.appendChild(insertAllButton);
+      buttonRow.appendChild(insertAllButton);
 
-      const browseButton = uiManager.createButton(`Browse Files in ${itemName}`, {
+      const browseButton = uiManager.createButton(`🔍 Browse`, {
         id: `${LOCAL_CSS_PREFIX}btn-browse-folder-${itemContentSourceId.replace(/[^a-zA-Z0-9]/g, '_')}`.replace(/[^a-zA-Z0-9]/g, '_'),
         onClick: async () => {
-          console.log(LOG_PREFIX_CS, 'Browse folder clicked for:', itemName);
+          console.log(LOG_PREFIX_CS, 'Browse folder clicked:', itemName);
           uiManager.showLoading(`Browsing: ${itemName}`, 'Loading folder contents...');
           try {
             const browseResponse = await swClient.listFolderContents(itemUri, itemWorkspaceFolderUri || null);
             renderBrowseView(browseResponse, itemUri, itemName, itemWorkspaceFolderUri || null);
           } catch (error: any) {
             console.error(LOG_PREFIX_CS, 'Error getting folder contents:', error);
-            uiManager.showError(`Error Browsing ${itemName}`, error.message || 'Failed to get folder contents.');
+            uiManager.showToast(`Error Browsing ${itemName}: ${error.message || 'Failed to get folder contents.'}`, 'error');
+          } finally {
+            uiManager.hideLoading(); // Ensure loading indicator is hidden
           }
         }
       });
-      folderUiContent.appendChild(browseButton);
+      buttonRow.appendChild(browseButton);
+      folderUiContent.appendChild(buttonRow);
 
       const backButton = uiManager.createButton('Back to Search Results', {
-        style: { marginTop: '10px' },
+        classNames: ['button-subtle'],
         onClick: () => {
           const currentSearchResponse = stateManager.getSearchResponse();
           const currentSearchQuery = stateManager.getSearchQuery();
@@ -398,7 +410,7 @@ function renderSearchResults(response: SearchWorkspaceResponsePayload, query: st
   stateManager.setSearchQuery(query);
 
   if (!response.success || response.error) {
-    uiManager.showError('Search Error', response.error || 'Unknown error occurred', response.errorCode);
+    uiManager.showToast(`Search Error: ${response.error || 'Unknown error occurred'} (Code: ${response.errorCode || 'N/A'})`, 'error');
     return;
   }
 
@@ -487,11 +499,11 @@ function formatFileContentsForLLM(filesData: { fullPath: string; content: string
 function createGeneralOptionsSection(workspaceDetails: WorkspaceDetailsResponsePayload['data']): DocumentFragment {
   const contentFragment = document.createDocumentFragment();
 
-  const activeFileButton = uiManager.createButton("Insert Active File's Content", {
+  const activeFileButton = uiManager.createButton("📄 Active File", {
     id: `${LOCAL_CSS_PREFIX}btn-active-file`,
     onClick: async () => {
-      console.log('ContextWeaver: "Insert Active File\'s Content" clicked');
-      activeFileButton.textContent = 'Loading Active File...';
+      console.log('ContextWeaver: "📄 Active File" clicked');
+      activeFileButton.textContent = '📄 Loading...';
       activeFileButton.disabled = true;
       try {
         const activeFileInfoResponse = await swClient.getActiveFileInfo();
@@ -511,14 +523,14 @@ function createGeneralOptionsSection(workspaceDetails: WorkspaceDetailsResponseP
         } else {
           const errorMsg = activeFileInfoResponse.error || 'Could not get active file information from VS Code. Is a file editor active?';
           console.error('ContextWeaver: Error getting active file info:', errorMsg);
-          uiManager.showError('Active File Error', errorMsg, activeFileInfoResponse.errorCode);
+          uiManager.showToast(`Active File Error: ${errorMsg} (Code: ${activeFileInfoResponse.errorCode || 'N/A'})`, 'error');
         }
       } catch (e: any) {
         console.error('ContextWeaver: Error in active file workflow:', e);
-        uiManager.showError('Active File Error', e.message || 'Failed to process active file request.');
+        uiManager.showToast(`Active File Error: ${e.message || 'Failed to process active file request.'}`, 'error');
       } finally {
         if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible')) {
-          activeFileButton.textContent = "Insert Active File's Content";
+          activeFileButton.textContent = "📄 Active File";
           activeFileButton.disabled = false;
         }
       }
@@ -526,11 +538,11 @@ function createGeneralOptionsSection(workspaceDetails: WorkspaceDetailsResponseP
   });
   contentFragment.appendChild(activeFileButton);
 
-  const openFilesButton = uiManager.createButton("Insert Content of Open Files", {
+  const openFilesButton = uiManager.createButton("📂 Open Files", {
     id: `${LOCAL_CSS_PREFIX}btn-open-files`,
     onClick: async () => {
-      console.log('ContextWeaver: "Insert Content of Open Files" clicked');
-      openFilesButton.textContent = 'Loading Open Files...';
+      console.log('ContextWeaver: "📂 Open Files" clicked');
+      openFilesButton.textContent = '📂 Loading...';
       openFilesButton.disabled = true;
       try {
         const openFilesResponse = await swClient.getOpenFiles();
@@ -541,14 +553,14 @@ function createGeneralOptionsSection(workspaceDetails: WorkspaceDetailsResponseP
         } else {
           const errorMsg = openFilesResponse.error || 'Failed to get open files list.';
           console.error('ContextWeaver: Error getting open files list:', errorMsg);
-          uiManager.showError('Open Files Error', errorMsg, openFilesResponse.errorCode);
+          uiManager.showToast(`Open Files Error: ${errorMsg} (Code: ${openFilesResponse.errorCode || 'N/A'})`, 'error');
         }
       } catch (e: any) {
         console.error('ContextWeaver: Error in open files workflow:', e);
-        uiManager.showError('Open Files Error', e.message || 'Failed to process open files request.');
+        uiManager.showToast(`Open Files Error: ${e.message || 'Failed to process open files request.'}`, 'error');
       } finally {
         if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible') && !document.querySelector(`.${LOCAL_CSS_PREFIX}open-files-selector`)) {
-          openFilesButton.textContent = "Insert Content of Open Files";
+          openFilesButton.textContent = "📂 Open Files";
           openFilesButton.disabled = false;
         }
       }
@@ -566,7 +578,7 @@ function createGeneralOptionsSection(workspaceDetails: WorkspaceDetailsResponseP
     renderWorkspaceFolders(workspaceDetails.workspaceFolders, contentFragment, showFolderGrouping);
   } else {
     if (contentFragment.childNodes.length === 0) {
-      uiManager.showError('No Workspace Open', 'No workspace folder open in VS Code. Some options may be limited.');
+      uiManager.showToast('No Workspace Open: No workspace folder open in VS Code. Some options may be limited.', 'info');
     }
   }
   return contentFragment;
@@ -591,18 +603,21 @@ async function populateFloatingUiContent(uiContext: UIContext): Promise<void> {
     console.log('ContextWeaver: Workspace details response:', response);
 
     if (response.error || !response.success) {
-      uiManager.showError('Workspace Error', response.error || 'Unknown error', response.errorCode);
+      uiManager.showToast(`Workspace Error: ${response.error || 'Unknown error'} (Code: ${response.errorCode || 'N/A'})`, 'error');
       return;
     }
 
     if (response.data) {
       if (!response.data.isTrusted) {
-        uiManager.showError('Workspace Untrusted', 'Workspace not trusted. Please trust the workspace in VS Code to proceed.', 'WORKSPACE_NOT_TRUSTED');
+        uiManager.showToast('Workspace Untrusted: Workspace not trusted. Please trust the workspace in VS Code to proceed.', 'error');
         return;
       }
 
-      // Update title based on the first workspace folder name if available, otherwise default
-      if (response.data.workspaceFolders && response.data.workspaceFolders.length > 0) {
+      // Update title based on the workspace name if available, otherwise fallback
+      if (response.data.workspaceName) {
+        uiManager.updateTitle(response.data.workspaceName);
+      } else if (response.data.workspaceFolders && response.data.workspaceFolders.length > 0) {
+        // Fallback to first folder name if workspaceName is not available for some reason
         uiManager.updateTitle(response.data.workspaceFolders[0].name || 'ContextWeaver');
       } else {
         uiManager.updateTitle('ContextWeaver');
@@ -611,11 +626,13 @@ async function populateFloatingUiContent(uiContext: UIContext): Promise<void> {
       const generalOptionsFragment = createGeneralOptionsSection(response.data);
       uiManager.updateContent(generalOptionsFragment);
     } else {
-      uiManager.showError('Connection Issue', 'Could not retrieve workspace details. Is ContextWeaver VSCode extension running and connected?');
+      uiManager.showToast('Connection Issue: Could not retrieve workspace details. Is ContextWeaver VSCode extension running and connected?', 'error');
     }
   } catch (error: any) {
     console.error('ContextWeaver: Error requesting workspace details from service worker:', error);
-    uiManager.showError('Communication Error', error.message || 'Failed to communicate with service worker.');
+    uiManager.showToast(`Communication Error: ${error.message || 'Failed to communicate with service worker.'}`, 'error');
+  } finally {
+    uiManager.hideLoading();
   }
 }
 
@@ -1013,7 +1030,7 @@ function attachListenerToInputField(inputField: HTMLElement, config: LLMInputCon
         uiManager.show(
           inputField,
           `Searching for "@${queryText}"...`,
-          uiManager.createParagraph({ classNames: [`${LOCAL_CSS_PREFIX}loading-text`], textContent: 'Loading results...' }),
+          null, // Pass null to show an empty content area initially
           () => {
             console.log(LOG_PREFIX_CS, "UI hidden (search mode), callback from UIManager.");
             stateManager.onUiHidden();
@@ -1192,12 +1209,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } else {
       console.warn("ContextWeaver: No target LLM input element known or found for snippet insertion.");
     }
+    uiManager.hideLoading(); // Hide loading after snippet insertion attempt
     return false;
   } else if (message.type === 'ERROR_FROM_SERVICE_WORKER' || message.type === 'ERROR_FROM_VSCE_IPC') {
     console.error(`ContextWeaver: Error received: ${message.payload.message}`);
     if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible')) {
-      uiManager.showError('Extension Error', message.payload.message, message.payload.errorCode || 'N/A');
+      uiManager.showToast(`Extension Error: ${message.payload.message} (Code: ${message.payload.errorCode || 'N/A'})`, 'error');
     }
+    uiManager.hideLoading(); // Hide loading on error
     return false;
   }
   return false;
@@ -1222,11 +1241,11 @@ function renderWorkspaceFolders(workspaceFolders: any[], targetContentArea: Docu
       sectionContainer = folderSectionDiv;
     }
 
-    const fileTreeButton = uiManager.createButton(`File Tree for ${folder.name}`, {
+    const fileTreeButton = uiManager.createButton(`🌲 File Tree`, {
       id: `${LOCAL_CSS_PREFIX}btn-file-tree-${folder.uri.replace(/[^a-zA-Z0-9]/g, '_')}`,
       onClick: async () => {
         await processContentInsertion({
-          name: `File Tree - ${folder.name}`,
+          name: `🌲 File Tree - ${folder.name}`,
           contentSourceId: `${folder.uri}::file_tree`,
           type: 'file_tree',
           workspaceFolderUri: folder.uri
@@ -1235,11 +1254,11 @@ function renderWorkspaceFolders(workspaceFolders: any[], targetContentArea: Docu
     });
     sectionContainer.appendChild(fileTreeButton);
 
-    const fullCodebaseButton = uiManager.createButton(`Full Codebase for ${folder.name}`, {
+    const fullCodebaseButton = uiManager.createButton(`📚 Codebase`, {
       id: `${LOCAL_CSS_PREFIX}btn-full-codebase-${folder.uri.replace(/[^a-zA-Z0-9]/g, '_')}`,
       onClick: async () => {
         await processContentInsertion({
-          name: `Entire Codebase - ${folder.name}`,
+          name: `📚 Codebase - ${folder.name}`,
           contentSourceId: `${folder.uri}::codebase`,
           type: 'codebase_content',
           workspaceFolderUri: folder.uri
@@ -1380,13 +1399,14 @@ function createBrowseViewButtons(
           renderContextIndicators(stateManager.getCurrentTargetElementForPanel());
           uiManager.hide();
         } else {
-          uiManager.showError('Insertion Failed', 'Failed to insert any of the selected items.');
+          uiManager.showToast('Insertion Failed: Failed to insert any of the selected items.', 'error');
         }
         if (failureCount > 0) console.warn(LOG_PREFIX_CS, `${failureCount} items failed to insert.`);
       } catch (error: any) {
         console.error(LOG_PREFIX_CS, 'Error processing selected items:', error);
-        uiManager.showError('Insertion Error', error.message || 'Failed to process selected items.');
+        uiManager.showToast(`Insertion Error: ${error.message || 'Failed to process selected items.'}`, 'error');
       } finally {
+        uiManager.hideLoading(); // Hide loading for this operation
         if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible')) {
           insertButton.disabled = false;
           insertButton.textContent = 'Insert Selected Items';
@@ -1405,7 +1425,7 @@ function createBrowseViewButtons(
       if (currentSearchResponse && currentSearchQuery) {
         renderSearchResults(currentSearchResponse, currentSearchQuery);
       } else {
-        uiManager.showError('Navigation Error', 'Could not restore previous search results.');
+        uiManager.showToast('Navigation Error: Could not restore previous search results.', 'error');
       }
     }
   });
@@ -1423,7 +1443,7 @@ function createBrowseViewButtons(
  */
 function renderBrowseView(browseResponse: ListFolderContentsResponsePayload, parentFolderUri: string, parentFolderName: string, workspaceFolderUri: string | null): void {
   if (!browseResponse.success || !browseResponse.data?.entries) {
-    uiManager.showError(`Error Browsing ${parentFolderName}`, browseResponse.error || 'Failed to load folder contents.', browseResponse.errorCode);
+    uiManager.showToast(`Error Browsing ${parentFolderName}: ${browseResponse.error || 'Failed to load folder contents.'} (Code: ${browseResponse.errorCode || 'N/A'})`, 'error');
     return;
   }
 
@@ -1549,11 +1569,13 @@ function createOpenFilesFormElements(
             console.warn('ContextWeaver: Some files failed to load:', response.errors);
           }
         } else {
-          uiManager.showError('File Content Error', response.error || 'Unknown error fetching content.', response.errorCode);
+          uiManager.showToast(`File Content Error: ${response.error || 'Unknown error fetching content.'} (Code: ${response.errorCode || 'N/A'})`, 'error');
         }
       } catch (e: any) {
         console.error('ContextWeaver: Error requesting selected files content:', e);
-        uiManager.showError('File Content Error', e.message || 'Failed to process request.');
+        uiManager.showToast(`File Content Error: ${e.message || 'Failed to process request.'}`, 'error');
+      } finally {
+        uiManager.hideLoading(); // Hide loading for this operation
       }
     }
   });
@@ -1584,7 +1606,7 @@ function displayOpenFilesSelectorUI(
 
 
   if (openFilesList.length === 0) {
-    uiManager.showError('No Open Files', 'No open (saved) files found in trusted workspace(s).');
+    uiManager.showToast('No Open Files: No open (saved) files found in trusted workspace(s).', 'info');
     const backButton = uiManager.createButton('Back', { onClick: () => populateFloatingUiContent({ mode: 'general' }) });
     selectorWrapper.appendChild(uiManager.createParagraph({ textContent: 'No open (saved) files found in trusted workspace(s).' }));
     selectorWrapper.appendChild(backButton);

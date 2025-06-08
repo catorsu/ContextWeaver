@@ -5,7 +5,7 @@
   "scripts": {
     "build": "npm run bundle",
     "lint": "eslint src --ext ts",
-    "bundle": "esbuild src/contentScript.ts --bundle --outfile=dist/contentScript.js --format=iife --platform=browser --sourcemap && esbuild src/serviceWorker.ts --bundle --outfile=dist/serviceWorker.js --format=esm --platform=browser --sourcemap && esbuild src/options.ts --bundle --outfile=dist/options.js --format=iife --platform=browser --sourcemap && esbuild src/popup.ts --bundle --outfile=dist/popup.js --format=iife --platform=browser --sourcemap",
+    "bundle": "esbuild src/contentScript.ts --bundle --outfile=dist/contentScript.js --format=iife --platform=browser --sourcemap && esbuild src/serviceWorker.ts --bundle --outfile=dist/serviceWorker.js --format=esm --platform=browser --sourcemap && esbuild src/popup.ts --bundle --outfile=dist/popup.js --format=iife --platform=browser --sourcemap",
     "watch": "npm run bundle -- --watch"
   },
   "devDependencies": {

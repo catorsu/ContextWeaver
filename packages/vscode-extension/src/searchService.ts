@@ -199,6 +199,7 @@ export class SearchService {
             content_source_id: entryUri.toString(),
             workspaceFolderUri: baseWorkspaceFolder.uri.toString(),
             workspaceFolderName: baseWorkspaceFolder.name,
+            relativePath: relativePath,
             filterTypeApplied: ignoreInfo.filterTypeApplied
           });
         }

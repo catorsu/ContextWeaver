@@ -426,6 +426,7 @@ Response to `search_workspace`.
           { // Structure of each item in the results array
             "path": "string", // Normalized path
             "name": "string", // Name for display
+            "relativePath": "string", // Path relative to workspace root for disambiguation
             "type": "'file' | 'folder'",
             "uri": "string", // Full URI string of the entry
             "content_source_id": "string", // Canonical ID, typically same as URI string
@@ -509,7 +510,8 @@ Response to `get_workspace_details`.
             "isTrusted": "boolean" // Reflects the overall workspace trust status for this folder
           }
           // ... more folders if multi-root
-        ] | null
+        ] | null,
+        "workspaceName": "string | null" // Optional name of the overall workspace (e.g., from .code-workspace file)
       } | null,
   "error": "string | null", // Present if success is false
   "errorCode": "string | null" // Optional error code

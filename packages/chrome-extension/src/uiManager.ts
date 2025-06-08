@@ -45,10 +45,10 @@ export class UIManager {
         // All IDs and class selectors have been updated to use UI_PANEL_ID, CONTEXT_INDICATOR_AREA_ID, and CSS_PREFIX.
         const css = `
     #${UI_PANEL_ID} {
-      position: absolute; background-color: #2d2d2d; color: #f0f0f0; border: 1px solid #4a4a4a;
+      position: absolute; background-color: #333; color: #f0f0f0; border: 1px solid #484848;
       border-radius: 8px; padding: 10px; z-index: 2147483647; font-family: sans-serif;
       font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); width: 320px;
-      max-height: 450px; overflow-y: auto; display: none;
+      height: 300px; overflow-y: auto; display: none;    
     }
     #${UI_PANEL_ID}.${CSS_PREFIX}visible { display: block; }
     .${CSS_PREFIX}title-bar {
@@ -61,7 +61,7 @@ export class UIManager {
       cursor: pointer; padding: 0 5px; line-height: 1;
     }
     .${CSS_PREFIX}close-button:hover { color: #fff; }
-    .${CSS_PREFIX}content { max-height: 350px; overflow-y: auto; }
+    .${CSS_PREFIX}content { /* No height or overflow properties */ }
     .${CSS_PREFIX}content p { margin: 10px 0; color: #ccc; } 
     .${CSS_PREFIX}folder-section { margin-bottom: 15px; }
     .${CSS_PREFIX}folder-title {
@@ -69,14 +69,14 @@ export class UIManager {
       padding-bottom: 3px; border-bottom: 1px dashed #444;
     }
     .${CSS_PREFIX}button {
-      background-color: #3a3a3a; color: #e0e0e0; border: 1px solid #555;
+      background-color: #3a3a3a; color: #e0e0e0; border: 1px solid #4a4a4a;
       border-radius: 4px; padding: 5px 10px; margin-top: 5px; margin-right: 8px;
       cursor: pointer; font-size: 13px; transition: background-color 0.2s;
     }
     .${CSS_PREFIX}button:hover { background-color: #4a4a4a; }
     .${CSS_PREFIX}button:disabled { background-color: #2a2a2a; color: #777; cursor: not-allowed; }
     .${CSS_PREFIX}search-result-item {
-      padding: 6px 8px;
+      padding: 8px 12px;
       margin-bottom: 4px;
       border-radius: 3px;
       cursor: pointer;
@@ -150,6 +150,20 @@ export class UIManager {
       color: #ccc;
       margin-top: 10px;
     }
+    .${CSS_PREFIX}loading-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.7); /* Semi-transparent overlay */
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 10; /* Above other content in the panel */
+      border-radius: 8px; /* Match panel border-radius */
+    }
     .${CSS_PREFIX}error-panel {
       padding: 15px;
       background-color: #3c3c3c;
@@ -195,6 +209,57 @@ export class UIManager {
     }
     .${CSS_PREFIX}open-files-selector { /* Added from displayOpenFilesSelectorUI */
         /* No specific styles provided, but class is available */
+    }
+    .${CSS_PREFIX}button-row {
+      display: flex;
+      justify-content: flex-start; /* Align buttons to the start */
+      gap: 10px; /* Space between buttons */
+    }
+    .${CSS_PREFIX}relative-path {
+      color: #888;
+      font-size: 0.8em;
+      margin-left: 5px;
+    }
+    .${CSS_PREFIX}button-subtle {
+      background: none;
+      border: none;
+      color: #aaa;
+      font-size: 0.8em;
+      padding: 5px;
+      margin-top: 5px;
+    }
+    .${CSS_PREFIX}button-subtle:hover {
+      color: #fff;
+      background-color: #3a3a3a;
+    }
+    /* Toast Notifications */
+    .${CSS_PREFIX}toast-notification {
+      position: fixed;
+      bottom: 20px; /* Or top: 20px; */
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: #333;
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 5px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+      z-index: 2147483647; /* Ensure it's on top */
+      opacity: 0;
+      transition: opacity 0.3s ease-in-out;
+      min-width: 250px;
+      text-align: center;
+    }
+    .${CSS_PREFIX}toast-notification.show {
+      opacity: 1;
+    }
+    .${CSS_PREFIX}toast-notification.error {
+      background-color: #dc3545; /* Red for errors */
+    }
+    .${CSS_PREFIX}toast-notification.success {
+      background-color: #28a745; /* Green for success */
+    }
+    .${CSS_PREFIX}toast-notification.info {
+      background-color: #17a2b8; /* Blue for info */
     }
   `;
         const style = document.createElement('style');
@@ -350,13 +415,47 @@ export class UIManager {
      * @param loadingMessage The message to display below the loading spinner.
      */
     public showLoading(title: string, loadingMessage: string): void {
-        if (!this.floatingUIPanel && !this.titleElement && !this.contentElement) this.createPanel(); // Ensure panel exists
-        if (this.titleElement) this.titleElement.textContent = title;
-        if (this.contentElement) {
-            this.contentElement.innerHTML = `
-        <div class="${CSS_PREFIX}loader"></div>
-        <p class="${CSS_PREFIX}loading-text">${loadingMessage}</p>
-      `;
+        if (!this.floatingUIPanel) {
+            this.createPanel();
+        }
+        if (!this.floatingUIPanel || !this.contentElement) {
+            console.error(LOG_PREFIX_UI, "Panel elements not created, cannot show loading.");
+            return;
+        }
+
+        // If a loading overlay already exists, update its message
+        let loadingOverlay = this.floatingUIPanel.querySelector(`.${CSS_PREFIX}loading-overlay`) as HTMLElement;
+        if (loadingOverlay) {
+            const loadingTextElement = loadingOverlay.querySelector(`.${CSS_PREFIX}loading-text`);
+            if (loadingTextElement) {
+                loadingTextElement.textContent = loadingMessage;
+            }
+            // Ensure it's visible if it was hidden
+            loadingOverlay.style.display = 'flex';
+            return;
+        }
+
+        // Create new loading overlay
+        loadingOverlay = document.createElement('div');
+        loadingOverlay.className = `${CSS_PREFIX}loading-overlay`;
+        loadingOverlay.innerHTML = `
+            <div class="${CSS_PREFIX}loader"></div>
+            <p class="${CSS_PREFIX}loading-text">${loadingMessage}</p>
+        `;
+        this.floatingUIPanel.appendChild(loadingOverlay);
+        console.log(LOG_PREFIX_UI, `Loading overlay shown with message: ${loadingMessage}`);
+    }
+
+    /**
+     * Hides the loading indicator.
+     */
+    public hideLoading(): void {
+        if (this.floatingUIPanel) {
+            const loadingOverlay = this.floatingUIPanel.querySelector(`.${CSS_PREFIX}loading-overlay`) as HTMLElement;
+            if (loadingOverlay) {
+                loadingOverlay.remove();
+                console.log(LOG_PREFIX_UI, 'Loading overlay hidden.');
+            }
         }
     }
 
@@ -367,17 +466,31 @@ export class UIManager {
      * @param errorCode Optional. An error code to display alongside the message.
      */
     public showError(title: string, errorMessage: string, errorCode?: string): void {
-        if (!this.floatingUIPanel && !this.titleElement && !this.contentElement) this.createPanel(); // Ensure panel exists
-        if (this.titleElement) this.titleElement.textContent = title;
-        if (this.contentElement) {
-            const fullErrorMessage = errorCode ? `${errorMessage} (Code: ${errorCode})` : errorMessage;
-            this.contentElement.innerHTML = `
-        <div class="${CSS_PREFIX}error-panel">
-          <span class="${CSS_PREFIX}error-icon"></span>
-          <p class="${CSS_PREFIX}error-text">${fullErrorMessage}</p>
-        </div>
-      `;
-        }
+        const fullErrorMessage = errorCode ? `${title}: ${errorMessage} (Code: ${errorCode})` : `${title}: ${errorMessage}`;
+        this.showToast(fullErrorMessage, 'error');
+        // The main floating panel's content and state remain unchanged.
+        // It is not cleared or closed by showError.
+    }
+
+    /**
+     * Displays a non-blocking toast notification.
+     * @param message The message to display in the toast.
+     * @param type The type of toast ('success', 'error', or 'info') for styling.
+     */
+    public showToast(message: string, type: 'success' | 'error' | 'info'): void {
+        const toast = document.createElement('div');
+        toast.className = `${CSS_PREFIX}toast-notification ${type}`;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+
+        // Trigger reflow to enable transition
+        void toast.offsetWidth;
+        toast.classList.add('show');
+
+        setTimeout(() => {
+            toast.classList.remove('show');
+            toast.addEventListener('transitionend', () => toast.remove());
+        }, 3000); // Toast disappears after 3 seconds
     }
 
     // --- Context Indicators ---
