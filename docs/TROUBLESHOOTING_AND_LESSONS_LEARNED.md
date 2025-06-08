@@ -463,5 +463,37 @@ Each new entry should follow the format below:
 *   **Prevention:** When designing APIs that modify class properties as side effects, document this behavior clearly and consider whether the design could be more explicit about state changes to work better with TypeScript's type system.
 
 ---
+## [19] - Regex-based Content Removal Fails Partially Due to Content Containing Wrapping Tags
+
+**Phase/Task in Development Plan:** Phase 3 - Context Block Indicator Management & Content Insertion/Removal
+
+**Problem Encountered:**
+*   **Symptoms:** When removing content (specifically `contentScript.ts` itself, or any file containing strings identical to the extension's own wrapping tags like `</file_contents>`) from an LLM chat input via its context indicator's "x" button, only a portion of the content block was removed. The beginning of the block up to the point where the internal `</file_contents>` string occurred was deleted, but the rest of the file content and the true outer closing tag remained. This issue was specific to files whose content included strings that matched the extension's own XML-like wrapper tags.
+*   **Context:** The removal logic in `contentScript.ts` used a regular expression with a non-greedy match `([\s\S]*?)` for the content between custom tags (e.g., `<file_contents id="...">` and `</file_contents>`).
+*   **Initial Diagnosis/Hypothesis:** The non-greedy regex was prematurely terminating its content match upon encountering an instance of the closing tag string *within* the actual file content being wrapped, rather than matching up to the legitimate, outermost closing tag.
+
+**Investigation & Iterations:**
+1.  Verified that the regular expression for identifying the block to remove was correctly constructed to match the outer tags and capture content non-greedily.
+2.  Initial tests with simple file contents worked correctly, suggesting the regex itself was fundamentally sound for "clean" content.
+3.  The issue was consistently reproducible when the `contentScript.ts` file itself was inserted, as this file contained the string `</file_contents>` within its `formatFileContentsForLLM` function's return statement.
+4.  Detailed logging using `regex.exec()` in a loop confirmed that the non-greedy `([\s\S]*?)` was indeed stopping at the first occurrence of `</file_contents>` it found, even if that occurrence was part of the *content* rather than the *wrapper*.
+5.  Confirmed that the issue was independent of the insertion method (e.g., "active file" vs. "search") as long as the problematic file (`contentScript.ts`) was the one being inserted and removed.
+
+**Solution Implemented:**
+*   Modified the `formatFileContentsForLLM` function in `contentScript.ts`.
+*   Before a file's content is wrapped in the Markdown code block and then the outer XML-like tags (e.g., `<file_contents>`), the function now processes the raw file content.
+*   This processing step iterates through a predefined list of the extension's own wrapping tag names (e.g., `file_contents`, `file_tree`, `code_snippet`).
+*   For each tag name, it uses regular expressions to find occurrences of `</tagName` and `<tagName` within the raw file content.
+*   It then replaces these occurrences by inserting a zero-width space (`\u200B`) between the `<` or `</` and the `tagName` (e.g., `</file_contents>` becomes `</\u200Bfile_contents>`, and `<file_contents` becomes `<\u200Bfile_contents`).
+*   This "neutralizes" any instances of the wrapping tags within the file content, preventing them from being mistakenly recognized by the removal regex as the legitimate outer closing tag. The legitimate outer tags added by `formatFileContentsForLLM` are not subjected to this neutralization.
+
+**Key Takeaway(s) / How to Avoid in Future:**
+*   **Content vs. Wrapper Tag Collisions:** When wrapping arbitrary content (especially source code) with custom tags for later parsing or removal via regex, be aware that the content itself might contain strings identical to your wrapper tags.
+*   **Non-Greedy Matching Pitfalls:** Non-greedy quantifiers (like `*?` or `+?`) in regex are powerful but will stop at the *very first* opportunity the rest of the regex can match. If the "rest of the regex" (e.g., a closing tag) can be found prematurely within the content, it will lead to incorrect partial matches.
+*   **Sanitize/Neutralize Content:** When content can contain sequences that conflict with control/wrapper structures, implement a sanitization or neutralization step. Inserting zero-width spaces or other non-printing, non-interfering characters into potentially problematic sequences within the content can break undesired regex matches without significantly altering the visual or semantic meaning of the content for the end-user or LLM (though LLM interpretation of such characters should be considered).
+*   **Robust Regex for Removal:** While the removal regex was made robust with backreferences (`</\1>`), this alone cannot solve the issue if the *content* itself provides a "valid" (but incorrect) earlier closing tag for the non-greedy matcher. The primary fix lies in ensuring the content doesn't offer such false positives.
+*   **Testing with Self-Referential Content:** Always test systems that process or wrap code with the system's own source code as input, as this is a common way to uncover self-referential bugs or tag collisions.
+
+---
 
 <!-- Add new log entries above this line | This comment must remain at the end of the file -->

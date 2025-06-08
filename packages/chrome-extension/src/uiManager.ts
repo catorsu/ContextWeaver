@@ -87,13 +87,15 @@ export class UIManager {
       margin-left: 5px;
     }
     #${CONTEXT_INDICATOR_AREA_ID} {
-      display: flex;
+      display: flex;       /* For layout of indicators inside */
       flex-wrap: wrap;
       gap: 5px;
-      margin-bottom: 5px;
+      margin-bottom: 5px;  /* Space below the indicator area */
       padding: 5px;
       border: 1px solid #444;
       border-radius: 4px;
+      width: 100%;         /* ADDED: Make it take full available width */
+      box-sizing: border-box; /* ADDED: Include padding and border in the element's total width and height */
     }
     .${CSS_PREFIX}context-indicator {
       background-color: #3a3a3a;
@@ -236,16 +238,24 @@ export class UIManager {
             return;
         }
 
-        const inputRect = targetInputElement.getBoundingClientRect();
-        this.floatingUIPanel.style.visibility = 'hidden';
-        this.floatingUIPanel.style.display = 'block';
-        const panelHeight = this.floatingUIPanel.offsetHeight || 200;
-        this.floatingUIPanel.style.display = 'none';
-        this.floatingUIPanel.style.visibility = 'visible';
+        // Step 1: Add the class that makes it display: block.
+        // This ensures that when offsetHeight is read, the element has dimensions.
+        this.floatingUIPanel.classList.add(`${CSS_PREFIX}visible`);
 
+        // Step 2: Temporarily make it invisible for measurement to avoid flicker,
+        // then get dimensions.
+        this.floatingUIPanel.style.visibility = 'hidden';
+
+        const inputRect = targetInputElement.getBoundingClientRect();
+        const panelHeight = this.floatingUIPanel.offsetHeight || 200; // Measure height
+
+        // Step 3: Position it.
         this.floatingUIPanel.style.top = `${window.scrollY + inputRect.top - panelHeight - 10}px`;
         this.floatingUIPanel.style.left = `${window.scrollX + inputRect.left}px`;
-        this.floatingUIPanel.classList.add(`${CSS_PREFIX}visible`);
+
+        // Step 4: Make it fully visible.
+        // The 'cw-visible' class already handles 'display: block'.
+        this.floatingUIPanel.style.visibility = 'visible';
 
         this.titleElement.textContent = uiInitialTitle;
         if (uiInitialContent) {
@@ -266,6 +276,17 @@ export class UIManager {
     public hide(): void {
         if (this.floatingUIPanel && this.floatingUIPanel.classList.contains(`${CSS_PREFIX}visible`)) {
             this.floatingUIPanel.classList.remove(`${CSS_PREFIX}visible`);
+
+            // Clear content and reset title
+            if (this.contentElement) {
+                this.contentElement.innerHTML = '';
+            }
+            if (this.titleElement) {
+                // Optionally reset to a default title or leave as is if it's managed by 'show'
+                // For now, let's not reset title here, as 'show' always sets it.
+                // this.titleElement.textContent = 'ContextWeaver'; // Example default
+            }
+
             this.removeDismissalEventListeners();
             if (this.onHideCallback) {
                 this.onHideCallback();
@@ -335,9 +356,19 @@ export class UIManager {
         if (!this.contextIndicatorArea) {
             this.contextIndicatorArea = document.createElement('div');
             this.contextIndicatorArea.id = CONTEXT_INDICATOR_AREA_ID;
-            if (targetInputElement.parentElement) {
+            // Check if both parent and grandparent exist for robust insertion
+            if (targetInputElement.parentElement && targetInputElement.parentElement.parentElement) {
+                // Insert the indicator area BEFORE the input element's parent (targetInputElement.parentElement)
+                // This makes the indicator area a sibling to the input field's parent, effectively placing it "above" the entire input block.
+                targetInputElement.parentElement.parentElement.insertBefore(this.contextIndicatorArea, targetInputElement.parentElement);
+            } else if (targetInputElement.parentElement) {
+                // Fallback: If no grandparent, but a parent exists, insert as a sibling to the input.
+                // This might still cause overlap on some sites but is better than appending to body globally.
+                console.warn(LOG_PREFIX_UI, "Target input's grandparent not found for indicator area. Inserting as sibling to input.");
                 targetInputElement.parentElement.insertBefore(this.contextIndicatorArea, targetInputElement);
-            } else {
+            }
+            else {
+                // Last resort: Append to body.
                 console.warn(LOG_PREFIX_UI, "Target input has no parent for indicator area. Appending to body.");
                 document.body.appendChild(this.contextIndicatorArea);
             }

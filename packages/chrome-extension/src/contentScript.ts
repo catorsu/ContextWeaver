@@ -134,6 +134,17 @@ async function processContentInsertion(
   },
   itemDivForFeedback?: HTMLElement | null // Optional: for UI feedback like opacity
 ): Promise<void> {
+  // CAPTURE TARGET ELEMENT EARLY
+  const targetElementForThisOperation = stateManager.getCurrentTargetElementForPanel();
+
+  if (!targetElementForThisOperation) {
+    console.warn(LOG_PREFIX_CS, "processContentInsertion: No target element at the start of operation. Aborting indicator rendering path.");
+    // Decide if we should still try to insert text if target is lost, or show error.
+    // For now, let's assume if target is lost, we might not want to proceed or show error.
+    // This part depends on desired UX if target is lost mid-operation.
+    // Let's focus on the successful path where targetElementForThisOperation is initially valid.
+  }
+
   if (stateManager.isDuplicateContentSource(itemMetadata.contentSourceId)) {
     console.warn(LOG_PREFIX_CS, `Duplicate content source: ${itemMetadata.contentSourceId}. Label: "${itemMetadata.name}"`);
     uiManager.showError("Content Already Added", `Content from "${itemMetadata.name}" is already added.`);
@@ -188,12 +199,25 @@ async function processContentInsertion(
 
       insertTextIntoLLMInput(
         finalContentToInsertInLLM,
-        stateManager.getCurrentTargetElementForPanel(),
+        targetElementForThisOperation, // Use the captured target
         stateManager.getOriginalQueryTextFromUI()
       );
 
       stateManager.addActiveContextBlock({ ...metadataFromResponse, unique_block_id: uniqueBlockId });
-      renderContextIndicators();
+
+      // Ensure indicators are rendered using the target element valid at this point
+      // BEFORE the UI is hidden and state is potentially cleared.
+      if (targetElementForThisOperation) { // Check if we have a valid target from the start
+        uiManager.renderContextIndicators(
+          stateManager.getActiveContextBlocks(),
+          targetElementForThisOperation // Pass the captured element
+        );
+      } else {
+        // If targetElementForThisOperation was null from the start, indicators can't be rendered.
+        // This case should be handled based on UX requirements (e.g., error, or silent fail of indicators).
+        console.warn(LOG_PREFIX_CS, "Cannot render indicators: target element was lost before/during operation.");
+      }
+
       uiManager.hide();
     } else {
       uiManager.showError(`Error Loading ${itemMetadata.name}`, responsePayload.error || 'Failed to get content.', responsePayload.errorCode);
@@ -366,12 +390,28 @@ function formatFileContentsForLLM(filesData: { fullPath: string; content: string
     return "";
   }
   let formattedBlocks = [];
+  const tagsToNeutralize = ['file_contents', 'file_tree', 'code_snippet']; // 包含所有我们自己使用的包裹标签
+
   for (const file of filesData) {
     if (file && typeof file.fullPath === 'string' && typeof file.content === 'string') {
+      let processedContent = file.content;
+
+      // 对每种可能冲突的结束标签进行处理
+      // 在 "</" 和标签名之间插入一个零宽度空格，例如把 "</file_contents>" 变成 "</\u200Bfile_contents>"
+      // 同时也处理开始标签，以防万一，例如 "<file_contents" 变成 "<\u200Bfile_contents"
+      for (const tagName of tagsToNeutralize) {
+        const closeTagPattern = new RegExp(`</${tagName}\\b`, 'g');
+        processedContent = processedContent.replace(closeTagPattern, `</\u200B${tagName}`);
+
+        const openTagPattern = new RegExp(`<${tagName}\\b`, 'g');
+        processedContent = processedContent.replace(openTagPattern, `<\u200B${tagName}`);
+      }
+
       const langId = (typeof file.languageId === 'string' && file.languageId) ? file.languageId : 'plaintext';
       let fileBlock = `File: ${file.fullPath}\n`;
       fileBlock += `\`\`\`${langId}\n`;
-      fileBlock += file.content.endsWith('\n') ? file.content : `${file.content}\n`;
+      // 使用处理过的内容
+      fileBlock += processedContent.endsWith('\n') ? processedContent : `${processedContent}\n`;
       fileBlock += `\`\`\`\n`;
       formattedBlocks.push(fileBlock);
     } else {
@@ -379,6 +419,7 @@ function formatFileContentsForLLM(filesData: { fullPath: string; content: string
     }
   }
   if (formattedBlocks.length === 0) return "";
+  // 最外层的包裹标签不需要被中和
   return `<file_contents>\n${formattedBlocks.join('')}</file_contents>`;
 }
 
@@ -518,7 +559,10 @@ function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string):
   if (!uniqueBlockId || typeof uniqueBlockId !== 'string') {
     console.error(LOG_PREFIX_CS, "Cannot remove block: uniqueId is invalid.", uniqueBlockId);
     stateManager.removeActiveContextBlock(uniqueBlockId);
-    renderContextIndicators();
+    // 在不确定目标元素时，传递 null 给 renderContextIndicators 可能更安全，
+    // 或者总是尝试从 stateManager 获取最新的目标元素。
+    // 为了与现有逻辑保持一致，如果早期退出，我们可能无法确定 currentTargetElement。
+    renderContextIndicators(stateManager.getCurrentTargetElementForPanel());
     return;
   }
 
@@ -532,15 +576,23 @@ function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string):
   } else {
     console.warn(LOG_PREFIX_CS, `Unknown blockType for removal: ${blockType}`);
     stateManager.removeActiveContextBlock(uniqueBlockId);
-    renderContextIndicators();
+    renderContextIndicators(stateManager.getCurrentTargetElementForPanel());
     return;
   }
 
   const escapedUniqueId = uniqueBlockId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  // 统一且更健壮的正则表达式:
+  // - (${tagNameForRegex}) 会捕获标签名 (例如 "file_contents") 到捕获组 1。
+  // - \\b确保 tagNameForRegex 是一个完整的词 (例如，避免匹配 "file_contents-extra")。
+  // - [^>]* 匹配开始标签内部 '>' 之前的任何字符（例如其他属性）。
+  // - \\bid=["']${escapedUniqueId}["'] 匹配 id 属性 (确保 "id" 是一个完整的词)。
+  // - ([\\s\\S]*?) 非贪婪地捕获标签之间的所有内容 (包括换行符) 到捕获组 2。
+  // - </\\1> 使用反向引用 \\1 来确保结束标签与捕获的开始标签名一致。
   const blockRegex = new RegExp(
-    `<${tagNameForRegex}(?:\\s+[^>]*?)?\\s+id=["']${escapedUniqueId}["'](?:\\s*[^>]*)?>` +
-    `[\\s\\S]*?` +
-    `</${tagNameForRegex}>`,
+    `\\s*<(${tagNameForRegex})\\b[^>]*\\bid=["']${escapedUniqueId}["'][^>]*>\\s*` +
+    `([\\s\\S]*?)` +
+    `\\s*</\\1>\\s*`,
     'g'
   );
 
@@ -549,12 +601,51 @@ function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string):
     if ('value' in currentTargetElement && typeof (currentTargetElement as HTMLTextAreaElement).selectionStart === 'number') {
       const textArea = currentTargetElement as HTMLTextAreaElement;
       const originalValue = textArea.value;
+
+      // --- 详细调试日志开始 ---
+      console.groupCollapsed(`${LOG_PREFIX_CS} Block Removal Debug - ID: ${uniqueBlockId}`);
+      console.log("Block Type:", blockType, "Tag Name:", tagNameForRegex);
+      console.log("Regex Used:", blockRegex.toString());
+      console.log("Attempting to operate on originalValue (length " + originalValue.length + "):");
+      // 为了避免控制台卡顿，可以只打印部分内容或标记
+      // console.log("'''\n" + originalValue.substring(0, 2000) + "\n''' (first 2000 chars)");
+      // console.log("'''\n" + originalValue.substring(Math.max(0, originalValue.length - 2000)) + "\n''' (last 2000 chars)");
+
+      // 使用 exec 检查匹配详情
+      const execRegex = new RegExp(blockRegex.source, 'g'); // 为 exec 创建新的 RegExp 实例以重置 lastIndex
+      let match;
+      let matchFound = false;
+      while ((match = execRegex.exec(originalValue)) !== null) {
+        matchFound = true;
+        console.log("Regex exec match found at index:", match.index);
+        console.log("Full matched string (match[0]) (length " + match[0].length + "):");
+        console.log("'''\n" + match[0] + "\n'''");
+        console.log("Captured tag name (match[1]):", match[1]);
+        console.log("Captured content (match[2]) (length " + match[2].length + "):");
+        console.log("'''\n" + match[2] + "\n'''");
+
+        // 打印匹配结束后，原始字符串中紧随其后的内容
+        const afterMatchIndex = match.index + match[0].length;
+        const textAfterMatch = originalValue.substring(afterMatchIndex, afterMatchIndex + 100);
+        console.log(`Text in originalValue immediately AFTER the matched block (from index ${afterMatchIndex}, next 100 chars):`);
+        console.log("'''\n" + textAfterMatch + "\n'''");
+      }
+      if (!matchFound) {
+        console.log("No matches found by regex.exec().");
+      }
+      console.groupEnd();
+      // --- 详细调试日志结束 ---
+
       textArea.value = originalValue.replace(blockRegex, '');
+
+      // 调试日志: 替换后的值
+      // console.log(`${LOG_PREFIX_CS} Textarea value after replace (length ${textArea.value.length}):\n`, textArea.value);
+
       if (originalValue.length !== textArea.value.length) {
         console.log(LOG_PREFIX_CS, `Removed text block ${uniqueBlockId} (type: ${blockType}, tag: ${tagNameForRegex}) from TEXTAREA value.`);
         textArea.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
       } else {
-        console.warn(LOG_PREFIX_CS, `Could not find/remove text block ${uniqueBlockId} (type: ${blockType}, tag: ${tagNameForRegex}) in TEXTAREA value using regex.`);
+        console.warn(LOG_PREFIX_CS, `Could not find/remove text block ${uniqueBlockId} (type: ${blockType}, tag: ${tagNameForRegex}) in TEXTAREA value using regex. Regex used: ${blockRegex.toString()}`);
       }
     } else if (currentTargetElement.isContentEditable) {
       const blockInEditor = currentTargetElement.querySelector(`[id="${uniqueBlockId}"]`);
@@ -563,7 +654,7 @@ function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string):
         console.log(LOG_PREFIX_CS, `Removed text block ${uniqueBlockId} (type: ${blockType}, tag: ${tagNameForRegex}) from ContentEditable via querySelector by ID.`);
         currentTargetElement.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
       } else {
-        console.warn(LOG_PREFIX_CS, `Could not find text block ${uniqueBlockId} (type: ${blockType}, tag: ${tagNameForRegex}) in ContentEditable via querySelector by ID, or tag name mismatch.`);
+        console.warn(LOG_PREFIX_CS, `Could not find text block ${uniqueBlockId} (type: ${blockType}, tag: ${tagNameForRegex}) in ContentEditable via querySelector by ID, or tag name mismatch. Block found:`, blockInEditor);
       }
     }
   } else {
@@ -571,16 +662,15 @@ function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string):
   }
 
   stateManager.removeActiveContextBlock(uniqueBlockId);
-  console.log(LOG_PREFIX_CS, `activeContextBlocks after removal (from stateManager):`, JSON.parse(JSON.stringify(stateManager.getActiveContextBlocks())));
-  renderContextIndicators();
+  renderContextIndicators(currentTargetElement);
 }
 
 uiManager.setIndicatorCallbacks(handleRemoveContextIndicator);
 
-function renderContextIndicators(): void {
+function renderContextIndicators(explicitTarget: HTMLElement | null): void {
   uiManager.renderContextIndicators(
     stateManager.getActiveContextBlocks(),
-    stateManager.getCurrentTargetElementForPanel()
+    explicitTarget
   );
 }
 
@@ -970,7 +1060,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           workspaceFolderUri: snippetData.metadata.workspaceFolderUri
         });
         console.log(LOG_PREFIX_CS, `Added snippet to activeContextBlocks:`, snippetData.metadata);
-        renderContextIndicators();
+        renderContextIndicators(targetInputElement);
       } else {
         console.warn(LOG_PREFIX_CS, "Snippet received without metadata, cannot create indicator:", snippetData);
       }
@@ -1143,7 +1233,7 @@ function createBrowseViewButtons(
         if (successCount > 0) {
           insertTextIntoLLMInput(allContentToInsert.trim(), stateManager.getCurrentTargetElementForPanel(), stateManager.getOriginalQueryTextFromUI());
           newContextBlocks.forEach(block => stateManager.addActiveContextBlock(block));
-          renderContextIndicators();
+          renderContextIndicators(stateManager.getCurrentTargetElementForPanel());
           uiManager.hide();
         } else {
           uiManager.showError('Insertion Failed', 'Failed to insert any of the selected items.');
@@ -1288,7 +1378,7 @@ function createOpenFilesFormElements(
 
           if (allContentToInsert.trim()) {
             insertTextIntoLLMInput(allContentToInsert.trim(), stateManager.getCurrentTargetElementForPanel());
-            renderContextIndicators();
+            renderContextIndicators(stateManager.getCurrentTargetElementForPanel());
           }
           uiManager.hide();
           if (response.errors && response.errors.length > 0) {

@@ -85,12 +85,12 @@ export class StateManager {
 
     // --- Reset relevant state on UI hide ---
     public onUiHidden(): void {
-        this.setCurrentTargetElementForPanel(null);
+        // this.setCurrentTargetElementForPanel(null); // Removed: This target is for the LLM input, which remains active
         // Potentially reset search query/response if UI is hidden and it was a search context
         // This depends on desired behavior. For now, only resetting target element.
         // this.setSearchQuery(null);
         // this.setSearchResponse(null);
         // this.setOriginalQueryTextFromUI(undefined);
-        console.log(LOG_PREFIX_SM, 'UI hidden, target element cleared.');
+        console.log(LOG_PREFIX_SM, 'UI hidden. Target element reference retained for subsequent operations.');
     }
 }
