@@ -1,4 +1,9 @@
-// packages/shared/src/data-models.ts
+/**
+ * @file data-models.ts
+ * @description Defines common data models and interfaces used across the ContextWeaver
+ * VS Code Extension and Chrome Extension for consistent data exchange.
+ * @module ContextWeaver/Shared
+ */
 
 /**
  * @description Metadata for a block of content inserted into the LLM chat.

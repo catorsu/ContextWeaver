@@ -1,4 +1,10 @@
-// packages/chrome-extension/src/uiManager.ts
+/**
+ * @file uiManager.ts
+ * @description Manages the floating user interface elements and context indicators for the Chrome Extension.
+ * Provides methods for showing/hiding the UI, updating its content, and creating various DOM elements.
+ * @module ContextWeaver/CE
+ */
+
 import { ContextBlockMetadata } from '@contextweaver/shared'; // Import shared type
 
 const LOG_PREFIX_UI = '[ContextWeaver UIManager]';
@@ -6,6 +12,10 @@ const CSS_PREFIX = 'cw-'; // Encapsulate CSS prefix
 const UI_PANEL_ID = `${CSS_PREFIX}floating-panel`;
 const CONTEXT_INDICATOR_AREA_ID = `${CSS_PREFIX}context-indicator-area`;
 
+/**
+ * Manages the floating user interface (UI) panel and context indicators for the Chrome Extension.
+ * Provides methods to control the visibility, content, and styling of the UI.
+ */
 export class UIManager {
     private floatingUIPanel: HTMLElement | null = null;
     private titleElement: HTMLElement | null = null;
@@ -19,6 +29,9 @@ export class UIManager {
     private onIndicatorRemoveCallback: ((uniqueBlockId: string, blockType: string) => void) | null = null;
 
 
+    /**
+     * Initializes the UIManager, injecting necessary CSS into the document.
+     */
     constructor() {
         this.injectFloatingUiCss();
         console.log(LOG_PREFIX_UI, 'UIManager initialized and CSS injected.');
@@ -220,6 +233,13 @@ export class UIManager {
         console.log(LOG_PREFIX_UI, 'Floating panel element created and appended to body.');
     }
 
+    /**
+     * Displays the floating UI panel, positioning it relative to a target input element.
+     * @param targetInputElement The HTML element (e.g., textarea, contenteditable div) to which the UI panel should be anchored.
+     * @param uiInitialTitle The initial title to display in the UI panel.
+     * @param uiInitialContent Optional. The initial content to display in the UI panel. Can be an HTMLElement, DocumentFragment, or HTML string.
+     * @param onHide Optional. A callback function to execute when the UI panel is hidden.
+     */
     public show(
         targetInputElement: HTMLElement,
         uiInitialTitle: string,
@@ -273,6 +293,9 @@ export class UIManager {
         console.log(LOG_PREFIX_UI, 'Floating UI shown.');
     }
 
+    /**
+     * Hides the floating UI panel and clears its content.
+     */
     public hide(): void {
         if (this.floatingUIPanel && this.floatingUIPanel.classList.contains(`${CSS_PREFIX}visible`)) {
             this.floatingUIPanel.classList.remove(`${CSS_PREFIX}visible`);
@@ -296,12 +319,20 @@ export class UIManager {
         }
     }
 
+    /**
+     * Updates the title of the floating UI panel.
+     * @param titleText The new title text.
+     */
     public updateTitle(titleText: string): void {
         if (this.titleElement) {
             this.titleElement.textContent = titleText;
         }
     }
 
+    /**
+     * Updates the main content area of the floating UI panel.
+     * @param content The new content to display. Can be an HTMLElement, DocumentFragment, or HTML string.
+     */
     public updateContent(content: HTMLElement | DocumentFragment | string): void {
         if (this.contentElement) {
             if (typeof content === 'string') {
@@ -313,6 +344,11 @@ export class UIManager {
         }
     }
 
+    /**
+     * Displays a loading state in the UI panel with a spinner and a message.
+     * @param title The title to display during the loading state.
+     * @param loadingMessage The message to display below the loading spinner.
+     */
     public showLoading(title: string, loadingMessage: string): void {
         if (!this.floatingUIPanel && !this.titleElement && !this.contentElement) this.createPanel(); // Ensure panel exists
         if (this.titleElement) this.titleElement.textContent = title;
@@ -324,6 +360,12 @@ export class UIManager {
         }
     }
 
+    /**
+     * Displays an error message in the UI panel.
+     * @param title The title for the error message.
+     * @param errorMessage The main error message to display.
+     * @param errorCode Optional. An error code to display alongside the message.
+     */
     public showError(title: string, errorMessage: string, errorCode?: string): void {
         if (!this.floatingUIPanel && !this.titleElement && !this.contentElement) this.createPanel(); // Ensure panel exists
         if (this.titleElement) this.titleElement.textContent = title;
@@ -339,10 +381,20 @@ export class UIManager {
     }
 
     // --- Context Indicators ---
+    /**
+     * Sets the callback function to be invoked when a context indicator's remove button is clicked.
+     * @param onRemove The callback function that receives the unique block ID and block type of the indicator to be removed.
+     */
     public setIndicatorCallbacks(onRemove: (uniqueBlockId: string, blockType: string) => void): void {
         this.onIndicatorRemoveCallback = onRemove;
     }
 
+    /**
+     * Renders or updates the context indicators above the target input element.
+     * Each indicator represents an active context block (e.g., inserted file content).
+     * @param activeContextBlocks A readonly array of ContextBlockMetadata objects representing the currently active context blocks.
+     * @param targetInputElement The HTML element (e.g., textarea, contenteditable div) above which the indicators should be rendered.
+     */
     public renderContextIndicators(
         activeContextBlocks: Readonly<ContextBlockMetadata[]>, // Use shared type
         targetInputElement: HTMLElement | null
@@ -453,6 +505,12 @@ export class UIManager {
     }
 
     // --- DOM Element Creation Utilities ---
+    /**
+     * Creates an HTML button element with specified text and options.
+     * @param text The text content of the button.
+     * @param options Optional. An object containing button properties like id, classNames, onClick handler, disabled state, and inline styles.
+     * @returns The created HTMLButtonElement.
+     */
     public createButton(text: string, options?: { id?: string; classNames?: string[]; onClick?: (event: MouseEvent) => void; disabled?: boolean; style?: Partial<CSSStyleDeclaration> }): HTMLButtonElement {
         const button = document.createElement('button');
         button.className = `${CSS_PREFIX}button`; // Default class
@@ -475,6 +533,11 @@ export class UIManager {
         return button;
     }
 
+    /**
+     * Creates an HTML div element with specified options.
+     * @param options Optional. An object containing div properties like id, classNames, textContent, child elements, and inline styles.
+     * @returns The created HTMLDivElement.
+     */
     public createDiv(options?: { id?: string; classNames?: string[]; textContent?: string; children?: (HTMLElement | DocumentFragment | string)[]; style?: Partial<CSSStyleDeclaration> }): HTMLDivElement {
         const div = document.createElement('div');
         if (options?.id) {
@@ -501,6 +564,11 @@ export class UIManager {
         return div;
     }
 
+    /**
+     * Creates an HTML span element with specified options.
+     * @param options Optional. An object containing span properties like classNames, textContent, and inline styles.
+     * @returns The created HTMLSpanElement.
+     */
     public createSpan(options?: { classNames?: string[]; textContent?: string; style?: Partial<CSSStyleDeclaration> }): HTMLSpanElement {
         const span = document.createElement('span');
         if (options?.classNames) {
@@ -515,6 +583,11 @@ export class UIManager {
         return span;
     }
 
+    /**
+     * Creates an HTML paragraph element with specified options.
+     * @param options Optional. An object containing paragraph properties like classNames, textContent, htmlContent, and inline styles.
+     * @returns The created HTMLParagraphElement.
+     */
     public createParagraph(options?: { classNames?: string[]; textContent?: string; htmlContent?: string; style?: Partial<CSSStyleDeclaration> }): HTMLParagraphElement {
         const p = document.createElement('p');
         if (options?.classNames) {
@@ -532,6 +605,11 @@ export class UIManager {
         return p;
     }
 
+    /**
+     * Creates an HTML checkbox input element with specified options.
+     * @param options Optional. An object containing checkbox properties like id, checked state, disabled state, and dataset attributes.
+     * @returns The created HTMLInputElement (checkbox).
+     */
     public createCheckbox(options?: { id?: string; checked?: boolean; disabled?: boolean; dataset?: Record<string, string> }): HTMLInputElement {
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
@@ -551,6 +629,13 @@ export class UIManager {
         return checkbox;
     }
 
+    /**
+     * Creates an HTML label element with specified text and options.
+     * @param text The text content of the label.
+     * @param htmlFor Optional. The ID of the form control with which the label is associated.
+     * @param options Optional. An object containing inline styles for the label.
+     * @returns The created HTMLLabelElement.
+     */
     public createLabel(text: string, htmlFor?: string, options?: { style?: Partial<CSSStyleDeclaration> }): HTMLLabelElement {
         const label = document.createElement('label');
         label.textContent = text;
@@ -563,6 +648,11 @@ export class UIManager {
         return label;
     }
 
+    /**
+     * Retrieves a constant value used within the UIManager for CSS prefixes or element IDs.
+     * @param key The name of the constant to retrieve.
+     * @returns The string value of the requested constant.
+     */
     public getConstant(key: 'CSS_PREFIX' | 'UI_PANEL_ID' | 'CONTEXT_INDICATOR_AREA_ID'): string {
         switch (key) {
             case 'CSS_PREFIX': return CSS_PREFIX;

@@ -8,6 +8,11 @@ const LOG_PREFIX_POPUP = '[ContextWeaver CE-Popup]';
 const statusElement = document.getElementById('status');
 const testConnectionBtn = document.getElementById('testConnectionBtn');
 
+/**
+ * Updates the status message displayed in the popup.
+ * @param message The message to display.
+ * @param isError True if the message indicates an error, false otherwise.
+ */
 function updateStatus(message: string, isError: boolean = false) {
     if (statusElement) {
         statusElement.textContent = message;
@@ -16,6 +21,10 @@ function updateStatus(message: string, isError: boolean = false) {
     console.log(LOG_PREFIX_POPUP, message);
 }
 
+/**
+ * Tests the IPC connection to the VS Code Extension via the service worker.
+ * Displays the connection status in the popup.
+ */
 async function testIPCConnection() {
     updateStatus('Testing connection...');
     try {
@@ -31,7 +40,7 @@ async function testIPCConnection() {
             updateStatus(`Connected! Workspace trusted: ${response.data.isTrusted}. Folders: ${response.data.workspaceFolders ? response.data.workspaceFolders.length : 0}`);
         } else if (response && response.error) {
             updateStatus(`Error: ${response.error}`, true);
-        } 
+        }
         else {
             updateStatus('No/unexpected response from VSCE via service worker.', true);
         }

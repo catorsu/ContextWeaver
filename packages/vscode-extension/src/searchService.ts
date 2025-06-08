@@ -14,6 +14,7 @@ import { SearchResult as CWSearchResult, FilterType } from '@contextweaver/share
 const LOG_PREFIX_SEARCH_SERVICE = '[ContextWeaver SearchService] ';
 
 // Default ignore patterns (can be kept or potentially centralized if WorkspaceService provides them)
+// Default patterns for files and folders to ignore during search operations.
 const LOCAL_IGNORE_PATTERNS_DEFAULT = [
   'node_modules/', '.git/', '.vscode/', 'dist/', 'dist_test/', 'build/', '*.log',
   '__pycache__/', '.DS_Store', '*.pyc', '*.pyo', '*.swp', '*.bak', '*.tmp',
@@ -26,16 +27,34 @@ const LOCAL_IGNORE_PATTERNS_DEFAULT = [
   '*.pptx', '*.xls', '*.xlsx', '*.odt', '*.ods', '*.odp',
 ];
 
+/**
+ * Provides search functionality for files and folders within the VS Code workspace.
+ * It applies .gitignore rules and allows searching within specific or all trusted workspace folders.
+ */
 export class SearchService {
   private outputChannel: vscode.OutputChannel;
   private workspaceService: WorkspaceService;
 
+  /**
+   * Creates an instance of SearchService.
+   * @param outputChannel The VS Code output channel for logging.
+   * @param workspaceService The WorkspaceService instance for accessing workspace information.
+   */
   constructor(outputChannel: vscode.OutputChannel, workspaceService: WorkspaceService) {
     this.outputChannel = outputChannel;
     this.workspaceService = workspaceService;
     this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + 'Initialized');
   }
 
+  /**
+   * Determines if a given path should be ignored based on .gitignore rules or default patterns.
+   * @param relativePath The path relative to the workspace root.
+   * @param name The base name of the file or folder.
+   * @param isDirectory True if the entry is a directory.
+   * @param gitignoreFilter The parsed .gitignore filter (can be null if no .gitignore is found).
+   * @param defaultIgnorePatterns An array of default patterns to ignore.
+   * @returns An object indicating whether the path is ignored and which filter type was applied.
+   */
   private static getPathIgnoreInfoInternal(
     relativePath: string,
     name: string,
@@ -133,6 +152,15 @@ export class SearchService {
     return allResults;
   }
 
+  /**
+   * Recursively searches for files and folders within a directory that match the query.
+   * Applies .gitignore and default ignore patterns.
+   * @param dirUri The URI of the current directory to search.
+   * @param query The search query string.
+   * @param baseWorkspaceFolder The base workspace folder for relative path calculations and context.
+   * @param gitignoreFilter The parsed .gitignore filter to apply.
+   * @returns A Promise that resolves to an array of search results found in the directory and its subdirectories.
+   */
   private async findInDirectoryRecursive(
     dirUri: vscode.Uri,
     query: string,

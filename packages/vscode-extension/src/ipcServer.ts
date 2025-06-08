@@ -40,6 +40,9 @@ import {
 
 const LOG_PREFIX_SERVER = '[ContextWeaver IPCServer] ';
 
+/**
+ * Represents a connected client (Chrome Extension instance) to the IPC server.
+ */
 interface Client {
     ws: WebSocket;
     isAuthenticated: boolean;
@@ -50,6 +53,10 @@ interface Client {
 
 // FileData interface from original file is now CWFileData from shared
 
+/**
+ * Manages the WebSocket server for Inter-Process Communication (IPC) between the VS Code Extension (VSCE)
+ * and the Chrome Extension (CE). It handles client connections, message routing, and authentication.
+ */
 export class IPCServer {
     private wss: WebSocketServer | null = null;
     private clients: Map<WebSocket, Client> = new Map();
@@ -59,6 +66,14 @@ export class IPCServer {
     private readonly extensionContext: vscode.ExtensionContext;
     private outputChannel: vscode.OutputChannel;
 
+    /**
+     * Creates an instance of IPCServer.
+     * @param port The port number on which the WebSocket server will listen.
+     * @param context The VS Code extension context.
+     * @param outputChannelInstance The VS Code output channel for logging.
+     * @param searchServiceInstance The SearchService instance for handling search requests.
+     * @param workspaceServiceInstance The WorkspaceService instance for handling workspace-related requests.
+     */
     constructor(
         port: number,
         context: vscode.ExtensionContext,
@@ -77,6 +92,10 @@ export class IPCServer {
         this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Initialized with port ${port}.`);
     }
 
+    /**
+     * Starts the WebSocket server, attempting to listen on the configured port or an alternative if the port is in use.
+     * Handles incoming client connections and sets up message and error handlers.
+     */
     public start(): void {
         console.log(LOG_PREFIX_SERVER + 'start() method called.');
         this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'start() method called.');
@@ -259,6 +278,14 @@ export class IPCServer {
         }
     }
 
+    /**
+     * Sends a response message to a connected WebSocket client.
+     * @param ws The WebSocket instance of the client.
+     * @param type The type of the IPC message (e.g., 'response').
+     * @param command The specific command associated with the response.
+     * @param payload The payload data of the response.
+     * @param message_id Optional. The ID of the original request message, if applicable.
+     */
     private sendMessage<TResponsePayload>(
         ws: WebSocket,
         type: IPCMessageResponse['type'], // Should always be 'response' for this method
@@ -292,6 +319,13 @@ export class IPCServer {
         }
     }
 
+    /**
+     * Sends an error response message to a connected WebSocket client.
+     * @param ws The WebSocket instance of the client.
+     * @param original_message_id The ID of the original request message that caused the error, or null if not applicable.
+     * @param errorCode A specific error code identifying the type of error.
+     * @param errorMessage A human-readable error message.
+     */
     private sendError(ws: WebSocket, original_message_id: string | null, errorCode: string, errorMessage: string): void {
         const errorPayload: ErrorResponsePayload = {
             success: false,
@@ -347,6 +381,15 @@ export class IPCServer {
         }
     }
 
+    /**
+     * Determines the target workspace folder based on a requested URI string or the current workspace context.
+     * Sends an error response to the client if the workspace is ambiguous, not found, or not open.
+     * @param client The connected client.
+     * @param requestedUriString The URI string of the requested workspace folder, or undefined/null to infer from context.
+     * @param commandName The name of the command for which the workspace folder is being determined (for error messages).
+     * @param message_id The ID of the original message for sending error responses.
+     * @returns A Promise that resolves to the `vscode.WorkspaceFolder` if successfully determined, otherwise `null`.
+     */
     private async getTargetWorkspaceFolder(
         client: Client,
         requestedUriString: string | undefined | null,
@@ -842,6 +885,11 @@ export class IPCServer {
     }
 
 
+    /**
+     * Retrieves the tab ID of the primary active LLM target among connected clients.
+     * A primary target is an authenticated client with an active LLM tab ID.
+     * @returns The tab ID of the primary target if found, otherwise undefined.
+     */
     public getPrimaryTargetTabId(): number | undefined {
         this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Searching for primary target tab ID. Clients: ${this.clients.size}`);
         for (const client of this.clients.values()) {
@@ -855,6 +903,11 @@ export class IPCServer {
         return undefined;
     }
 
+    /**
+     * Pushes a code snippet to a specific target tab identified by its tab ID.
+     * @param targetTabId The ID of the browser tab to push the snippet to.
+     * @param snippetData The snippet data to be pushed, including content and metadata.
+     */
     public pushSnippetToTarget(targetTabId: number, snippetData: any): void { // snippetData is PushSnippetPayload
         let targetClient: Client | null = null;
         for (const client of this.clients.values()) {
@@ -905,6 +958,9 @@ export class IPCServer {
     }
 
 
+    /**
+     * Stops the WebSocket server and closes all active client connections.
+     */
     public stop(): void {
         if (this.wss) {
             this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'Stopping WebSocket server...');

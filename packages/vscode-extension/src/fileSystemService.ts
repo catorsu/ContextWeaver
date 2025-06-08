@@ -14,7 +14,7 @@ import {
   FilterType
 } from '@contextweaver/shared';
 
-// Default ignore patterns remain the same
+// Default patterns for files and folders to ignore during file system operations.
 const IGNORE_PATTERNS_DEFAULT = [
   'node_modules/', '.git/', '.vscode/', 'dist/', 'build/', '*.log',
   '__pycache__/', '.DS_Store', '*.pyc', '*.pyo', '*.swp', '*.bak', '*.tmp',
@@ -139,6 +139,14 @@ export async function getFileTree(workspaceFolder: vscode.WorkspaceFolder): Prom
   }
 }
 
+/**
+ * Recursively generates the textual representation of a directory's file and folder hierarchy.
+ * @param dirUri The URI of the current directory being processed.
+ * @param baseUri The base URI of the workspace folder, used for calculating relative paths for ignore checks.
+ * @param prefix The current prefix string for tree formatting (e.g., '├── ', '│   ').
+ * @param gitignoreFilter The parsed .gitignore filter to apply.
+ * @returns A Promise that resolves to the formatted string representation of the directory's contents.
+ */
 async function generateFileTreeTextInternal(dirUri: vscode.Uri, baseUri: vscode.Uri, prefix: string, gitignoreFilter: Ignore | null): Promise<string> {
   let treeString = '';
   try {
@@ -383,6 +391,12 @@ export async function getDirectoryListing(
   }
 }
 
+/**
+ * Retrieves all relevant data for a given workspace folder, including file contents and file tree,
+ * formatted for IPC.
+ * @param workspaceFolder The VS Code workspace folder to retrieve data from.
+ * @returns A Promise that resolves to an object containing `filesData`, `fileTreeString`, `workspaceName`, `filterTypeApplied`, and `projectPath`, or an error string.
+ */
 export async function getWorkspaceDataForIPC(
   workspaceFolder: vscode.WorkspaceFolder
 ): Promise<{ filesData: CWFileData[], fileTreeString: string, workspaceName: string, filterTypeApplied: 'gitignore' | 'default', projectPath: string } | string> {

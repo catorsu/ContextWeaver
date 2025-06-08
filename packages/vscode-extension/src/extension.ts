@@ -19,13 +19,23 @@ let snippetService: SnippetService;
 let workspaceService: WorkspaceService; // Added declaration
 
 // Interface for the subset of vscode.window methods needed by command handlers
+/**
+ * Defines a subset of the `vscode.window` API for testing purposes,
+ * allowing command logic to be tested without a full VS Code environment.
+ */
 interface VSCodeWindowSubset {
     showErrorMessage: (message: string, ...items: any[]) => Thenable<string | undefined>;
     showWarningMessage: (message: string, ...items: any[]) => Thenable<string | undefined>;
     showInformationMessage: (message: string, ...items: any[]) => Thenable<string | undefined>;
 }
 
-// Exported for testing
+/**
+ * Handles the logic for the 'sendSnippet' command.
+ * This function is exported for testing purposes.
+ * @param services An object containing the IPC server and snippet service instances.
+ * @param vsCodeWindow A subset of the vscode.window API for showing messages.
+ * @param outputChannelRef The VS Code output channel for logging.
+ */
 export async function _handleSendSnippetCommandLogic(
     services: { ipcServer: IPCServer | null; snippetService: SnippetService | null },
     vsCodeWindow: VSCodeWindowSubset,

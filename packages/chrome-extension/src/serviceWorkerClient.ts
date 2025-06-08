@@ -1,4 +1,10 @@
-// packages/chrome-extension/src/serviceWorkerClient.ts
+/**
+ * @file serviceWorkerClient.ts
+ * @description Provides a client-side API for content scripts and UI pages to communicate with the
+ * Chrome Extension's service worker, abstracting away the message passing details.
+ * @module ContextWeaver/CE
+ */
+
 import {
     SearchWorkspaceRequestPayload, SearchWorkspaceResponsePayload,
     WorkspaceDetailsResponsePayload,
@@ -14,14 +20,22 @@ import {
 
 const LOG_PREFIX_SW_CLIENT = '[ContextWeaver SWClient]';
 
-// Define types for messages contentScript sends to serviceWorker
-// These are not IPC messages themselves, but describe the action for the service worker
+/**
+ * Defines the structure for messages sent from content scripts/UI to the service worker,
+ * requesting an API call to the VSCE.
+ */
 interface SWApiRequestMessage {
     type: string; // e.g., 'SEARCH_WORKSPACE', 'GET_FILE_CONTENT'
     payload?: any;
 }
 
-// Helper to simplify sendMessage and response handling
+/**
+ * Sends a message to the Chrome Extension's service worker and waits for a response.
+ * Handles potential errors from the service worker or the underlying communication.
+ * @param message The message object to send to the service worker.
+ * @returns A Promise that resolves with the response payload from the service worker.
+ * @template TResponsePayload The expected type of the response payload.
+ */
 async function sendMessageToSW<TResponsePayload>(message: SWApiRequestMessage): Promise<TResponsePayload> {
     console.log(LOG_PREFIX_SW_CLIENT, `Sending message to SW:`, message);
     try {
@@ -46,6 +60,12 @@ async function sendMessageToSW<TResponsePayload>(message: SWApiRequestMessage): 
 
 // --- Exported API Functions ---
 
+/**
+ * Initiates a workspace search via the service worker.
+ * @param query The search query string.
+ * @param workspaceFolderUri Optional. The URI of the workspace folder to search within.
+ * @returns A Promise that resolves with the search results payload.
+ */
 export async function searchWorkspace(query: string, workspaceFolderUri: string | null): Promise<SearchWorkspaceResponsePayload> {
     return sendMessageToSW<SearchWorkspaceResponsePayload>({
         type: 'SEARCH_WORKSPACE',
@@ -53,10 +73,19 @@ export async function searchWorkspace(query: string, workspaceFolderUri: string 
     });
 }
 
+/**
+ * Requests workspace details from the service worker.
+ * @returns A Promise that resolves with the workspace details payload.
+ */
 export async function getWorkspaceDetails(): Promise<WorkspaceDetailsResponsePayload> {
     return sendMessageToSW<WorkspaceDetailsResponsePayload>({ type: 'GET_WORKSPACE_DETAILS_FOR_UI' });
 }
 
+/**
+ * Requests the file tree for a specified workspace folder via the service worker.
+ * @param workspaceFolderUri The URI of the workspace folder.
+ * @returns A Promise that resolves with the file tree payload.
+ */
 export async function getFileTree(workspaceFolderUri: string | null): Promise<FileTreeResponsePayload> {
     return sendMessageToSW<FileTreeResponsePayload>({
         type: 'GET_FILE_TREE',
@@ -64,10 +93,19 @@ export async function getFileTree(workspaceFolderUri: string | null): Promise<Fi
     });
 }
 
+/**
+ * Requests information about the currently active file in VS Code via the service worker.
+ * @returns A Promise that resolves with the active file info payload.
+ */
 export async function getActiveFileInfo(): Promise<ActiveFileInfoResponsePayload> {
     return sendMessageToSW<ActiveFileInfoResponsePayload>({ type: 'GET_ACTIVE_FILE_INFO' });
 }
 
+/**
+ * Requests the content of a specific file via the service worker.
+ * @param filePath The path of the file to retrieve.
+ * @returns A Promise that resolves with the file content payload.
+ */
 export async function getFileContent(filePath: string): Promise<FileContentResponsePayload> {
     return sendMessageToSW<FileContentResponsePayload>({
         type: 'GET_FILE_CONTENT',
@@ -75,6 +113,11 @@ export async function getFileContent(filePath: string): Promise<FileContentRespo
     });
 }
 
+/**
+ * Requests the entire codebase content for a specified workspace folder via the service worker.
+ * @param workspaceFolderUri The URI of the workspace folder.
+ * @returns A Promise that resolves with the entire codebase payload.
+ */
 export async function getEntireCodebase(workspaceFolderUri: string | null): Promise<EntireCodebaseResponsePayload> {
     return sendMessageToSW<EntireCodebaseResponsePayload>({
         type: 'GET_ENTIRE_CODEBASE',
@@ -82,6 +125,10 @@ export async function getEntireCodebase(workspaceFolderUri: string | null): Prom
     });
 }
 
+/**
+ * Requests a list of currently open files in VS Code via the service worker.
+ * @returns A Promise that resolves with the open files payload.
+ */
 export async function getOpenFiles(): Promise<OpenFilesResponsePayload> {
     return sendMessageToSW<OpenFilesResponsePayload>({ type: 'GET_OPEN_FILES_FOR_UI' });
 }
@@ -100,6 +147,11 @@ interface GetContentsForSelectedOpenFilesResponsePayloadSW {
     errorCode?: string;
 }
 
+/**
+ * Requests the content for a list of selected open files via the service worker.
+ * @param fileUris An array of file URIs for which to retrieve content.
+ * @returns A Promise that resolves with a payload containing file data and any errors.
+ */
 export async function getContentsForSelectedOpenFiles(fileUris: string[]): Promise<GetContentsForSelectedOpenFilesResponsePayloadSW> {
     return sendMessageToSW<GetContentsForSelectedOpenFilesResponsePayloadSW>({
         type: 'GET_CONTENTS_FOR_SELECTED_OPEN_FILES',
@@ -107,6 +159,12 @@ export async function getContentsForSelectedOpenFiles(fileUris: string[]): Promi
     });
 }
 
+/**
+ * Requests the content of a specific folder via the service worker.
+ * @param folderPath The path of the folder to retrieve.
+ * @param workspaceFolderUri The URI of the workspace folder the folder belongs to.
+ * @returns A Promise that resolves with the folder content payload.
+ */
 export async function getFolderContent(folderPath: string, workspaceFolderUri: string | null): Promise<FolderContentResponsePayload> {
     return sendMessageToSW<FolderContentResponsePayload>({
         type: 'GET_FOLDER_CONTENT',
@@ -114,6 +172,12 @@ export async function getFolderContent(folderPath: string, workspaceFolderUri: s
     });
 }
 
+/**
+ * Requests a listing of contents (files and subfolders) for a specified folder via the service worker.
+ * @param folderUri The URI of the folder to list.
+ * @param workspaceFolderUri The URI of the workspace folder the folder belongs to.
+ * @returns A Promise that resolves with the folder contents listing payload.
+ */
 export async function listFolderContents(folderUri: string, workspaceFolderUri: string | null): Promise<ListFolderContentsResponsePayload> {
     return sendMessageToSW<ListFolderContentsResponsePayload>({
         type: 'LIST_FOLDER_CONTENTS',

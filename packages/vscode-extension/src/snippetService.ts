@@ -8,8 +8,10 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
-// Define an interface for the snippet data payload, excluding targetTabId
-// as that will be added by the caller in extension.ts
+/**
+ * Defines the structure for a code snippet payload, excluding `targetTabId`
+ * which is added by the caller (e.g., `extension.ts`).
+ */
 export interface SnippetPayload {
     snippet: string;
     language: string;
@@ -27,9 +29,17 @@ export interface SnippetPayload {
     };
 }
 
+/**
+ * Provides functionality to prepare code snippets from the active VS Code editor
+ * for transmission to the Chrome Extension.
+ */
 export class SnippetService {
     private outputChannel: vscode.OutputChannel;
 
+    /**
+     * Creates an instance of SnippetService.
+     * @param outputChannel The VS Code output channel for logging.
+     */
     constructor(outputChannel: vscode.OutputChannel) {
         this.outputChannel = outputChannel;
         this.outputChannel.appendLine('[ContextWeaver SnippetService] Initialized.');
@@ -75,7 +85,7 @@ export class SnippetService {
         const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
         const workspaceFolderUriString = workspaceFolder ? workspaceFolder.uri.toString() : null;
         const workspaceFolderName = workspaceFolder ? workspaceFolder.name : null;
-        
+
         // Ensure relative path is calculated correctly, even if file is not in a workspace folder (though less common for snippets)
         const relativeFilePath = workspaceFolder ? vscode.workspace.asRelativePath(document.uri, false) : path.basename(filePath);
 

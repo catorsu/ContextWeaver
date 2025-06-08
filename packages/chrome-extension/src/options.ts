@@ -12,6 +12,11 @@ const connectButton = document.getElementById('connectIPC');
 const saveStatusMessageElement = document.getElementById('saveStatusMessage');
 const connectionStatusMessageElement = document.getElementById('connectionStatusMessage');
 
+/**
+ * Displays a status message on the options page, typically for save operations.
+ * @param message The message to display.
+ * @param type The type of message ('success', 'error', or 'info') for styling.
+ */
 function showSaveStatus(message: string, type: 'success' | 'error' | 'info' = 'info') {
     if (saveStatusMessageElement) {
         saveStatusMessageElement.textContent = message;
@@ -27,6 +32,11 @@ function showSaveStatus(message: string, type: 'success' | 'error' | 'info' = 'i
     }
 }
 
+/**
+ * Displays a connection status message on the options page.
+ * @param message The message to display.
+ * @param type The type of message ('success', 'error', or 'info') for styling.
+ */
 function showConnectionStatus(message: string, type: 'success' | 'error' | 'info' = 'info') {
     if (connectionStatusMessageElement) {
         connectionStatusMessageElement.textContent = message;
@@ -39,6 +49,9 @@ function showConnectionStatus(message: string, type: 'success' | 'error' | 'info
     }
 }
 
+/**
+ * Saves the IPC port setting to Chrome storage.
+ */
 async function saveOptions() {
     console.log(LOG_PREFIX_OPTIONS, 'saveOptions function called');
     const port = parseInt(portInput.value, 10);
@@ -67,6 +80,9 @@ async function saveOptions() {
     }
 }
 
+/**
+ * Loads the IPC port setting from Chrome storage and populates the input field.
+ */
 async function loadOptions() {
     try {
         const items = await chrome.storage.sync.get({
@@ -106,6 +122,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 // Request initial connection status when options page loads
+/**
+ * Requests the current IPC connection status from the service worker and displays it.
+ */
 function requestInitialConnectionStatus() {
     console.log(LOG_PREFIX_OPTIONS, 'Requesting initial IPC connection status from service worker.');
     chrome.runtime.sendMessage({ action: 'getIPCConnectionStatus' })

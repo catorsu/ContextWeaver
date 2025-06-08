@@ -25,6 +25,10 @@ import {
 
 const LOG_PREFIX_SW = '[ContextWeaver CE-SW]';
 
+/**
+ * Manages the WebSocket client connection to the VS Code Extension (VSCE) IPC server.
+ * Handles sending requests, receiving responses, and managing connection state.
+ */
 class IPCClient {
     private ws: WebSocket | null = null;
     public port: number = 30001; // Default port
@@ -36,12 +40,19 @@ class IPCClient {
     private pendingRequests: Map<string, { resolve: (value: any) => void, reject: (reason?: any) => void }> = new Map();
 
 
+    /**
+     * Creates an instance of IPCClient.
+     * Loads configuration and attempts to connect to the VSCE IPC server.
+     */
     constructor() {
         console.log(LOG_PREFIX_SW, 'IPCClient constructor called.');
         this.loadConfiguration();
         this.connectWithRetry();
     }
 
+    /**
+     * Loads the IPC port configuration from Chrome storage.
+     */
     public async loadConfiguration(): Promise<void> {
         try {
             const result = await chrome.storage.sync.get(['ipcPort', 'ipcToken']);
@@ -64,6 +75,11 @@ class IPCClient {
         }
     }
 
+    /**
+     * Ensures that the WebSocket client is connected to the VSCE IPC server.
+     * If not connected, it initiates a connection attempt.
+     * @returns A Promise that resolves when the connection is established.
+     */
     public async ensureConnected(): Promise<void> {
         console.log(LOG_PREFIX_SW, 'ensureConnected called.');
         console.log(LOG_PREFIX_SW, `  Current ws state: ${this.ws ? this.ws.readyState : 'null'}`);
@@ -186,6 +202,11 @@ class IPCClient {
         }
     }
 
+    /**
+     * Attempts to establish a WebSocket connection to the VSCE IPC server with retries.
+     * @param maxRetries The maximum number of connection attempts.
+     * @param delay The delay in milliseconds between retry attempts.
+     */
     public connectWithRetry(maxRetries = 5, delay = 3000): void {
         let attempt = 0;
 
@@ -309,6 +330,15 @@ class IPCClient {
         }
     }
 
+    /**
+     * Sends a request to the VSCE IPC server and waits for a response.
+     * Ensures connection before sending the request.
+     * @param command The command to send to the VSCE.
+     * @param payload The payload for the command.
+     * @returns A Promise that resolves with the response payload from the VSCE.
+     * @template TReqPayload The type of the request payload.
+     * @template TResPayload The type of the expected response payload.
+     */
     public async sendRequest<TReqPayload, TResPayload>(
         command: IPCMessageRequest['command'], // Use the command union type
         payload: TReqPayload
@@ -361,45 +391,95 @@ class IPCClient {
         });
     }
 
+    /**
+     * Requests workspace details from the VSCE.
+     * @returns A Promise that resolves with the WorkspaceDetailsResponsePayload.
+     */
     async getWorkspaceDetails(): Promise<WorkspaceDetailsResponsePayload> {
         return this.sendRequest<{}, WorkspaceDetailsResponsePayload>('get_workspace_details', {});
     }
+    /**
+     * Requests the file tree for a specified workspace folder from the VSCE.
+     * @param workspaceFolderUri The URI of the workspace folder.
+     * @returns A Promise that resolves with the FileTreeResponsePayload.
+     */
     async getFileTree(workspaceFolderUri: string | null): Promise<FileTreeResponsePayload> {
         return this.sendRequest<GetFileTreeRequestPayload, FileTreeResponsePayload>(
             'get_file_tree', { workspaceFolderUri }
         );
     }
+    /**
+     * Requests the content of a specific file from the VSCE.
+     * @param filePath The URI of the file.
+     * @returns A Promise that resolves with the FileContentResponsePayload.
+     */
     async getFileContent(filePath: string): Promise<FileContentResponsePayload> {
         return this.sendRequest<GetFileContentRequestPayload, FileContentResponsePayload>(
             'get_file_content', { filePath }
         );
     }
+    /**
+     * Requests the content of all files within a specified folder from the VSCE.
+     * @param folderPath The URI of the folder.
+     * @param workspaceFolderUri The URI of the workspace folder the folder belongs to.
+     * @returns A Promise that resolves with the FolderContentResponsePayload.
+     */
     async getFolderContent(folderPath: string, workspaceFolderUri: string): Promise<FolderContentResponsePayload> {
         return this.sendRequest<GetFolderContentRequestPayload, FolderContentResponsePayload>(
             'get_folder_content', { folderPath, workspaceFolderUri }
         );
     }
+    /**
+     * Requests the content of the entire codebase for a specified workspace folder from the VSCE.
+     * @param workspaceFolderUri The URI of the workspace folder.
+     * @returns A Promise that resolves with the EntireCodebaseResponsePayload.
+     */
     async getEntireCodebase(workspaceFolderUri: string | null): Promise<EntireCodebaseResponsePayload> {
         return this.sendRequest<GetEntireCodebaseRequestPayload, EntireCodebaseResponsePayload>(
             'get_entire_codebase', { workspaceFolderUri }
         );
     }
+    /**
+     * Requests information about the currently active file in VS Code.
+     * @returns A Promise that resolves with the ActiveFileInfoResponsePayload.
+     */
     async getActiveFileInfo(): Promise<ActiveFileInfoResponsePayload> {
         return this.sendRequest<{}, ActiveFileInfoResponsePayload>('get_active_file_info', {});
     }
+    /**
+     * Requests a list of currently open files in VS Code.
+     * @returns A Promise that resolves with the OpenFilesResponsePayload.
+     */
     async getOpenFiles(): Promise<OpenFilesResponsePayload> {
         return this.sendRequest<{}, OpenFilesResponsePayload>('get_open_files', {});
     }
+    /**
+     * Performs a workspace search in VS Code.
+     * @param query The search query.
+     * @param workspaceFolderUri The URI of the workspace folder to search within (optional).
+     * @returns A Promise that resolves with the SearchWorkspaceResponsePayload.
+     */
     async searchWorkspace(query: string, workspaceFolderUri: string | null): Promise<SearchWorkspaceResponsePayload> {
         return this.sendRequest<SearchWorkspaceRequestPayload, SearchWorkspaceResponsePayload>(
             'search_workspace', { query, workspaceFolderUri }
         );
     }
+    /**
+     * Requests filter information (e.g., .gitignore rules) for a workspace folder from the VSCE.
+     * @param workspaceFolderUri The URI of the workspace folder.
+     * @returns A Promise that resolves with the FilterInfoResponsePayload.
+     */
     async getFilterInfo(workspaceFolderUri: string | null): Promise<FilterInfoResponsePayload> {
         return this.sendRequest<GetFilterInfoRequestPayload, FilterInfoResponsePayload>(
             'get_filter_info', { workspaceFolderUri }
         );
     }
+    /**
+     * Requests a listing of contents (files and subfolders) for a specified folder from the VSCE.
+     * @param folderUri The URI of the folder to list.
+     * @param workspaceFolderUri The URI of the workspace folder the folder belongs to.
+     * @returns A Promise that resolves with the ListFolderContentsResponsePayload.
+     */
     async listFolderContents(folderUri: string, workspaceFolderUri: string | null): Promise<ListFolderContentsResponsePayload> {
         return this.sendRequest<ListFolderContentsRequestPayload, ListFolderContentsResponsePayload>(
             'list_folder_contents', { folderUri, workspaceFolderUri }
@@ -407,10 +487,18 @@ class IPCClient {
     }
 
 
+    /**
+     * Checks if the IPC client is currently connected to the VSCE IPC server.
+     * @returns True if connected, false otherwise.
+     */
     public isConnected(): boolean {
         return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
     }
 
+    /**
+     * Disconnects the WebSocket client from the VSCE IPC server.
+     * Sets a flag to indicate that the disconnect is intentional.
+     */
     public disconnect(): void {
         this.isIntentionalDisconnect = true;
         if (this.ws) {
@@ -426,12 +514,19 @@ const ipcClient = new IPCClient();
 
 // Define types for messages contentScript sends to serviceWorker
 // These are not IPC messages themselves, but describe the action for the service worker
+/**
+ * Represents a message sent from the content script to the service worker,
+ * typically requesting an API call to the VSCE.
+ */
 interface SWApiRequestMessage {
     type: string; // e.g., 'SEARCH_WORKSPACE', 'GET_FILE_CONTENT'
     payload?: any; // Payload type will be refined in each handler
 }
 
-// New interfaces for messages from options/popup
+/**
+ * Represents a message sent from the options or popup page to the service worker,
+ * typically for configuration updates or connection status requests.
+ */
 interface OptionsPageMessage {
     action: 'settingsUpdated' | 'reconnectIPC' | 'getIPCConnectionStatus';
     payload?: any; // Specific payload for each action
@@ -808,6 +903,13 @@ const SUPPORTED_LLM_HOST_SUFFIXES = [
     'chat.deepseek.com'
 ];
 
+/**
+ * Checks if a given tab is a supported LLM host and registers it with the VSCE IPC server
+ * as an active target if it is.
+ * @param tabId The ID of the tab to check and register.
+ * @param tabUrl Optional. The URL of the tab. If not provided, it will be fetched.
+ * @returns A Promise that resolves when the check and registration process is complete.
+ */
 async function checkAndRegisterTab(tabId: number, tabUrl?: string): Promise<void> {
     if (!tabId) return;
 
@@ -859,6 +961,10 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     }
 });
 
+/**
+ * Registers the initially active tab with the VSCE IPC server if it's a supported LLM host.
+ * This function is called on service worker startup to ensure the correct tab is registered.
+ */
 async function registerInitialActiveTab() {
     try {
         const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });

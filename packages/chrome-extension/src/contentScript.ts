@@ -35,6 +35,12 @@ const uiManager = new UIManager();
 const stateManager = new StateManager(); // Instantiate StateManager
 
 
+/**
+ * Debounces a function, delaying its execution until after a specified wait time has passed since the last invocation.
+ * @param func The function to debounce.
+ * @param waitFor The number of milliseconds to wait after the last call before invoking the function.
+ * @returns A new debounced function that returns a Promise resolving with the result of the original function.
+ */
 function debounce<F extends (...args: any[]) => any>(func: F, waitFor: number) {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   return (...args: Parameters<F>): Promise<ReturnType<F>> =>
@@ -46,17 +52,28 @@ function debounce<F extends (...args: any[]) => any>(func: F, waitFor: number) {
     });
 }
 
+/**
+ * Defines a common structure for items that can be grouped by workspace.
+ */
 interface WorkspaceGroupable {
   workspaceFolderUri?: string | null;
   workspaceFolderName?: string | null;
   [key: string]: any;
 }
 
+/**
+ * Represents a group of workspace items, typically used for displaying search results or files grouped by their workspace.
+ */
 interface GroupedWorkspaceItems<T extends WorkspaceGroupable> {
   name: string;
   items: T[];
 }
 
+/**
+ * Groups a list of items by their associated workspace.
+ * @param items An array of items that implement the WorkspaceGroupable interface.
+ * @returns A Map where keys are workspace URIs (or 'unknown_workspace') and values are GroupedWorkspaceItems.
+ */
 function groupItemsByWorkspace<T extends WorkspaceGroupable>(
   items: T[]
 ): Map<string, GroupedWorkspaceItems<T>> {
@@ -87,6 +104,12 @@ interface LLMInputConfig {
   attachedElement?: HTMLElement | null;
 }
 
+/**
+ * Configuration for detecting and interacting with LLM input fields on various hostnames.
+ * Each object defines a host suffix, a CSS selector for the input field, and whether it's content editable.
+ * @constant
+ * @type {LLMInputConfig[]}
+ */
 const llmInputsConfig: LLMInputConfig[] = [
   { hostSuffix: 'gemini.google.com', selector: 'div.ql-editor[contenteditable=\\\"true\\\"][role=\\\"textbox\\\"]', isContentEditable: true },
   { hostSuffix: 'chatgpt.com', selector: 'div#prompt-textarea[contenteditable=\\\"true\\\"]', isContentEditable: true },
@@ -97,11 +120,19 @@ const llmInputsConfig: LLMInputConfig[] = [
 const eventHandlers = new Map<HTMLElement, (event: Event) => void>();
 
 
+/**
+ * Defines the context for the floating UI, indicating its current mode and any associated query.
+ */
 interface UIContext { // Kept for conceptual clarity in contentScript, though UIManager doesn't directly use it
   mode: 'general' | 'search';
   query?: string;
 }
 
+/**
+ * Performs a search operation based on the provided query and updates the UI with the results.
+ * @param query The search query string.
+ * @returns {Promise<void>} A promise that resolves when the search and UI update are complete.
+ */
 async function performSearch(query: string): Promise<void> {
   if (!query || query.trim() === "") {
     uiManager.updateContent('<p>Type to search...</p>');
@@ -124,6 +155,13 @@ async function performSearch(query: string): Promise<void> {
 const debouncedPerformSearch = debounce(performSearch, 300);
 
 // Helper to process a generic content insertion (file or entire folder)
+/**
+ * Processes the insertion of content (file, folder, file tree, or codebase) into the LLM input field.
+ * Fetches the content from the service worker and inserts it, then updates context indicators.
+ * @param itemMetadata Metadata about the item to be inserted, including its name, source ID, type, and URI.
+ * @param itemDivForFeedback Optional. The HTML element associated with the item in the UI, used for visual feedback during processing.
+ * @returns {Promise<void>} A promise that resolves when the content has been processed and inserted.
+ */
 async function processContentInsertion(
   itemMetadata: {
     name: string;
@@ -237,6 +275,12 @@ async function processContentInsertion(
 }
 
 
+/**
+ * Creates an HTMLDivElement representing a single search result item.
+ * @param result The search result data.
+ * @param omitWorkspaceName If true, the workspace name will not be displayed in the item.
+ * @returns {HTMLDivElement} The created div element for the search result item.
+ */
 function createSearchResultItemElement(result: SharedSearchResult, omitWorkspaceName: boolean): HTMLDivElement {
   const itemDiv = uiManager.createDiv({ classNames: [`search-result-item`] });
 
@@ -343,6 +387,12 @@ function createSearchResultItemElement(result: SharedSearchResult, omitWorkspace
 }
 
 
+/**
+ * Renders the search results in the floating UI.
+ * @param response The search workspace response payload containing the results.
+ * @param query The original search query.
+ * @returns {void}
+ */
 function renderSearchResults(response: SearchWorkspaceResponsePayload, query: string): void {
   stateManager.setSearchResponse(response);
   stateManager.setSearchQuery(query);
@@ -384,21 +434,27 @@ function renderSearchResults(response: SearchWorkspaceResponsePayload, query: st
 }
 
 
+/**
+ * Formats an array of file data objects into a single string suitable for LLM input.
+ * Each file's content is wrapped in a code block with its language ID, and the entire block is enclosed in `<file_contents>` tags.
+ * @param filesData An array of objects, each containing `fullPath`, `content`, and `languageId` for a file.
+ * @returns {string} The formatted string of file contents.
+ */
 function formatFileContentsForLLM(filesData: { fullPath: string; content: string; languageId: string }[]): string {
   if (!Array.isArray(filesData) || filesData.length === 0) {
     console.warn('[ContextWeaver CE] formatFileContentsForLLM: Invalid or empty filesData array.');
     return "";
   }
   let formattedBlocks = [];
-  const tagsToNeutralize = ['file_contents', 'file_tree', 'code_snippet']; // 包含所有我们自己使用的包裹标签
+  const tagsToNeutralize = ['file_contents', 'file_tree', 'code_snippet']; // Contains all wrapper tags we use
 
   for (const file of filesData) {
     if (file && typeof file.fullPath === 'string' && typeof file.content === 'string') {
       let processedContent = file.content;
 
-      // 对每种可能冲突的结束标签进行处理
-      // 在 "</" 和标签名之间插入一个零宽度空格，例如把 "</file_contents>" 变成 "</\u200Bfile_contents>"
-      // 同时也处理开始标签，以防万一，例如 "<file_contents" 变成 "<\u200Bfile_contents"
+      // Neutralize potential conflicting tags within the content to prevent premature matching by removal regex.
+      // This involves inserting a zero-width space (U+200B) after '<' or '</' and before the tag name.
+      // For example, "</file_contents>" becomes "</\u200Bfile_contents>" and "<file_contents>" becomes "<\u200Bfile_contents>".
       for (const tagName of tagsToNeutralize) {
         const closeTagPattern = new RegExp(`</${tagName}\\b`, 'g');
         processedContent = processedContent.replace(closeTagPattern, `</\u200B${tagName}`);
@@ -410,7 +466,7 @@ function formatFileContentsForLLM(filesData: { fullPath: string; content: string
       const langId = (typeof file.languageId === 'string' && file.languageId) ? file.languageId : 'plaintext';
       let fileBlock = `File: ${file.fullPath}\n`;
       fileBlock += `\`\`\`${langId}\n`;
-      // 使用处理过的内容
+      // Use processed content
       fileBlock += processedContent.endsWith('\n') ? processedContent : `${processedContent}\n`;
       fileBlock += `\`\`\`\n`;
       formattedBlocks.push(fileBlock);
@@ -419,11 +475,15 @@ function formatFileContentsForLLM(filesData: { fullPath: string; content: string
     }
   }
   if (formattedBlocks.length === 0) return "";
-  // 最外层的包裹标签不需要被中和
+  // The outermost wrapper tag does not need to be neutralized
   return `<file_contents>\n${formattedBlocks.join('')}</file_contents>`;
 }
 
-// Helper function to create the general options section (Active File, Open Files, Workspace Folders)
+/**
+ * Creates a DocumentFragment containing general options for content insertion, such as active file, open files, and workspace folders.
+ * @param workspaceDetails Details about the current VS Code workspace.
+ * @returns {DocumentFragment} A document fragment containing the general options UI elements.
+ */
 function createGeneralOptionsSection(workspaceDetails: WorkspaceDetailsResponsePayload['data']): DocumentFragment {
   const contentFragment = document.createDocumentFragment();
 
@@ -512,6 +572,12 @@ function createGeneralOptionsSection(workspaceDetails: WorkspaceDetailsResponseP
   return contentFragment;
 }
 
+/**
+ * Populates the floating UI with content based on the provided UI context.
+ * This can trigger a search or display general workspace options.
+ * @param uiContext The context determining what content to display in the UI.
+ * @returns {Promise<void>} A promise that resolves when the UI content has been populated.
+ */
 async function populateFloatingUiContent(uiContext: UIContext): Promise<void> {
   if (uiContext.mode === 'search' && uiContext.query?.trim()) {
     debouncedPerformSearch(uiContext.query);
@@ -554,14 +620,20 @@ async function populateFloatingUiContent(uiContext: UIContext): Promise<void> {
 }
 
 
+/**
+ * Handles the removal of a context indicator and the corresponding content block from the LLM input field.
+ * @param uniqueBlockId The unique identifier of the block to be removed.
+ * @param blockType The type of the block (e.g., 'file_content', 'code_snippet').
+ * @returns {void}
+ */
 function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string): void {
   console.log(LOG_PREFIX_CS, `Request to remove indicator for block ID: ${uniqueBlockId}, Type: ${blockType}`);
   if (!uniqueBlockId || typeof uniqueBlockId !== 'string') {
     console.error(LOG_PREFIX_CS, "Cannot remove block: uniqueId is invalid.", uniqueBlockId);
     stateManager.removeActiveContextBlock(uniqueBlockId);
-    // 在不确定目标元素时，传递 null 给 renderContextIndicators 可能更安全，
-    // 或者总是尝试从 stateManager 获取最新的目标元素。
-    // 为了与现有逻辑保持一致，如果早期退出，我们可能无法确定 currentTargetElement。
+    // When the target element is uncertain, passing null to renderContextIndicators might be safer,
+    // or always try to get the latest target element from stateManager.
+    // To maintain consistency with existing logic, if we exit early, we might not be able to determine currentTargetElement.
     renderContextIndicators(stateManager.getCurrentTargetElementForPanel());
     return;
   }
@@ -582,13 +654,13 @@ function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string):
 
   const escapedUniqueId = uniqueBlockId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-  // 统一且更健壮的正则表达式:
-  // - (${tagNameForRegex}) 会捕获标签名 (例如 "file_contents") 到捕获组 1。
-  // - \\b确保 tagNameForRegex 是一个完整的词 (例如，避免匹配 "file_contents-extra")。
-  // - [^>]* 匹配开始标签内部 '>' 之前的任何字符（例如其他属性）。
-  // - \\bid=["']${escapedUniqueId}["'] 匹配 id 属性 (确保 "id" 是一个完整的词)。
-  // - ([\\s\\S]*?) 非贪婪地捕获标签之间的所有内容 (包括换行符) 到捕获组 2。
-  // - </\\1> 使用反向引用 \\1 来确保结束标签与捕获的开始标签名一致。
+  // Unified and more robust regex for block removal:
+  // - (${tagNameForRegex}) captures the tag name (e.g., "file_contents") into capture group 1.
+  // - \\b ensures tagNameForRegex is a whole word (e.g., prevents matching "file_contents-extra").
+  // - [^>]* matches any characters inside the opening tag before '>', including other attributes.
+  // - \\bid=["']${escapedUniqueId}["'] matches the id attribute (ensuring "id" is a whole word).
+  // - ([\\s\\S]*?) non-greedily captures all content between the tags (including newlines) into capture group 2.
+  // - </\\1> uses a back-reference \\1 to ensure the closing tag matches the captured opening tag name.
   const blockRegex = new RegExp(
     `\\s*<(${tagNameForRegex})\\b[^>]*\\bid=["']${escapedUniqueId}["'][^>]*>\\s*` +
     `([\\s\\S]*?)` +
@@ -602,17 +674,17 @@ function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string):
       const textArea = currentTargetElement as HTMLTextAreaElement;
       const originalValue = textArea.value;
 
-      // --- 详细调试日志开始 ---
+      // --- Detailed Debugging Logs Start ---
       console.groupCollapsed(`${LOG_PREFIX_CS} Block Removal Debug - ID: ${uniqueBlockId}`);
       console.log("Block Type:", blockType, "Tag Name:", tagNameForRegex);
       console.log("Regex Used:", blockRegex.toString());
       console.log("Attempting to operate on originalValue (length " + originalValue.length + "):");
-      // 为了避免控制台卡顿，可以只打印部分内容或标记
+      // To prevent console freezing, only print partial content or markers
       // console.log("'''\n" + originalValue.substring(0, 2000) + "\n''' (first 2000 chars)");
       // console.log("'''\n" + originalValue.substring(Math.max(0, originalValue.length - 2000)) + "\n''' (last 2000 chars)");
 
-      // 使用 exec 检查匹配详情
-      const execRegex = new RegExp(blockRegex.source, 'g'); // 为 exec 创建新的 RegExp 实例以重置 lastIndex
+      // Use exec to check match details
+      const execRegex = new RegExp(blockRegex.source, 'g'); // Create new RegExp instance for exec to reset lastIndex
       let match;
       let matchFound = false;
       while ((match = execRegex.exec(originalValue)) !== null) {
@@ -624,7 +696,7 @@ function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string):
         console.log("Captured content (match[2]) (length " + match[2].length + "):");
         console.log("'''\n" + match[2] + "\n'''");
 
-        // 打印匹配结束后，原始字符串中紧随其后的内容
+        // Print content immediately following the match in the original string
         const afterMatchIndex = match.index + match[0].length;
         const textAfterMatch = originalValue.substring(afterMatchIndex, afterMatchIndex + 100);
         console.log(`Text in originalValue immediately AFTER the matched block (from index ${afterMatchIndex}, next 100 chars):`);
@@ -634,11 +706,11 @@ function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string):
         console.log("No matches found by regex.exec().");
       }
       console.groupEnd();
-      // --- 详细调试日志结束 ---
+      // --- Detailed Debugging Logs End ---
 
       textArea.value = originalValue.replace(blockRegex, '');
 
-      // 调试日志: 替换后的值
+      // Debug log: value after replacement
       // console.log(`${LOG_PREFIX_CS} Textarea value after replace (length ${textArea.value.length}):\n`, textArea.value);
 
       if (originalValue.length !== textArea.value.length) {
@@ -667,6 +739,11 @@ function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string):
 
 uiManager.setIndicatorCallbacks(handleRemoveContextIndicator);
 
+/**
+ * Renders or updates the context indicators displayed in the LLM input field.
+ * @param explicitTarget The specific HTML element where indicators should be rendered.
+ * @returns {void}
+ */
 function renderContextIndicators(explicitTarget: HTMLElement | null): void {
   uiManager.renderContextIndicators(
     stateManager.getActiveContextBlocks(),
@@ -676,6 +753,13 @@ function renderContextIndicators(explicitTarget: HTMLElement | null): void {
 
 
 // --- Text Insertion ---
+/**
+ * Inserts text into the target LLM input field, handling both textarea and contenteditable elements.
+ * It attempts to replace the original trigger query if present.
+ * @param textToInsert The text content to be inserted.
+ * @param targetInput The HTML element (textarea or contenteditable div) where the text should be inserted.
+ * @param triggerQuery Optional. The original query text that triggered the insertion (e.g., "search_term" from "@search_term").
+ */
 function insertTextIntoLLMInput(
   textToInsert: string,
   targetInput: HTMLElement | null,
@@ -700,6 +784,14 @@ function insertTextIntoLLMInput(
   console.log(LOG_PREFIX_CS, 'Text insertion attempt completed.');
 }
 
+/**
+ * Handles the insertion of text into a textarea element.
+ * It attempts to replace the trigger query if it exists at or near the cursor position.
+ * @param textArea The HTMLTextAreaElement to insert text into.
+ * @param textToInsert The text content to be inserted.
+ * @param fullTriggerToReplace The full trigger string (e.g., "@" or "@query") to be replaced.
+ * @param isSearchTrigger Boolean indicating if the insertion was triggered by a search query.
+ */
 function handleTextAreaInsertion(
   textArea: HTMLTextAreaElement,
   textToInsert: string,
@@ -761,10 +853,24 @@ function handleTextAreaInsertion(
 }
 
 // Helper to get text before cursor in a textarea
+/**
+ * Helper function to get the text content in a textarea before the specified cursor position.
+ * @param textArea The HTMLTextAreaElement.
+ * @param cursorPos The current cursor position.
+ * @returns The substring of the textarea's value from the beginning up to the cursor position.
+ */
 function textBeforeCursor(textArea: HTMLTextAreaElement, cursorPos: number): string {
   return textArea.value.substring(0, cursorPos);
 }
 
+/**
+ * Handles the insertion of text into a contenteditable HTML element.
+ * It attempts to replace the trigger query if it exists at or near the cursor position.
+ * @param targetInput The contenteditable HTML element to insert text into.
+ * @param textToInsert The text content (can be HTML) to be inserted.
+ * @param fullTriggerToReplace The full trigger string (e.g., "@" or "@query") to be replaced.
+ * @param isSearchTrigger Boolean indicating if the insertion was triggered by a search query.
+ */
 function handleContentEditableInsertion(
   targetInput: HTMLElement,
   textToInsert: string,
@@ -844,6 +950,11 @@ function handleContentEditableInsertion(
 
 
 // --- Event Listener Attachment ---
+/**
+ * Attaches an 'input' event listener to the specified LLM input field to detect trigger characters.
+ * @param inputField The HTML element (textarea or contenteditable div) to attach the listener to.
+ * @param config The LLMInputConfig object associated with this input field.
+ */
 function attachListenerToInputField(inputField: HTMLElement, config: LLMInputConfig): void {
   if (config.attachedElement && config.attachedElement.isSameNode(inputField) && eventHandlers.has(inputField)) {
     return;
@@ -961,6 +1072,10 @@ function attachListenerToInputField(inputField: HTMLElement, config: LLMInputCon
 }
 
 // --- Initialization and Observation ---
+/**
+ * Initializes the trigger detection mechanism by identifying LLM input fields on the current page
+ * and attaching event listeners or MutationObservers as needed.
+ */
 function initializeTriggerDetection(): void {
   const currentHostname = window.location.hostname;
   console.log(`ContextWeaver: Initializing trigger detection on ${currentHostname}`);
@@ -979,6 +1094,11 @@ function initializeTriggerDetection(): void {
   }
 }
 
+/**
+ * Sets up a MutationObserver to watch for the presence of a specific LLM input element
+ * if it's not immediately available on page load.
+ * @param config The LLMInputConfig object for the element to observe.
+ */
 function observeForElement(config: LLMInputConfig): void {
   if (config.isAttached && config.attachedElement && document.body.contains(config.attachedElement)) {
     return;
@@ -1006,6 +1126,11 @@ if (document.readyState === 'loading') {
   initializeTriggerDetection();
 }
 
+/**
+ * Attempts to find an active (visible and interactable) LLM input field on the current page.
+ * This is used as a fallback if the primary target element is lost.
+ * @returns The active LLM input HTMLElement if found, otherwise null.
+ */
 function findActiveLLMInput(): HTMLElement | null {
   const currentHostname = window.location.hostname;
   for (const config of llmInputsConfig) {
@@ -1079,6 +1204,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 
+/**
+ * Renders buttons for inserting file trees and full codebase content for each workspace folder.
+ * @param workspaceFolders An array of workspace folder objects.
+ * @param targetContentArea The DocumentFragment or HTMLElement where the buttons should be appended.
+ * @param showFolderGrouping Boolean indicating whether to group buttons under folder titles.
+ */
 function renderWorkspaceFolders(workspaceFolders: any[], targetContentArea: DocumentFragment, showFolderGrouping: boolean): void {
   workspaceFolders.forEach(folder => {
     let sectionContainer: DocumentFragment | HTMLDivElement = targetContentArea;
@@ -1120,6 +1251,11 @@ function renderWorkspaceFolders(workspaceFolders: any[], targetContentArea: Docu
 }
 
 // Helper for individual browse item
+/**
+ * Creates an HTMLDivElement representing a single browsable item (file or folder) with a checkbox.
+ * @param entry The directory entry data (file or folder).
+ * @returns {HTMLDivElement} The created div element for the browse item.
+ */
 function createBrowseItemElement(entry: CWDirectoryEntry): HTMLDivElement { // Use aliased type
   const itemDiv = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}browse-item`] });
 
@@ -1150,6 +1286,14 @@ function createBrowseItemElement(entry: CWDirectoryEntry): HTMLDivElement { // U
 }
 
 // Helper for browse view buttons
+/**
+ * Creates the action buttons for the browse view (Insert Selected Items, Back).
+ * @param listContainer The HTML element containing the list of browsable items.
+ * @param parentFolderUri The URI of the parent folder being browsed.
+ * @param parentFolderName The name of the parent folder being browsed.
+ * @param workspaceFolderUri The URI of the workspace folder the parent folder belongs to.
+ * @returns {HTMLDivElement} The created div element containing the buttons.
+ */
 function createBrowseViewButtons(
   listContainer: HTMLElement,
   parentFolderUri: string,
@@ -1269,6 +1413,14 @@ function createBrowseViewButtons(
   return buttonContainer;
 }
 
+/**
+ * Renders the browse view for a specific folder, displaying its contents and providing options to insert selected items.
+ * @param browseResponse The response payload containing the folder's contents.
+ * @param parentFolderUri The URI of the parent folder being browsed.
+ * @param parentFolderName The name of the parent folder being browsed.
+ * @param workspaceFolderUri The URI of the workspace folder the parent folder belongs to.
+ * @returns {void}
+ */
 function renderBrowseView(browseResponse: ListFolderContentsResponsePayload, parentFolderUri: string, parentFolderName: string, workspaceFolderUri: string | null): void {
   if (!browseResponse.success || !browseResponse.data?.entries) {
     uiManager.showError(`Error Browsing ${parentFolderName}`, browseResponse.error || 'Failed to load folder contents.', browseResponse.errorCode);
@@ -1298,6 +1450,12 @@ function renderBrowseView(browseResponse: ListFolderContentsResponsePayload, par
 }
 
 // Helper for individual open file list item
+/**
+ * Creates an HTMLDivElement representing a single open file in the selection list.
+ * @param file The file object containing path, name, and workspace details.
+ * @param groupedOpenFilesMapSize The size of the map used for grouping open files, to determine if workspace name should be shown.
+ * @returns {HTMLDivElement} The created div element for the open file list item.
+ */
 function createOpenFilesListItem(file: { path: string; name: string; workspaceFolderUri: string | null; workspaceFolderName: string | null }, groupedOpenFilesMapSize: number): HTMLDivElement {
   const listItem = uiManager.createDiv({ style: { marginBottom: '5px', padding: '3px', borderBottom: '1px solid #3a3a3a' } });
   const checkboxId = `${LOCAL_CSS_PREFIX}openfile-${file.path.replace(/[^a-zA-Z0-9]/g, '_')}`;
@@ -1323,6 +1481,12 @@ function createOpenFilesListItem(file: { path: string; name: string; workspaceFo
 }
 
 // Helper for open files form and buttons
+/**
+ * Creates the form elements for the open files selector UI, including the list of files and action buttons.
+ * @param openFilesList An array of open file objects.
+ * @param groupedOpenFilesMap A Map of open files grouped by workspace.
+ * @returns {HTMLFormElement} The created form element.
+ */
 function createOpenFilesFormElements(
   openFilesList: { path: string; name: string; workspaceFolderUri: string | null; workspaceFolderName: string | null }[],
   groupedOpenFilesMap: Map<string, GroupedWorkspaceItems<{ path: string; name: string; workspaceFolderUri: string | null; workspaceFolderName: string | null }>>
@@ -1406,6 +1570,11 @@ function createOpenFilesFormElements(
   return form;
 }
 
+/**
+ * Displays the UI for selecting open files to insert their content.
+ * @param openFilesList An array of open file objects to display.
+ * @returns {void}
+ */
 function displayOpenFilesSelectorUI(
   openFilesList: { path: string; name: string; workspaceFolderUri: string | null; workspaceFolderName: string | null }[] // Corrected type to array
 ): void {

@@ -1,9 +1,14 @@
-// packages/shared/src/ipc-types.ts
+/**
+ * @file ipc-types.ts
+ * @description Defines the TypeScript interfaces and types for Inter-Process Communication (IPC)
+ * messages exchanged between the VS Code Extension (VSCE) and the Chrome Extension (CE).
+ * @module ContextWeaver/Shared
+ */
 
 import { ContextBlockMetadata, FileData, SearchResult, DirectoryEntry, FilterType } from './data-models';
 
 /**
- * @description Base structure for all IPC messages.
+ * Base structure for all IPC messages.
  */
 export interface IPCBaseMessage {
     protocol_version: "1.0";
@@ -14,24 +19,39 @@ export interface IPCBaseMessage {
 
 // --- CE -> VSCE (Requests) ---
 
+/**
+ * Payload for requesting the VSCE to register an active LLM target tab.
+ */
 export interface RegisterActiveTargetRequestPayload {
     tabId: number;
     llmHost: string;
 }
 
+/**
+ * Payload for requesting the file tree of a workspace folder.
+ */
 export interface GetFileTreeRequestPayload {
     workspaceFolderUri: string | null;
 }
 
+/**
+ * Payload for requesting the content of a specific file.
+ */
 export interface GetFileContentRequestPayload {
     filePath: string; // Normalized, absolute path or URI string
 }
 
+/**
+ * Payload for requesting the content of a specific folder.
+ */
 export interface GetFolderContentRequestPayload {
     folderPath: string; // Normalized, absolute path or URI string
     workspaceFolderUri: string; // URI of the workspace folder this folderPath belongs to
 }
 
+/**
+ * Payload for requesting the entire codebase content of a workspace folder.
+ */
 export interface GetEntireCodebaseRequestPayload {
     workspaceFolderUri: string | null; // Changed to allow null
 }
@@ -39,18 +59,27 @@ export interface GetEntireCodebaseRequestPayload {
 // GetActiveFileInfoRequestPayload is empty: {}
 // GetOpenFilesRequestPayload is empty: {}
 
+/**
+ * Payload for requesting a workspace search.
+ */
 export interface SearchWorkspaceRequestPayload {
     query: string;
     workspaceFolderUri: string | null;
 }
 
 // GetFilterInfoRequestPayload
+/**
+ * Payload for requesting filter information (e.g., .gitignore rules) for a workspace.
+ */
 export interface GetFilterInfoRequestPayload {
     workspaceFolderUri: string | null;
 }
 
 // GetWorkspaceDetailsRequestPayload is empty: {}
 
+/**
+ * Payload for requesting a listing of folder contents.
+ */
 export interface ListFolderContentsRequestPayload {
     folderUri: string; // URI string of the folder to list
     workspaceFolderUri: string | null; // Changed to allow null
@@ -59,6 +88,9 @@ export interface ListFolderContentsRequestPayload {
 
 // --- VSCE -> CE (Responses) ---
 
+/**
+ * Generic acknowledgment response payload.
+ */
 export interface GenericAckResponsePayload {
     success: boolean;
     message: string | null;
@@ -68,6 +100,9 @@ export interface FileTreeResponseData {
     fileTreeString: string;
     metadata: ContextBlockMetadata;
 }
+/**
+ * Response payload for a file tree request.
+ */
 export interface FileTreeResponsePayload {
     success: boolean;
     data: FileTreeResponseData | null;
@@ -81,6 +116,9 @@ export interface FileContentResponseData {
     fileData: FileData;
     metadata: ContextBlockMetadata;
 }
+/**
+ * Response payload for a file content request.
+ */
 export interface FileContentResponsePayload {
     success: boolean;
     data: FileContentResponseData | null;
@@ -94,6 +132,9 @@ export interface FolderContentResponseData {
     filesData: FileData[];
     metadata: ContextBlockMetadata;
 }
+/**
+ * Response payload for a folder content request.
+ */
 export interface FolderContentResponsePayload {
     success: boolean;
     data: FolderContentResponseData | null;
@@ -109,6 +150,9 @@ export interface EntireCodebaseResponseData {
     metadata: ContextBlockMetadata;
     // fileTreeString?: string; // Optional, as per IPC doc
 }
+/**
+ * Response payload for an entire codebase request.
+ */
 export interface EntireCodebaseResponsePayload {
     success: boolean;
     data: EntireCodebaseResponseData | null;
@@ -126,6 +170,9 @@ export interface ActiveFileInfoResponseData {
     workspaceFolderUri: string | null;
     workspaceFolderName: string | null;
 }
+/**
+ * Response payload for an active file information request.
+ */
 export interface ActiveFileInfoResponsePayload {
     success: boolean;
     data: ActiveFileInfoResponseData | null;
@@ -141,6 +188,9 @@ export interface OpenFilesResponseData {
         workspaceFolderName: string | null;
     }>;
 }
+/**
+ * Response payload for an open files request.
+ */
 export interface OpenFilesResponsePayload {
     success: boolean;
     data: OpenFilesResponseData | null;
@@ -151,6 +201,9 @@ export interface OpenFilesResponsePayload {
 export interface SearchWorkspaceResponseData {
     results: SearchResult[];
 }
+/**
+ * Response payload for a workspace search request.
+ */
 export interface SearchWorkspaceResponsePayload {
     success: boolean;
     data: SearchWorkspaceResponseData | null;
@@ -167,6 +220,9 @@ export interface WorkspaceDetailsResponseData {
         isTrusted: boolean; // Overall workspace trust applied here
     }> | null;
 }
+/**
+ * Response payload for a workspace details request.
+ */
 export interface WorkspaceDetailsResponsePayload {
     success: boolean;
     data: WorkspaceDetailsResponseData | null;
@@ -178,6 +234,9 @@ export interface FilterInfoResponseData {
     filterType: FilterType;
     workspaceFolderUri: string | null;
 }
+/**
+ * Response payload for a filter information request.
+ */
 export interface FilterInfoResponsePayload {
     success: boolean;
     data: FilterInfoResponseData | null;
@@ -190,6 +249,9 @@ export interface ListFolderContentsResponseData {
     parentFolderUri: string; // Echoed back
     filterTypeApplied: FilterType;
 }
+/**
+ * Response payload for a list folder contents request.
+ */
 export interface ListFolderContentsResponsePayload {
     success: boolean;
     data: ListFolderContentsResponseData | null;
@@ -197,6 +259,9 @@ export interface ListFolderContentsResponsePayload {
     errorCode?: string;
 }
 
+/**
+ * Standard error response payload for IPC messages.
+ */
 export interface ErrorResponsePayload {
     success: false; // Always false
     error: string;
@@ -206,6 +271,9 @@ export interface ErrorResponsePayload {
 
 // --- VSCE -> CE (Pushes) ---
 
+/**
+ * Payload for pushing a code snippet to the Chrome Extension.
+ */
 export interface PushSnippetPayload {
     snippet: string;
     language: string;
@@ -220,6 +288,9 @@ export interface PushSnippetPayload {
 // --- IPC Message Type Definitions (Combining Base with Payloads) ---
 // These help define the structure of messages sent over WebSocket
 
+/**
+ * Represents a request message sent from the Chrome Extension to the VS Code Extension.
+ */
 export type IPCRequest =
     | { command: "register_active_target"; payload: RegisterActiveTargetRequestPayload }
     | { command: "get_file_tree"; payload: GetFileTreeRequestPayload }
@@ -233,6 +304,9 @@ export type IPCRequest =
     | { command: "get_workspace_details"; payload: {} }
     | { command: "list_folder_contents"; payload: ListFolderContentsRequestPayload };
 
+/**
+ * Represents a response message sent from the VS Code Extension to the Chrome Extension.
+ */
 export type IPCResponse =
     | { command: "response_generic_ack"; payload: GenericAckResponsePayload }
     | { command: "response_file_tree"; payload: FileTreeResponsePayload }
@@ -247,6 +321,9 @@ export type IPCResponse =
     | { command: "response_list_folder_contents"; payload: ListFolderContentsResponsePayload };
 // error_response is handled separately or as part of specific responses with success:false
 
+/**
+ * Represents a push message sent from the VS Code Extension to the Chrome Extension.
+ */
 export type IPCPush =
     | { command: "push_snippet"; payload: PushSnippetPayload };
 
@@ -256,4 +333,7 @@ export type IPCMessageResponse = IPCBaseMessage & { type: "response" } & IPCResp
 export type IPCMessagePush = IPCBaseMessage & { type: "push"; message_id?: string } & IPCPush; // message_id optional for pushes
 export type IPCMessageErrorResponse = IPCBaseMessage & { type: "error_response"; command: "error_response" | IPCRequest['command'] } & { payload: ErrorResponsePayload };
 
+/**
+ * Represents any possible IPC message type.
+ */
 export type AnyIPCMessage = IPCMessageRequest | IPCMessageResponse | IPCMessagePush | IPCMessageErrorResponse;

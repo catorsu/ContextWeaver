@@ -9,6 +9,9 @@ import * as vscode from 'vscode';
 
 const LOG_PREFIX_WORKSPACE_SERVICE = '[ContextWeaver WorkspaceService] ';
 
+/**
+ * Custom error class for WorkspaceService operations.
+ */
 export class WorkspaceServiceError extends Error {
     constructor(public code: string, message: string) {
         super(message);
@@ -16,9 +19,17 @@ export class WorkspaceServiceError extends Error {
     }
 }
 
+/**
+ * Provides services for interacting with the VS Code workspace,
+ * including checking workspace trust, retrieving folder information, and managing state.
+ */
 export class WorkspaceService {
     private outputChannel: vscode.OutputChannel;
 
+    /**
+     * Creates an instance of WorkspaceService.
+     * @param outputChannel The VS Code output channel for logging.
+     */
     constructor(outputChannel: vscode.OutputChannel) {
         this.outputChannel = outputChannel;
         this.outputChannel.appendLine(LOG_PREFIX_WORKSPACE_SERVICE + 'Initialized.');
