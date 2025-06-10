@@ -6,9 +6,10 @@
  */
 
 import * as vscode from 'vscode';
+import { v4 as uuidv4 } from 'uuid';
 import { IPCServer } from './ipcServer';
 import { SearchService } from './searchService';
-import { SnippetService, SnippetPayload } from './snippetService';
+import { SnippetService } from './snippetService';
 import { WorkspaceService } from './workspaceService'; // Added import
 
 const EXTENSION_ID = 'contextweaver'; // For settings and prefixing
@@ -49,19 +50,18 @@ export async function _handleSendSnippetCommandLogic(
 
     const preparedSnippetData = services.snippetService.prepareSnippetData();
     if (preparedSnippetData) {
-        const targetTabId = services.ipcServer.getPrimaryTargetTabId();
-        if (targetTabId !== undefined) {
-            const fullPayload = {
-                ...preparedSnippetData,
-                targetTabId: targetTabId
-            };
-            services.ipcServer.pushSnippetToTarget(targetTabId, fullPayload);
-            vsCodeWindow.showInformationMessage('ContextWeaver: Snippet sent.');
-            outputChannelRef.appendLine(LOG_PREFIX + 'Snippet sent to tab ID: ' + targetTabId);
-        } else {
-            vsCodeWindow.showWarningMessage('ContextWeaver: No active Chrome tab registered to send snippet to. Please ensure an LLM chat page is active in Chrome and ContextWeaver CE is connected.');
-            outputChannelRef.appendLine(LOG_PREFIX + 'No active target tab ID found for snippet.');
-        }
+        // Ensure windowId is not optional by providing a default value
+        const snippetDataForIPC = {
+            ...preparedSnippetData,
+            metadata: {
+                ...preparedSnippetData.metadata,
+                windowId: preparedSnippetData.metadata.windowId || '' // Will be filled by ipcServer
+            }
+        };
+        // Instead of directly pushing, use the new method that handles primary/secondary logic
+        services.ipcServer.handleSnippetSendRequest(snippetDataForIPC);
+        vsCodeWindow.showInformationMessage('ContextWeaver: Snippet sent.');
+        outputChannelRef.appendLine(LOG_PREFIX + 'Snippet send request handled.');
     } else {
         outputChannelRef.appendLine(LOG_PREFIX + 'Snippet preparation failed or not applicable (e.g., no selection).');
     }
@@ -74,9 +74,13 @@ export async function _handleSendSnippetCommandLogic(
  * @param {vscode.ExtensionContext} context - The context for the extension.
  */
 export function activate(context: vscode.ExtensionContext) {
-    outputChannel = vscode.window.createOutputChannel("ContextWeaver VSCE");
+    outputChannel = vscode.window.createOutputChannel('ContextWeaver VSCE');
     outputChannel.appendLine(LOG_PREFIX + 'Activating extension...');
     console.log(LOG_PREFIX + 'VSCE is now active.'); // Keep console log for debug console visibility too
+
+    // Generate unique window ID
+    const windowId = uuidv4();
+    outputChannel.appendLine(LOG_PREFIX + 'Generated window ID: ' + windowId);
 
     // Initialize services
     workspaceService = new WorkspaceService(outputChannel); // Instantiate WorkspaceService
@@ -86,7 +90,7 @@ export function activate(context: vscode.ExtensionContext) {
     const configuration = vscode.workspace.getConfiguration(EXTENSION_ID);
     const port = configuration.get('ipc.port', 30001);
 
-    ipcServer = new IPCServer(port, context, outputChannel, searchService, workspaceService); // Pass workspaceService
+    ipcServer = new IPCServer(port, windowId, context, outputChannel, searchService, workspaceService); // Pass windowId and workspaceService
 
     // --- ADDED LOGGING ---
     console.log(LOG_PREFIX + 'IPCServer instance created. Attempting to start...');
@@ -112,9 +116,9 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     // Example: Register a command (useful for testing later)
-    let disposable = vscode.commands.registerCommand('contextweaver.helloWorld', () => {
+    const disposable = vscode.commands.registerCommand('contextweaver.helloWorld', () => {
         vscode.window.showInformationMessage('Hello World from ContextWeaver VSCE!');
-        outputChannel.appendLine(LOG_PREFIX + "Command 'contextweaver.helloWorld' executed.");
+        outputChannel.appendLine(LOG_PREFIX + 'Command \'contextweaver.helloWorld\' executed.');
     });
     context.subscriptions.push(disposable);
 

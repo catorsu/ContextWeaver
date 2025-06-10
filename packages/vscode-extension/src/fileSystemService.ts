@@ -74,7 +74,6 @@ function getPathIgnoreInfo(
 ): { ignored: boolean; filterSource: 'default' | 'gitignore' | 'none' } {
   // Normalize to use forward slashes and ensure directory patterns end with a slash
   const normalizedRelativePath = relativePath.replace(/\\/g, '/');
-  const pathToCheck = isDirectory && !normalizedRelativePath.endsWith('/') ? `${normalizedRelativePath}/` : normalizedRelativePath;
 
   for (const pattern of defaultIgnorePatterns) {
     const isDirPattern = pattern.endsWith('/');
@@ -150,7 +149,7 @@ export async function getFileTree(workspaceFolder: vscode.WorkspaceFolder): Prom
 async function generateFileTreeTextInternal(dirUri: vscode.Uri, baseUri: vscode.Uri, prefix: string, gitignoreFilter: Ignore | null): Promise<string> {
   let treeString = '';
   try {
-    let entries = await vscode.workspace.fs.readDirectory(dirUri);
+    const entries = await vscode.workspace.fs.readDirectory(dirUri);
     entries.sort((a, b) => {
       if (a[1] === vscode.FileType.Directory && b[1] !== vscode.FileType.Directory) return -1;
       if (a[1] !== vscode.FileType.Directory && b[1] === vscode.FileType.Directory) return 1;
@@ -288,7 +287,7 @@ export async function getFolderContentsForIPC(
     } catch (error: any) {
       if (error.code === 'FileNotFound') { throw error; }
       const errorDisplayPath = path.relative(folderUri.fsPath, currentUri.fsPath).replace(/\\/g, '/') || '.';
-      console.error(`[ContextWeaver FileSystemService] Error reading directory ${currentUri.fsPath} for getFolderContentsForIPC: ${error.message}`);
+      console.error(`[ContextWeaver FileSystemService] Error reading directory ${errorDisplayPath} for getFolderContentsForIPC: ${error.message}`);
       return;
     }
 
@@ -375,7 +374,8 @@ export async function getDirectoryListing(
           name,
           type: entryType,
           uri: uriString,
-          content_source_id: uriString
+          content_source_id: uriString,
+          windowId: '' // Will be added by ipcServer
         });
       }
     }

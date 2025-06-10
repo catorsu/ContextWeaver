@@ -18,9 +18,7 @@ import {
     // Push Payloads
     PushSnippetPayload,
     // IPC Message Structure Types
-    IPCMessageRequest, IPCMessageResponse, IPCMessagePush, AnyIPCMessage, IPCBaseMessage,
-    // Data Models (if directly used, e.g. ContextBlockMetadata)
-    ContextBlockMetadata
+    IPCMessageRequest, IPCMessagePush, AnyIPCMessage, IPCBaseMessage
 } from '@contextweaver/shared';
 
 const LOG_PREFIX_SW = '[ContextWeaver CE-SW]';
@@ -31,7 +29,8 @@ const LOG_PREFIX_SW = '[ContextWeaver CE-SW]';
  */
 class IPCClient {
     private ws: WebSocket | null = null;
-    public port: number = 30001; // Default port
+    private readonly primaryPort: number = 30001; // Fixed primary port
+    public port: number = 30001; // Current port being used
     private connectionPromise: Promise<void> | null = null;
     private resolveConnectionPromise: (() => void) | null = null;
     private rejectConnectionPromise: ((reason?: any) => void) | null = null;
@@ -149,9 +148,9 @@ class IPCClient {
                     console.warn(LOG_PREFIX_SW, `Unintentionally ${reason}`);
                     // Notify UI about unexpected disconnect
                     chrome.runtime.sendMessage({
-                        type: "IPC_CONNECTION_STATUS",
-                        payload: { status: "disconnected_unexpectedly", message: `Unexpectedly disconnected from VS Code. Code: ${event.code}, Reason: ${event.reason}. Will attempt to reconnect.` }
-                    }).catch(err => console.warn(LOG_PREFIX_SW, "Error sending IPC_CONNECTION_STATUS (disconnected_unexpectedly) message:", err));
+                        type: 'IPC_CONNECTION_STATUS',
+                        payload: { status: 'disconnected_unexpectedly', message: `Unexpectedly disconnected from VS Code. Code: ${event.code}, Reason: ${event.reason}. Will attempt to reconnect.` }
+                    }).catch(err => console.warn(LOG_PREFIX_SW, 'Error sending IPC_CONNECTION_STATUS (disconnected_unexpectedly) message:', err));
                 }
 
                 const currentReject = this.rejectConnectionPromise;
@@ -185,9 +184,9 @@ class IPCClient {
                     currentWs.close(); // Attempt to clean up the problematic socket
                 }
                 chrome.runtime.sendMessage({
-                    type: "IPC_CONNECTION_STATUS",
-                    payload: { status: "connection_error", message: `WebSocket error connecting to VS Code. Retrying...` }
-                }).catch(err => console.warn(LOG_PREFIX_SW, "Error sending IPC_CONNECTION_STATUS (connection_error) message:", err));
+                    type: 'IPC_CONNECTION_STATUS',
+                    payload: { status: 'connection_error', message: 'WebSocket error connecting to VS Code. Retrying...' }
+                }).catch(err => console.warn(LOG_PREFIX_SW, 'Error sending IPC_CONNECTION_STATUS (connection_error) message:', err));
                 // Do NOT re-initialize connectionPromise here, connectWithRetry will handle it.
             };
         } catch (error) {
@@ -230,7 +229,7 @@ class IPCClient {
 
             this.connectionPromise!
                 .then(() => {
-                    console.log(LOG_PREFIX_SW, "Connection successful after retry.");
+                    console.log(LOG_PREFIX_SW, 'Connection successful after retry.');
                     // Promise already resolved by connect()'s onopen
                 })
                 .catch((error) => { // This catch is for the current attempt's promise
@@ -256,9 +255,9 @@ class IPCClient {
                         this.resolveConnectionPromise = null;
                         this.rejectConnectionPromise = null;
                         chrome.runtime.sendMessage({
-                            type: "IPC_CONNECTION_STATUS",
-                            payload: { status: "failed_max_retries", message: `Could not connect to VS Code after ${maxRetries} attempts. Please check settings.` }
-                        }).catch(err => console.warn(LOG_PREFIX_SW, "Error sending IPC_CONNECTION_STATUS (failed_max_retries) message:", err));
+                            type: 'IPC_CONNECTION_STATUS',
+                            payload: { status: 'failed_max_retries', message: `Could not connect to VS Code primary server after ${maxRetries} attempts. Please ensure VS Code is running with ContextWeaver extension.` }
+                        }).catch(err => console.warn(LOG_PREFIX_SW, 'Error sending IPC_CONNECTION_STATUS (failed_max_retries) message:', err));
                     }
                 });
         };
@@ -294,33 +293,43 @@ class IPCClient {
 
                 if (pushMessage.command === 'push_snippet') {
                     const snippetPayload = pushMessage.payload as PushSnippetPayload; // Typed payload
-                    if (snippetPayload && snippetPayload.targetTabId) {
-                        const targetTabId = snippetPayload.targetTabId;
-                        console.log(LOG_PREFIX_SW, `handleServerMessage: Forwarding 'push_snippet' to specific tabId: ${targetTabId}.`);
-                        // Send the whole pushMessage (which includes type, command, etc.)
-                        chrome.tabs.sendMessage(targetTabId, pushMessage)
-                            .then(response => {
-                                if (chrome.runtime.lastError) {
-                                    console.warn(LOG_PREFIX_SW, `Error sending push_snippet to tab ${targetTabId}: ${chrome.runtime.lastError.message}`);
-                                } else {
-                                    // console.log(LOG_PREFIX_SW, `Push_snippet message sent to tab ${targetTabId}, response from content script (if any):`, response);
-                                }
-                            })
-                            .catch(e => {
-                                // This catch might not be reliably hit for "no receiving end" with tabs.sendMessage,
-                                // chrome.runtime.lastError is often the way for that.
-                                console.warn(LOG_PREFIX_SW, `Error explicitly sending push_snippet message to tab ${targetTabId}:`, e);
-                            });
-                        console.log(LOG_PREFIX_SW, 'handleServerMessage: Specifically received and processed push_snippet, attempted to send to tab:', snippetPayload);
-                    } else {
-                        console.warn(LOG_PREFIX_SW, `handleServerMessage: 'push_snippet' received without targetTabId. Payload:`, snippetPayload);
-                        // Fallback: broadcast the full pushMessage
-                        chrome.runtime.sendMessage(pushMessage).catch(e => console.warn(LOG_PREFIX_SW, "Error broadcasting push_snippet (fallback):", e));
-                    }
+                    console.log(LOG_PREFIX_SW, `handleServerMessage: Broadcasting 'push_snippet' to all LLM tabs.`);
+
+                    // Query for all tabs matching supported LLM host permissions
+                    chrome.tabs.query({
+                        url: [
+                            "*://gemini.google.com/*",
+                            "*://chatgpt.com/*",
+                            "*://claude.ai/*",
+                            "*://aistudio.google.com/*",
+                            "*://chat.deepseek.com/*"
+                        ]
+                    }).then(tabs => {
+                        console.log(LOG_PREFIX_SW, `Found ${tabs.length} LLM tabs to send snippet to`);
+
+                        // Send the snippet message to each tab
+                        tabs.forEach(tab => {
+                            if (tab.id) {
+                                chrome.tabs.sendMessage(tab.id, pushMessage)
+                                    .then(() => {
+                                        if (chrome.runtime.lastError) {
+                                            console.warn(LOG_PREFIX_SW, `Error sending push_snippet to tab ${tab.id}: ${chrome.runtime.lastError.message}`);
+                                        } else {
+                                            console.log(LOG_PREFIX_SW, `Successfully sent push_snippet to tab ${tab.id}`);
+                                        }
+                                    })
+                                    .catch(e => {
+                                        console.warn(LOG_PREFIX_SW, `Error sending push_snippet message to tab ${tab.id}:`, e);
+                                    });
+                            }
+                        });
+                    }).catch(e => {
+                        console.error(LOG_PREFIX_SW, 'Error querying tabs for push_snippet broadcast:', e);
+                    });
                 } else {
                     // For other potential push messages
                     console.log(LOG_PREFIX_SW, `handleServerMessage: Forwarding generic push message to all listeners. Command: ${pushMessage.command}`);
-                    chrome.runtime.sendMessage(pushMessage).catch(e => console.warn(LOG_PREFIX_SW, "Error broadcasting generic push message:", e));
+                    chrome.runtime.sendMessage(pushMessage).catch(e => console.warn(LOG_PREFIX_SW, 'Error broadcasting generic push message:', e));
                 }
             } else {
                 console.warn(LOG_PREFIX_SW, 'handleServerMessage: Received unknown message type from server:', (message as any).type);
@@ -356,10 +365,10 @@ class IPCClient {
 
         const message_id = crypto.randomUUID();
         // Construct the message using the shared IPCMessageRequest structure
-        const message: IPCBaseMessage & { type: "request", command: typeof command, payload: TReqPayload } = {
-            protocol_version: "1.0",
+        const message: IPCBaseMessage & { type: 'request', command: typeof command, payload: TReqPayload } = {
+            protocol_version: '1.0',
             message_id,
-            type: "request",
+            type: 'request',
             command,
             payload
         };
@@ -396,7 +405,7 @@ class IPCClient {
      * @returns A Promise that resolves with the WorkspaceDetailsResponsePayload.
      */
     async getWorkspaceDetails(): Promise<WorkspaceDetailsResponsePayload> {
-        return this.sendRequest<{}, WorkspaceDetailsResponsePayload>('get_workspace_details', {});
+        return this.sendRequest<Record<string, never>, WorkspaceDetailsResponsePayload>('get_workspace_details', {});
     }
     /**
      * Requests the file tree for a specified workspace folder from the VSCE.
@@ -444,14 +453,14 @@ class IPCClient {
      * @returns A Promise that resolves with the ActiveFileInfoResponsePayload.
      */
     async getActiveFileInfo(): Promise<ActiveFileInfoResponsePayload> {
-        return this.sendRequest<{}, ActiveFileInfoResponsePayload>('get_active_file_info', {});
+        return this.sendRequest<Record<string, never>, ActiveFileInfoResponsePayload>('get_active_file_info', {});
     }
     /**
      * Requests a list of currently open files in VS Code.
      * @returns A Promise that resolves with the OpenFilesResponsePayload.
      */
     async getOpenFiles(): Promise<OpenFilesResponsePayload> {
-        return this.sendRequest<{}, OpenFilesResponsePayload>('get_open_files', {});
+        return this.sendRequest<Record<string, never>, OpenFilesResponsePayload>('get_open_files', {});
     }
     /**
      * Performs a workspace search in VS Code.
@@ -552,7 +561,7 @@ chrome.runtime.onMessage.addListener((message: IncomingRuntimeMessage, sender, s
                     const targetTabId = snippetPayload.targetTabId;
                     console.log(LOG_PREFIX_SW, `handleServerMessage: Forwarding 'push_snippet' to specific tabId: ${targetTabId}.`);
                     chrome.tabs.sendMessage(targetTabId, pushMessage)
-                        .then(response => {
+                        .then(() => {
                             if (chrome.runtime.lastError) {
                                 console.warn(LOG_PREFIX_SW, `Error sending push_snippet to tab ${targetTabId}: ${chrome.runtime.lastError.message}`);
                             } else {
@@ -564,12 +573,12 @@ chrome.runtime.onMessage.addListener((message: IncomingRuntimeMessage, sender, s
                         });
                     console.log(LOG_PREFIX_SW, 'handleServerMessage: Specifically received and processed push_snippet, attempted to send to tab:', snippetPayload);
                 } else {
-                    console.warn(LOG_PREFIX_SW, `handleServerMessage: 'push_snippet' received without targetTabId. Payload:`, snippetPayload);
-                    chrome.runtime.sendMessage(pushMessage).catch(e => console.warn(LOG_PREFIX_SW, "Error broadcasting push_snippet (fallback):", e));
+                    console.warn(LOG_PREFIX_SW, 'handleServerMessage: \'push_snippet\' received without targetTabId. Payload:', snippetPayload);
+                    chrome.runtime.sendMessage(pushMessage).catch(e => console.warn(LOG_PREFIX_SW, 'Error broadcasting push_snippet (fallback):', e));
                 }
             } else {
                 console.log(LOG_PREFIX_SW, `handleServerMessage: Forwarding generic push message to all listeners. Command: ${pushMessage.command}`);
-                chrome.runtime.sendMessage(pushMessage).catch(e => console.warn(LOG_PREFIX_SW, "Error broadcasting generic push message:", e));
+                chrome.runtime.sendMessage(pushMessage).catch(e => console.warn(LOG_PREFIX_SW, 'Error broadcasting generic push message:', e));
             }
         } else if (typedMessage.type === 'GET_WORKSPACE_DETAILS_FOR_UI') {
             console.log(LOG_PREFIX_SW, 'Handling GET_WORKSPACE_DETAILS_FOR_UI');
@@ -697,7 +706,7 @@ chrome.runtime.onMessage.addListener((message: IncomingRuntimeMessage, sender, s
             // This message type is internal to CE, not a direct IPC command.
             // Its payload is an array of file URIs.
             const fileUris = typedMessage.payload.fileUris as string[]; // Corrected: fileUris
-            console.log(LOG_PREFIX_SW, `Handling GET_CONTENTS_FOR_SELECTED_OPEN_FILES for URIs:`, fileUris);
+            console.log(LOG_PREFIX_SW, 'Handling GET_CONTENTS_FOR_SELECTED_OPEN_FILES for URIs:', fileUris);
 
             if (!Array.isArray(fileUris) || fileUris.length === 0) {
                 sendResponse({ success: false, error: 'No file URIs provided.' });
@@ -817,23 +826,23 @@ chrome.runtime.onMessage.addListener((message: IncomingRuntimeMessage, sender, s
             console.log(LOG_PREFIX_SW, 'Received request for current IPC status.');
             if (ipcClient.isConnected()) {
                 sendResponse({
-                    action: "ipcConnectionStatus", // Echo action for options.ts listener
-                    status: "connected",
+                    action: 'ipcConnectionStatus', // Echo action for options.ts listener
+                    status: 'connected',
                     port: ipcClient.port,
                     message: `Currently connected to VS Code on port ${ipcClient.port}.`
                 });
             } else {
                 sendResponse({
-                    action: "ipcConnectionStatus", // Echo action for options.ts listener
-                    status: "disconnected_unexpectedly",
-                    message: "Currently not connected to VS Code."
+                    action: 'ipcConnectionStatus', // Echo action for options.ts listener
+                    status: 'disconnected_unexpectedly',
+                    message: 'Currently not connected to VS Code.'
                 });
             }
             return false;
         }
     }
 
-    console.warn(LOG_PREFIX_SW, `Received unhandled message:`, message);
+    console.warn(LOG_PREFIX_SW, 'Received unhandled message:', message);
     return false;
 });
 
@@ -845,25 +854,25 @@ function startKeepAlive() {
     if (keepAliveIntervalId !== undefined) return;
     keepAliveIntervalId = setInterval(() => {
         if (chrome.runtime && chrome.runtime.getPlatformInfo) {
-            chrome.runtime.getPlatformInfo().then(_info => {
+            chrome.runtime.getPlatformInfo().then(() => {
                 // console.log(LOG_PREFIX_SW, 'Keep-alive ping, platform:', info.os);
-            }).catch(_e => {
+            }).catch(() => {
                 // console.warn(LOG_PREFIX_SW, "Keep-alive: runtime not available, stopping.", e);
             });
         } else {
             // console.warn(LOG_PREFIX_SW, "Keep-alive: chrome.runtime or getPlatformInfo not available, stopping.");
         }
     }, 20 * 1000);
-    console.log(LOG_PREFIX_SW, "Keep-alive interval started.");
+    console.log(LOG_PREFIX_SW, 'Keep-alive interval started.');
 }
 
-function stopKeepAlive() {
-    if (keepAliveIntervalId !== undefined) {
-        clearInterval(keepAliveIntervalId);
-        keepAliveIntervalId = undefined;
-        console.log(LOG_PREFIX_SW, "Keep-alive interval stopped.");
-    }
-}
+// function stopKeepAlive() {  // Currently unused, kept for future use
+//     if (keepAliveIntervalId !== undefined) {
+//         clearInterval(keepAliveIntervalId);
+//         keepAliveIntervalId = undefined;
+//         console.log(LOG_PREFIX_SW, 'Keep-alive interval stopped.');
+//     }
+// }
 
 // --- Lifecycle Event Listeners ---
 chrome.runtime.onStartup.addListener(async () => {
@@ -972,10 +981,10 @@ async function registerInitialActiveTab() {
             console.log(LOG_PREFIX_SW, `Initial check: Active tab is ${tabs[0].id}, url ${tabs[0].url}`);
             await checkAndRegisterTab(tabs[0].id, tabs[0].url);
         } else {
-            console.log(LOG_PREFIX_SW, "Initial check: No active tab found in last focused window.");
+            console.log(LOG_PREFIX_SW, 'Initial check: No active tab found in last focused window.');
         }
     } catch (error) {
-        console.error(LOG_PREFIX_SW, "Error during initial active tab registration:", error);
+        console.error(LOG_PREFIX_SW, 'Error during initial active tab registration:', error);
     }
 }
 

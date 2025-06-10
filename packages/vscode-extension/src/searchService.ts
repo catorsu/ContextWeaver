@@ -9,7 +9,20 @@ import * as path from 'path';
 import { Ignore } from 'ignore';
 import { parseGitignore } from './fileSystemService';
 import { WorkspaceService } from './workspaceService';
-import { SearchResult as CWSearchResult, FilterType } from '@contextweaver/shared';
+import { FilterType } from '@contextweaver/shared';
+
+// Local type for search results without windowId (which is added later in ipcServer)
+type LocalSearchResult = {
+  path: string;
+  name: string;
+  type: 'file' | 'folder';
+  uri: string;
+  content_source_id: string;
+  workspaceFolderUri: string;
+  workspaceFolderName: string;
+  relativePath: string;
+  filterTypeApplied?: FilterType;
+};
 
 const LOG_PREFIX_SEARCH_SERVICE = '[ContextWeaver SearchService] ';
 
@@ -107,12 +120,12 @@ export class SearchService {
    * @returns {Promise<CWSearchResult[]>} A promise that resolves to an array of search results.
    * @sideeffect Reads from the file system, including .gitignore files.
    */
-  public async search(query: string, specificWorkspaceFolderUri?: vscode.Uri): Promise<CWSearchResult[]> {
+  public async search(query: string, specificWorkspaceFolderUri?: vscode.Uri): Promise<LocalSearchResult[]> {
     if (!query || query.trim() === '') {
       return [];
     }
 
-    const allResults: CWSearchResult[] = [];
+    const allResults: LocalSearchResult[] = [];
     const foldersToSearch: vscode.WorkspaceFolder[] = [];
 
     if (specificWorkspaceFolderUri) {
@@ -166,8 +179,8 @@ export class SearchService {
     query: string,
     baseWorkspaceFolder: vscode.WorkspaceFolder,
     gitignoreFilter: Ignore | null
-  ): Promise<CWSearchResult[]> {
-    let results: CWSearchResult[] = [];
+  ): Promise<LocalSearchResult[]> {
+    let results: LocalSearchResult[] = [];
     const lowerCaseQuery = query.toLowerCase();
 
     try {
@@ -188,7 +201,7 @@ export class SearchService {
           continue;
         }
 
-        let itemMatchesQuery = name.toLowerCase().includes(lowerCaseQuery);
+        const itemMatchesQuery = name.toLowerCase().includes(lowerCaseQuery);
 
         if (itemMatchesQuery) {
           results.push({

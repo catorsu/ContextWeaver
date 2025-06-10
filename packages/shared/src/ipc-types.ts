@@ -99,6 +99,7 @@ export interface GenericAckResponsePayload {
 export interface FileTreeResponseData {
     fileTreeString: string;
     metadata: ContextBlockMetadata;
+    windowId: string; // Unique identifier for the VS Code window instance
 }
 /**
  * Response payload for a file tree request.
@@ -115,6 +116,7 @@ export interface FileTreeResponsePayload {
 export interface FileContentResponseData {
     fileData: FileData;
     metadata: ContextBlockMetadata;
+    windowId: string; // Unique identifier for the VS Code window instance
 }
 /**
  * Response payload for a file content request.
@@ -131,6 +133,7 @@ export interface FileContentResponsePayload {
 export interface FolderContentResponseData {
     filesData: FileData[];
     metadata: ContextBlockMetadata;
+    windowId: string; // Unique identifier for the VS Code window instance
 }
 /**
  * Response payload for a folder content request.
@@ -148,6 +151,7 @@ export interface FolderContentResponsePayload {
 export interface EntireCodebaseResponseData {
     filesData: FileData[];
     metadata: ContextBlockMetadata;
+    windowId: string; // Unique identifier for the VS Code window instance
     // fileTreeString?: string; // Optional, as per IPC doc
 }
 /**
@@ -169,6 +173,7 @@ export interface ActiveFileInfoResponseData {
     activeFileLabel: string;
     workspaceFolderUri: string | null;
     workspaceFolderName: string | null;
+    windowId: string; // Unique identifier for the VS Code window instance
 }
 /**
  * Response payload for an active file information request.
@@ -186,6 +191,7 @@ export interface OpenFilesResponseData {
         name: string;
         workspaceFolderUri: string | null;
         workspaceFolderName: string | null;
+        windowId: string; // Unique identifier for the VS Code window instance
     }>;
 }
 /**
@@ -200,6 +206,7 @@ export interface OpenFilesResponsePayload {
 
 export interface SearchWorkspaceResponseData {
     results: SearchResult[];
+    windowId: string; // Unique identifier for the VS Code window instance
 }
 /**
  * Response payload for a workspace search request.
@@ -249,6 +256,7 @@ export interface ListFolderContentsResponseData {
     entries: DirectoryEntry[];
     parentFolderUri: string; // Echoed back
     filterTypeApplied: FilterType;
+    windowId: string; // Unique identifier for the VS Code window instance
 }
 /**
  * Response payload for a list folder contents request.
@@ -284,6 +292,7 @@ export interface PushSnippetPayload {
     endLine: number; // 1-indexed
     metadata: ContextBlockMetadata;
     targetTabId: number; // Tab ID for CE to target
+    windowId: string; // Unique identifier for the VS Code window instance
 }
 
 // --- IPC Message Type Definitions (Combining Base with Payloads) ---
@@ -303,7 +312,10 @@ export type IPCRequest =
     | { command: "search_workspace"; payload: SearchWorkspaceRequestPayload }
     | { command: "get_filter_info"; payload: GetFilterInfoRequestPayload }
     | { command: "get_workspace_details"; payload: {} }
-    | { command: "list_folder_contents"; payload: ListFolderContentsRequestPayload };
+    | { command: "list_folder_contents"; payload: ListFolderContentsRequestPayload }
+    | { command: "register_secondary"; payload: { windowId: string; port: number } }
+    | { command: "forward_request_to_secondaries"; payload: { originalRequest: IPCMessageRequest } }
+    | { command: "unregister_secondary"; payload: { windowId: string } };
 
 /**
  * Represents a response message sent from the VS Code Extension to the Chrome Extension.
@@ -319,14 +331,17 @@ export type IPCResponse =
     | { command: "response_search_workspace"; payload: SearchWorkspaceResponsePayload }
     | { command: "response_workspace_details"; payload: WorkspaceDetailsResponsePayload }
     | { command: "response_filter_info"; payload: FilterInfoResponsePayload }
-    | { command: "response_list_folder_contents"; payload: ListFolderContentsResponsePayload };
+    | { command: "response_list_folder_contents"; payload: ListFolderContentsResponsePayload }
+    | { command: "response_unregister_secondary_ack"; payload: GenericAckResponsePayload };
 // error_response is handled separately or as part of specific responses with success:false
 
 /**
  * Represents a push message sent from the VS Code Extension to the Chrome Extension.
  */
 export type IPCPush =
-    | { command: "push_snippet"; payload: PushSnippetPayload };
+    | { command: "push_snippet"; payload: PushSnippetPayload }
+    | { command: "forward_response_to_primary"; payload: { originalMessageId: string; responsePayload: any } }
+    | { command: "forward_push_to_primary"; payload: { originalPushPayload: PushSnippetPayload } };
 
 // Full message types
 export type IPCMessageRequest = IPCBaseMessage & { type: "request" } & IPCRequest;

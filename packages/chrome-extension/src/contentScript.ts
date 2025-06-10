@@ -17,8 +17,6 @@ import {
   FileTreeResponsePayload,
   EntireCodebaseResponsePayload,
   ListFolderContentsResponsePayload,
-  OpenFilesResponsePayload,
-  ActiveFileInfoResponsePayload,
   WorkspaceDetailsResponsePayload,
   DirectoryEntry as CWDirectoryEntry // Alias DirectoryEntry to avoid collision
 } from '@contextweaver/shared';
@@ -96,6 +94,49 @@ function groupItemsByWorkspace<T extends WorkspaceGroupable>(
 
 (window as any).groupItemsByWorkspace = groupItemsByWorkspace;
 
+/**
+ * Defines a common structure for items that can be grouped by window.
+ */
+interface WindowGroupable {
+  windowId?: string;
+  [key: string]: any;
+}
+
+/**
+ * Represents a group of window items, typically used for displaying search results or files grouped by their VS Code window.
+ */
+interface GroupedWindowItems<T extends WindowGroupable> {
+  name: string;
+  items: T[];
+}
+
+/**
+ * Groups a list of items by their associated VS Code window.
+ * @param items An array of items that implement the WindowGroupable interface.
+ * @returns A Map where keys are window IDs (or 'unknown_window') and values are GroupedWindowItems.
+ */
+function groupItemsByWindow<T extends WindowGroupable>(
+  items: T[]
+): Map<string, GroupedWindowItems<T>> {
+  const grouped = new Map<string, GroupedWindowItems<T>>();
+  if (!items || items.length === 0) {
+    return grouped;
+  }
+
+  for (const item of items) {
+    const key = item.windowId || 'unknown_window';
+    const name = item.windowId ? `Window: ${item.windowId.substring(0, 8)}` : 'Unknown Window';
+
+    if (!grouped.has(key)) {
+      grouped.set(key, { name, items: [] });
+    }
+    grouped.get(key)!.items.push(item);
+  }
+  return grouped;
+}
+
+(window as any).groupItemsByWindow = groupItemsByWindow;
+
 interface LLMInputConfig {
   hostSuffix: string;
   selector: string;
@@ -111,9 +152,9 @@ interface LLMInputConfig {
  * @type {LLMInputConfig[]}
  */
 const llmInputsConfig: LLMInputConfig[] = [
-  { hostSuffix: 'gemini.google.com', selector: 'div.ql-editor[contenteditable=\\\"true\\\"][role=\\\"textbox\\\"]', isContentEditable: true },
-  { hostSuffix: 'chatgpt.com', selector: 'div#prompt-textarea[contenteditable=\\\"true\\\"]', isContentEditable: true },
-  { hostSuffix: 'claude.ai', selector: 'div.ProseMirror[contenteditable=\\\"true\\\"]', isContentEditable: true },
+  { hostSuffix: 'gemini.google.com', selector: 'div.ql-editor[contenteditable="true"][role="textbox"]', isContentEditable: true },
+  { hostSuffix: 'chatgpt.com', selector: 'div#prompt-textarea[contenteditable="true"]', isContentEditable: true },
+  { hostSuffix: 'claude.ai', selector: 'div.ProseMirror[contenteditable="true"]', isContentEditable: true },
   { hostSuffix: 'chat.deepseek.com', selector: 'textarea#chat-input', isContentEditable: false }
 ];
 
@@ -134,7 +175,7 @@ interface UIContext { // Kept for conceptual clarity in contentScript, though UI
  * @returns {Promise<void>} A promise that resolves when the search and UI update are complete.
  */
 async function performSearch(query: string): Promise<void> {
-  if (!query || query.trim() === "") {
+  if (!query || query.trim() === '') {
     uiManager.updateContent('<p>Type to search...</p>');
     return;
   }
@@ -174,7 +215,7 @@ async function processContentInsertion(
   const targetElementForThisOperation = stateManager.getCurrentTargetElementForPanel();
 
   if (!targetElementForThisOperation) {
-    console.warn(LOG_PREFIX_CS, "processContentInsertion: No target element at the start of operation. Aborting indicator rendering path.");
+    console.warn(LOG_PREFIX_CS, 'processContentInsertion: No target element at the start of operation. Aborting indicator rendering path.');
     // Decide if we should still try to insert text if target is lost, or show error.
     // For now, let's assume if target is lost, we might not want to proceed or show error.
     // This part depends on desired UX if target is lost mid-operation.
@@ -183,7 +224,7 @@ async function processContentInsertion(
 
   if (stateManager.isDuplicateContentSource(itemMetadata.contentSourceId)) {
     console.warn(LOG_PREFIX_CS, `Duplicate content source: ${itemMetadata.contentSourceId}. Label: "${itemMetadata.name}"`);
-    uiManager.showError("Content Already Added", `Content from "${itemMetadata.name}" is already added.`);
+    uiManager.showError('Content Already Added', `Content from "${itemMetadata.name}" is already added.`);
     setTimeout(() => uiManager.hide(), 2000);
     return;
   }
@@ -251,7 +292,7 @@ async function processContentInsertion(
       } else {
         // If targetElementForThisOperation was null from the start, indicators can't be rendered.
         // This case should be handled based on UX requirements (e.g., error, or silent fail of indicators).
-        console.warn(LOG_PREFIX_CS, "Cannot render indicators: target element was lost before/during operation.");
+        console.warn(LOG_PREFIX_CS, 'Cannot render indicators: target element was lost before/during operation.');
       }
 
       uiManager.hide();
@@ -282,7 +323,7 @@ async function processContentInsertion(
  * @returns {HTMLDivElement} The created div element for the search result item.
  */
 function createSearchResultItemElement(result: SharedSearchResult, omitWorkspaceName: boolean): HTMLDivElement {
-  const itemDiv = uiManager.createDiv({ classNames: [`search-result-item`] });
+  const itemDiv = uiManager.createDiv({ classNames: ['search-result-item'] });
 
   const iconSpan = uiManager.createSpan({ classNames: [`${LOCAL_CSS_PREFIX}type-icon`], textContent: result.type === 'file' ? '📄' : '📁' });
   itemDiv.appendChild(iconSpan);
@@ -319,7 +360,7 @@ function createSearchResultItemElement(result: SharedSearchResult, omitWorkspace
     const itemWorkspaceFolderUri = result.workspaceFolderUri;
 
     console.log(LOG_PREFIX_CS, `CLICKED ITEM: Name: "${itemName}", SourceID: "${itemContentSourceId}"`);
-    console.log(LOG_PREFIX_CS, `ACTIVE BLOCKS before check:`, JSON.parse(JSON.stringify(stateManager.getActiveContextBlocks())));
+    console.log(LOG_PREFIX_CS, 'ACTIVE BLOCKS before check:', JSON.parse(JSON.stringify(stateManager.getActiveContextBlocks())));
 
     if (itemType === 'file') {
       await processContentInsertion({
@@ -335,11 +376,11 @@ function createSearchResultItemElement(result: SharedSearchResult, omitWorkspace
 
       const buttonRow = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}button-row`] });
 
-      const insertAllButton = uiManager.createButton(`➕ Insert All`, {
+      const insertAllButton = uiManager.createButton('➕ Insert All', {
         id: `${LOCAL_CSS_PREFIX}btn-insert-all-${itemContentSourceId.replace(/[^a-zA-Z0-9]/g, '_')}`,
         onClick: async () => {
           insertAllButton.disabled = true;
-          insertAllButton.textContent = `➕ Loading...`;
+          insertAllButton.textContent = '➕ Loading...';
           browseButton.disabled = true;
 
           await processContentInsertion({
@@ -353,14 +394,14 @@ function createSearchResultItemElement(result: SharedSearchResult, omitWorkspace
           // Re-enable buttons if UI is still visible (e.g., if processContentInsertion showed an error)
           if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible')) {
             insertAllButton.disabled = false;
-            insertAllButton.textContent = `➕ Insert All`;
+            insertAllButton.textContent = '➕ Insert All';
             browseButton.disabled = false;
           }
         }
       });
       buttonRow.appendChild(insertAllButton);
 
-      const browseButton = uiManager.createButton(`🔍 Browse`, {
+      const browseButton = uiManager.createButton('🔍 Browse', {
         id: `${LOCAL_CSS_PREFIX}btn-browse-folder-${itemContentSourceId.replace(/[^a-zA-Z0-9]/g, '_')}`.replace(/[^a-zA-Z0-9]/g, '_'),
         onClick: async () => {
           console.log(LOG_PREFIX_CS, 'Browse folder clicked:', itemName);
@@ -424,23 +465,66 @@ function renderSearchResults(response: SearchWorkspaceResponsePayload, query: st
 
   const contentFragment = document.createDocumentFragment();
   const results = response.data.results as SharedSearchResult[];
-  const groupedResultsMap = groupItemsByWorkspace(results);
-
-  if (groupedResultsMap.size > 1) {
-    for (const [_workspaceKey, groupData] of groupedResultsMap.entries()) {
-      const groupHeader = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}group-header`], textContent: groupData.name });
-      contentFragment.appendChild(groupHeader);
-      groupData.items.forEach(result => {
-        const itemDiv = createSearchResultItemElement(result, true);
+  
+  // First group by window
+  const groupedByWindow = groupItemsByWindow(results);
+  
+  // If we have results from multiple windows, show window grouping
+  if (groupedByWindow.size > 1) {
+    for (const [, windowGroupData] of groupedByWindow.entries()) {
+      const windowHeader = uiManager.createDiv({ 
+        classNames: [`${LOCAL_CSS_PREFIX}window-header`], 
+        textContent: windowGroupData.name,
+        style: { fontWeight: 'bold', marginTop: '10px', marginBottom: '5px' }
+      });
+      contentFragment.appendChild(windowHeader);
+      
+      // Then group by workspace within each window
+      const groupedByWorkspace = groupItemsByWorkspace(windowGroupData.items);
+      
+      if (groupedByWorkspace.size > 1) {
+        for (const [, workspaceGroupData] of groupedByWorkspace.entries()) {
+          const workspaceHeader = uiManager.createDiv({ 
+            classNames: [`${LOCAL_CSS_PREFIX}group-header`], 
+            textContent: `  ${workspaceGroupData.name}`,
+            style: { marginLeft: '15px' }
+          });
+          contentFragment.appendChild(workspaceHeader);
+          workspaceGroupData.items.forEach(result => {
+            const itemDiv = createSearchResultItemElement(result, true);
+            itemDiv.style.marginLeft = '30px';
+            contentFragment.appendChild(itemDiv);
+          });
+        }
+      } else {
+        windowGroupData.items.forEach(result => {
+          const itemDiv = createSearchResultItemElement(result, false);
+          itemDiv.style.marginLeft = '15px';
+          contentFragment.appendChild(itemDiv);
+        });
+      }
+    }
+  } else {
+    // Single window - use original workspace grouping logic
+    const groupedResultsMap = groupItemsByWorkspace(results);
+    
+    if (groupedResultsMap.size > 1) {
+      for (const [, groupData] of groupedResultsMap.entries()) {
+        const groupHeader = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}group-header`], textContent: groupData.name });
+        contentFragment.appendChild(groupHeader);
+        groupData.items.forEach(result => {
+          const itemDiv = createSearchResultItemElement(result, true);
+          contentFragment.appendChild(itemDiv);
+        });
+      }
+    } else {
+      results.forEach(result => {
+        const itemDiv = createSearchResultItemElement(result, false);
         contentFragment.appendChild(itemDiv);
       });
     }
-  } else {
-    results.forEach(result => {
-      const itemDiv = createSearchResultItemElement(result, false);
-      contentFragment.appendChild(itemDiv);
-    });
   }
+  
   uiManager.updateTitle(titleText);
   uiManager.updateContent(contentFragment);
 }
@@ -455,9 +539,9 @@ function renderSearchResults(response: SearchWorkspaceResponsePayload, query: st
 function formatFileContentsForLLM(filesData: { fullPath: string; content: string; languageId: string }[]): string {
   if (!Array.isArray(filesData) || filesData.length === 0) {
     console.warn('[ContextWeaver CE] formatFileContentsForLLM: Invalid or empty filesData array.');
-    return "";
+    return '';
   }
-  let formattedBlocks = [];
+  const formattedBlocks = [];
   const tagsToNeutralize = ['file_contents', 'file_tree', 'code_snippet']; // Contains all wrapper tags we use
 
   for (const file of filesData) {
@@ -480,13 +564,13 @@ function formatFileContentsForLLM(filesData: { fullPath: string; content: string
       fileBlock += `\`\`\`${langId}\n`;
       // Use processed content
       fileBlock += processedContent.endsWith('\n') ? processedContent : `${processedContent}\n`;
-      fileBlock += `\`\`\`\n`;
+      fileBlock += '```\n';
       formattedBlocks.push(fileBlock);
     } else {
       console.warn('[ContextWeaver CE] formatFileContentsForLLM: Skipping invalid file data object:', file);
     }
   }
-  if (formattedBlocks.length === 0) return "";
+  if (formattedBlocks.length === 0) return '';
   // The outermost wrapper tag does not need to be neutralized
   return `<file_contents>\n${formattedBlocks.join('')}</file_contents>`;
 }
@@ -499,7 +583,7 @@ function formatFileContentsForLLM(filesData: { fullPath: string; content: string
 function createGeneralOptionsSection(workspaceDetails: WorkspaceDetailsResponsePayload['data']): DocumentFragment {
   const contentFragment = document.createDocumentFragment();
 
-  const activeFileButton = uiManager.createButton("📄 Active File", {
+  const activeFileButton = uiManager.createButton('📄 Active File', {
     id: `${LOCAL_CSS_PREFIX}btn-active-file`,
     onClick: async () => {
       console.log('ContextWeaver: "📄 Active File" clicked');
@@ -530,7 +614,7 @@ function createGeneralOptionsSection(workspaceDetails: WorkspaceDetailsResponseP
         uiManager.showToast(`Active File Error: ${e.message || 'Failed to process active file request.'}`, 'error');
       } finally {
         if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible')) {
-          activeFileButton.textContent = "📄 Active File";
+          activeFileButton.textContent = '📄 Active File';
           activeFileButton.disabled = false;
         }
       }
@@ -538,7 +622,7 @@ function createGeneralOptionsSection(workspaceDetails: WorkspaceDetailsResponseP
   });
   contentFragment.appendChild(activeFileButton);
 
-  const openFilesButton = uiManager.createButton("📂 Open Files", {
+  const openFilesButton = uiManager.createButton('📂 Open Files', {
     id: `${LOCAL_CSS_PREFIX}btn-open-files`,
     onClick: async () => {
       console.log('ContextWeaver: "📂 Open Files" clicked');
@@ -560,7 +644,7 @@ function createGeneralOptionsSection(workspaceDetails: WorkspaceDetailsResponseP
         uiManager.showToast(`Open Files Error: ${e.message || 'Failed to process open files request.'}`, 'error');
       } finally {
         if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible') && !document.querySelector(`.${LOCAL_CSS_PREFIX}open-files-selector`)) {
-          openFilesButton.textContent = "📂 Open Files";
+          openFilesButton.textContent = '📂 Open Files';
           openFilesButton.disabled = false;
         }
       }
@@ -646,7 +730,7 @@ async function populateFloatingUiContent(uiContext: UIContext): Promise<void> {
 function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string): void {
   console.log(LOG_PREFIX_CS, `Request to remove indicator for block ID: ${uniqueBlockId}, Type: ${blockType}`);
   if (!uniqueBlockId || typeof uniqueBlockId !== 'string') {
-    console.error(LOG_PREFIX_CS, "Cannot remove block: uniqueId is invalid.", uniqueBlockId);
+    console.error(LOG_PREFIX_CS, 'Cannot remove block: uniqueId is invalid.', uniqueBlockId);
     stateManager.removeActiveContextBlock(uniqueBlockId);
     // When the target element is uncertain, passing null to renderContextIndicators might be safer,
     // or always try to get the latest target element from stateManager.
@@ -680,8 +764,8 @@ function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string):
   // - </\\1> uses a back-reference \\1 to ensure the closing tag matches the captured opening tag name.
   const blockRegex = new RegExp(
     `\\s*<(${tagNameForRegex})\\b[^>]*\\bid=["']${escapedUniqueId}["'][^>]*>\\s*` +
-    `([\\s\\S]*?)` +
-    `\\s*</\\1>\\s*`,
+    '([\\s\\S]*?)' +
+    '\\s*</\\1>\\s*',
     'g'
   );
 
@@ -693,9 +777,9 @@ function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string):
 
       // --- Detailed Debugging Logs Start ---
       console.groupCollapsed(`${LOG_PREFIX_CS} Block Removal Debug - ID: ${uniqueBlockId}`);
-      console.log("Block Type:", blockType, "Tag Name:", tagNameForRegex);
-      console.log("Regex Used:", blockRegex.toString());
-      console.log("Attempting to operate on originalValue (length " + originalValue.length + "):");
+      console.log('Block Type:', blockType, 'Tag Name:', tagNameForRegex);
+      console.log('Regex Used:', blockRegex.toString());
+      console.log('Attempting to operate on originalValue (length ' + originalValue.length + '):');
       // To prevent console freezing, only print partial content or markers
       // console.log("'''\n" + originalValue.substring(0, 2000) + "\n''' (first 2000 chars)");
       // console.log("'''\n" + originalValue.substring(Math.max(0, originalValue.length - 2000)) + "\n''' (last 2000 chars)");
@@ -706,21 +790,21 @@ function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string):
       let matchFound = false;
       while ((match = execRegex.exec(originalValue)) !== null) {
         matchFound = true;
-        console.log("Regex exec match found at index:", match.index);
-        console.log("Full matched string (match[0]) (length " + match[0].length + "):");
-        console.log("'''\n" + match[0] + "\n'''");
-        console.log("Captured tag name (match[1]):", match[1]);
-        console.log("Captured content (match[2]) (length " + match[2].length + "):");
-        console.log("'''\n" + match[2] + "\n'''");
+        console.log('Regex exec match found at index:', match.index);
+        console.log('Full matched string (match[0]) (length ' + match[0].length + '):');
+        console.log('\'\'\'\n' + match[0] + '\n\'\'\'');
+        console.log('Captured tag name (match[1]):', match[1]);
+        console.log('Captured content (match[2]) (length ' + match[2].length + '):');
+        console.log('\'\'\'\n' + match[2] + '\n\'\'\'');
 
         // Print content immediately following the match in the original string
         const afterMatchIndex = match.index + match[0].length;
         const textAfterMatch = originalValue.substring(afterMatchIndex, afterMatchIndex + 100);
         console.log(`Text in originalValue immediately AFTER the matched block (from index ${afterMatchIndex}, next 100 chars):`);
-        console.log("'''\n" + textAfterMatch + "\n'''");
+        console.log('\'\'\'\n' + textAfterMatch + '\n\'\'\'');
       }
       if (!matchFound) {
-        console.log("No matches found by regex.exec().");
+        console.log('No matches found by regex.exec().');
       }
       console.groupEnd();
       // --- Detailed Debugging Logs End ---
@@ -813,6 +897,7 @@ function handleTextAreaInsertion(
   textArea: HTMLTextAreaElement,
   textToInsert: string,
   fullTriggerToReplace: string,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   isSearchTrigger: boolean // Was this triggered by a search query (e.g. @query) or general (@)?
 ): void {
   const originalValue = textArea.value;
@@ -892,6 +977,7 @@ function handleContentEditableInsertion(
   targetInput: HTMLElement,
   textToInsert: string,
   fullTriggerToReplace: string,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   isSearchTrigger: boolean
 ): void {
   const selection = window.getSelection();
@@ -957,9 +1043,9 @@ function handleContentEditableInsertion(
   selection.addRange(range);
 
   if (triggerReplaced) {
-    console.log(LOG_PREFIX_CS, `Replaced trigger and inserted text in contentEditable.`);
+    console.log(LOG_PREFIX_CS, 'Replaced trigger and inserted text in contentEditable.');
   } else {
-    console.log(LOG_PREFIX_CS, `Inserted text at cursor/selection in contentEditable (no trigger replaced or not applicable).`);
+    console.log(LOG_PREFIX_CS, 'Inserted text at cursor/selection in contentEditable (no trigger replaced or not applicable).');
   }
 
   targetInput.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
@@ -984,10 +1070,10 @@ function attachListenerToInputField(inputField: HTMLElement, config: LLMInputCon
     }
   }
 
-  console.log(`ContextWeaver: Attaching listener to input field:`, inputField, `with selector: ${config.selector}`);
+  console.log('ContextWeaver: Attaching listener to input field:', inputField, `with selector: ${config.selector}`);
   inputField.dataset.cwSelector = config.selector;
 
-  const handleSpecificEvent = (event: Event) => {
+  const handleSpecificEvent = () => {
     const fieldToRead = inputField as HTMLTextAreaElement | HTMLElement;
     let rawValue = '';
     let cursorPos = 0;
@@ -1032,7 +1118,7 @@ function attachListenerToInputField(inputField: HTMLElement, config: LLMInputCon
           `Searching for "@${queryText}"...`,
           null, // Pass null to show an empty content area initially
           () => {
-            console.log(LOG_PREFIX_CS, "UI hidden (search mode), callback from UIManager.");
+            console.log(LOG_PREFIX_CS, 'UI hidden (search mode), callback from UIManager.');
             stateManager.onUiHidden();
           }
         );
@@ -1046,14 +1132,14 @@ function attachListenerToInputField(inputField: HTMLElement, config: LLMInputCon
         const isAtAloneOrFollowedBySpace = fullTriggerText === '@' || charImmediatelyAfterAt === ' ';
 
         if (isAtAloneOrFollowedBySpace) {
-          console.log(LOG_PREFIX_CS, "General trigger detected ('@' or '@ ' or '@' at end of query).");
+          console.log(LOG_PREFIX_CS, 'General trigger detected (\'@\' or \'@ \' or \'@\' at end of query).');
           stateManager.setOriginalQueryTextFromUI(undefined); // No specific query text for general mode
           uiManager.show(
             inputField,
             'ContextWeaver',
             uiManager.createParagraph({ classNames: [`${LOCAL_CSS_PREFIX}loading-text`], textContent: 'Loading options...' }),
             () => {
-              console.log(LOG_PREFIX_CS, "UI hidden (general mode), callback from UIManager.");
+              console.log(LOG_PREFIX_CS, 'UI hidden (general mode), callback from UIManager.');
               stateManager.onUiHidden();
             }
           );
@@ -1067,7 +1153,7 @@ function attachListenerToInputField(inputField: HTMLElement, config: LLMInputCon
           // Hiding seems safer to avoid a lingering general UI if the user is mid-typing a search query.
           if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible') &&
             stateManager.getCurrentTargetElementForPanel()?.isSameNode(inputField)) {
-            console.log(LOG_PREFIX_CS, "Ambiguous '@' trigger (not search, not general), hiding UI if currently shown for this input.");
+            console.log(LOG_PREFIX_CS, 'Ambiguous \'@\' trigger (not search, not general), hiding UI if currently shown for this input.');
             uiManager.hide();
           }
         }
@@ -1076,7 +1162,7 @@ function attachListenerToInputField(inputField: HTMLElement, config: LLMInputCon
       // No valid "@" trigger ending at the cursor. Hide UI if it's currently shown for this input field.
       if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible') &&
         stateManager.getCurrentTargetElementForPanel()?.isSameNode(inputField)) {
-        console.log(LOG_PREFIX_CS, "No valid '@' trigger found at cursor, hiding UI.");
+        console.log(LOG_PREFIX_CS, 'No valid \'@\' trigger found at cursor, hiding UI.');
         uiManager.hide();
       }
     }
@@ -1123,7 +1209,7 @@ function observeForElement(config: LLMInputConfig): void {
   config.isAttached = false;
   config.attachedElement = null;
 
-  const observer = new MutationObserver((mutationsList, obs) => {
+  const observer = new MutationObserver(() => {
     if (config.isAttached && config.attachedElement && document.body.contains(config.attachedElement)) {
       return;
     }
@@ -1154,25 +1240,25 @@ function findActiveLLMInput(): HTMLElement | null {
     if (currentHostname.includes(config.hostSuffix)) {
       const inputField = document.querySelector(config.selector) as HTMLElement;
       if (inputField && inputField.offsetParent !== null) {
-        console.log(LOG_PREFIX_CS, "findActiveLLMInput: Found active LLM input field:", inputField);
+        console.log(LOG_PREFIX_CS, 'findActiveLLMInput: Found active LLM input field:', inputField);
         return inputField;
       }
     }
   }
-  console.warn(LOG_PREFIX_CS, "findActiveLLMInput: No active LLM input field found on the page.");
+  console.warn(LOG_PREFIX_CS, 'findActiveLLMInput: No active LLM input field found on the page.');
   return null;
 }
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log("ContextWeaver (contentScript.ts): Message received", message);
+chrome.runtime.onMessage.addListener((message) => {
+  console.log('ContextWeaver (contentScript.ts): Message received', message);
 
   if (message.type === 'push' && message.command === 'push_snippet') {
     const snippetData = message.payload;
-    console.log("ContextWeaver: Received snippet to insert:", snippetData);
+    console.log('ContextWeaver: Received snippet to insert:', snippetData);
 
     let targetInputElement = stateManager.getCurrentTargetElementForPanel();
     if (!targetInputElement) {
-      console.log(LOG_PREFIX_CS, "currentTargetElementForPanel is null, attempting to find active LLM input for snippet insertion.");
+      console.log(LOG_PREFIX_CS, 'currentTargetElementForPanel is null, attempting to find active LLM input for snippet insertion.');
       targetInputElement = findActiveLLMInput();
     }
 
@@ -1185,8 +1271,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         formattedSnippet += `lines: ${snippetData.startLine}-${snippetData.endLine}\n`;
         formattedSnippet += `\`\`\`${langId}\n`;
         formattedSnippet += snippetData.snippet.endsWith('\n') ? snippetData.snippet : `${snippetData.snippet}\n`;
-        formattedSnippet += `\`\`\`\n`;
-        formattedSnippet += `</code_snippet>`;
+        formattedSnippet += '```\n';
+        formattedSnippet += '</code_snippet>';
 
         if (!stateManager.getCurrentTargetElementForPanel() && targetInputElement) {
           stateManager.setCurrentTargetElementForPanel(targetInputElement);
@@ -1199,15 +1285,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           label: snippetData.metadata.label,
           type: snippetData.metadata.type,
           workspaceFolderName: snippetData.metadata.workspaceFolderName,
-          workspaceFolderUri: snippetData.metadata.workspaceFolderUri
+          workspaceFolderUri: snippetData.metadata.workspaceFolderUri,
+          windowId: snippetData.metadata.windowId
         });
-        console.log(LOG_PREFIX_CS, `Added snippet to activeContextBlocks:`, snippetData.metadata);
+        console.log(LOG_PREFIX_CS, 'Added snippet to activeContextBlocks:', snippetData.metadata);
         renderContextIndicators(targetInputElement);
       } else {
-        console.warn(LOG_PREFIX_CS, "Snippet received without metadata, cannot create indicator:", snippetData);
+        console.warn(LOG_PREFIX_CS, 'Snippet received without metadata, cannot create indicator:', snippetData);
       }
     } else {
-      console.warn("ContextWeaver: No target LLM input element known or found for snippet insertion.");
+      console.warn('ContextWeaver: No target LLM input element known or found for snippet insertion.');
     }
     uiManager.hideLoading(); // Hide loading after snippet insertion attempt
     return false;
@@ -1241,7 +1328,7 @@ function renderWorkspaceFolders(workspaceFolders: any[], targetContentArea: Docu
       sectionContainer = folderSectionDiv;
     }
 
-    const fileTreeButton = uiManager.createButton(`🌲 File Tree`, {
+    const fileTreeButton = uiManager.createButton('🌲 File Tree', {
       id: `${LOCAL_CSS_PREFIX}btn-file-tree-${folder.uri.replace(/[^a-zA-Z0-9]/g, '_')}`,
       onClick: async () => {
         await processContentInsertion({
@@ -1254,7 +1341,7 @@ function renderWorkspaceFolders(workspaceFolders: any[], targetContentArea: Docu
     });
     sectionContainer.appendChild(fileTreeButton);
 
-    const fullCodebaseButton = uiManager.createButton(`📚 Codebase`, {
+    const fullCodebaseButton = uiManager.createButton('📚 Codebase', {
       id: `${LOCAL_CSS_PREFIX}btn-full-codebase-${folder.uri.replace(/[^a-zA-Z0-9]/g, '_')}`,
       onClick: async () => {
         await processContentInsertion({
@@ -1353,7 +1440,7 @@ function createBrowseViewButtons(
 
       let successCount = 0;
       let failureCount = 0;
-      let allContentToInsert = "";
+      let allContentToInsert = '';
       const newContextBlocks: ContextBlockMetadata[] = [];
 
       try {
@@ -1380,7 +1467,7 @@ function createBrowseViewButtons(
               allContentToInsert += formattedContent.replace(
                 `<${contentTag}>`,
                 `<${contentTag} id="${uniqueBlockId}">`
-              ) + "\n\n";
+              ) + '\n\n';
               newContextBlocks.push({ ...metadataFromResponse, unique_block_id: uniqueBlockId });
               successCount++;
             } else {
@@ -1508,26 +1595,66 @@ function createOpenFilesListItem(file: { path: string; name: string; workspaceFo
  * @returns {HTMLFormElement} The created form element.
  */
 function createOpenFilesFormElements(
-  openFilesList: { path: string; name: string; workspaceFolderUri: string | null; workspaceFolderName: string | null }[],
-  groupedOpenFilesMap: Map<string, GroupedWorkspaceItems<{ path: string; name: string; workspaceFolderUri: string | null; workspaceFolderName: string | null }>>
+  openFilesList: { path: string; name: string; workspaceFolderUri: string | null; workspaceFolderName: string | null; windowId?: string }[],
+  groupedByWindow: Map<string, GroupedWindowItems<{ path: string; name: string; workspaceFolderUri: string | null; workspaceFolderName: string | null; windowId?: string }>>
 ): HTMLFormElement {
   const form = document.createElement('form');
   const listContainer = uiManager.createDiv({ style: { maxHeight: '250px', overflowY: 'auto', marginBottom: '10px' } });
 
-  if (groupedOpenFilesMap.size > 1) {
-    for (const [_workspaceKey, groupData] of groupedOpenFilesMap.entries()) {
-      const groupHeader = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}group-header`], textContent: groupData.name });
-      listContainer.appendChild(groupHeader);
-      groupData.items.forEach(file => {
-        const listItem = createOpenFilesListItem(file, groupedOpenFilesMap.size);
+  // If we have files from multiple windows, show window grouping
+  if (groupedByWindow.size > 1) {
+    for (const [, windowGroupData] of groupedByWindow.entries()) {
+      const windowHeader = uiManager.createDiv({ 
+        classNames: [`${LOCAL_CSS_PREFIX}window-header`], 
+        textContent: windowGroupData.name,
+        style: { fontWeight: 'bold', marginTop: '10px', marginBottom: '5px' }
+      });
+      listContainer.appendChild(windowHeader);
+      
+      // Then group by workspace within each window
+      const groupedByWorkspace = groupItemsByWorkspace(windowGroupData.items);
+      
+      if (groupedByWorkspace.size > 1) {
+        for (const [, workspaceGroupData] of groupedByWorkspace.entries()) {
+          const workspaceHeader = uiManager.createDiv({ 
+            classNames: [`${LOCAL_CSS_PREFIX}group-header`], 
+            textContent: `  ${workspaceGroupData.name}`,
+            style: { marginLeft: '15px' }
+          });
+          listContainer.appendChild(workspaceHeader);
+          workspaceGroupData.items.forEach(file => {
+            const listItem = createOpenFilesListItem(file, groupedByWorkspace.size);
+            listItem.style.marginLeft = '30px';
+            listContainer.appendChild(listItem);
+          });
+        }
+      } else {
+        windowGroupData.items.forEach(file => {
+          const listItem = createOpenFilesListItem(file, 1);
+          listItem.style.marginLeft = '15px';
+          listContainer.appendChild(listItem);
+        });
+      }
+    }
+  } else {
+    // Single window - use original workspace grouping logic
+    const groupedByWorkspace = groupItemsByWorkspace(openFilesList);
+    
+    if (groupedByWorkspace.size > 1) {
+      for (const [, groupData] of groupedByWorkspace.entries()) {
+        const groupHeader = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}group-header`], textContent: groupData.name });
+        listContainer.appendChild(groupHeader);
+        groupData.items.forEach(file => {
+          const listItem = createOpenFilesListItem(file, groupedByWorkspace.size);
+          listContainer.appendChild(listItem);
+        });
+      }
+    } else {
+      openFilesList.forEach(file => {
+        const listItem = createOpenFilesListItem(file, groupedByWorkspace.size);
         listContainer.appendChild(listItem);
       });
     }
-  } else {
-    openFilesList.forEach(file => {
-      const listItem = createOpenFilesListItem(file, groupedOpenFilesMap.size);
-      listContainer.appendChild(listItem);
-    });
   }
   form.appendChild(listContainer);
 
@@ -1551,12 +1678,12 @@ function createOpenFilesFormElements(
 
         if (response.success && response.data) {
           const successfulFiles = response.data;
-          let allContentToInsert = "";
+          let allContentToInsert = '';
           successfulFiles.forEach(item => {
             const formatted = formatFileContentsForLLM([item.fileData]);
             const uniqueBlockId = item.metadata.unique_block_id || `cw-block-${Date.now()}`;
             const contentTag = item.metadata.type === 'code_snippet' ? 'code_snippet' : 'file_contents';
-            allContentToInsert += formatted.replace(`<${contentTag}>`, `<${contentTag} id="${uniqueBlockId}">`) + "\n\n";
+            allContentToInsert += formatted.replace(`<${contentTag}>`, `<${contentTag} id="${uniqueBlockId}">`) + '\n\n';
             stateManager.addActiveContextBlock({ ...item.metadata, unique_block_id: uniqueBlockId });
           });
 
@@ -1598,10 +1725,9 @@ function createOpenFilesFormElements(
  * @returns {void}
  */
 function displayOpenFilesSelectorUI(
-  openFilesList: { path: string; name: string; workspaceFolderUri: string | null; workspaceFolderName: string | null }[] // Corrected type to array
+  openFilesList: { path: string; name: string; workspaceFolderUri: string | null; workspaceFolderName: string | null; windowId?: string }[] // Updated type to include windowId
 ): void {
   uiManager.updateTitle('Select Open Files');
-  const contentFragment = document.createDocumentFragment();
   const selectorWrapper = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}open-files-selector`] });
 
 
@@ -1614,8 +1740,9 @@ function displayOpenFilesSelectorUI(
     return;
   }
 
-  const groupedOpenFilesMap = groupItemsByWorkspace(openFilesList);
-  const form = createOpenFilesFormElements(openFilesList, groupedOpenFilesMap);
+  // First group by window, then by workspace
+  const groupedByWindow = groupItemsByWindow(openFilesList);
+  const form = createOpenFilesFormElements(openFilesList, groupedByWindow);
 
   selectorWrapper.appendChild(form);
   uiManager.updateContent(selectorWrapper);

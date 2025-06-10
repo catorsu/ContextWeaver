@@ -9,8 +9,8 @@ import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
- * Defines the structure for a code snippet payload, excluding `targetTabId`
- * which is added by the caller (e.g., `extension.ts`).
+ * Defines the structure for a code snippet payload, excluding `targetTabId` and `windowId`
+ * which are added by the caller (e.g., `extension.ts`).
  */
 export interface SnippetPayload {
     snippet: string;
@@ -26,6 +26,7 @@ export interface SnippetPayload {
         label: string;
         workspaceFolderUri: string | null;
         workspaceFolderName: string | null;
+        windowId?: string; // Optional, will be filled by the caller
     };
 }
 

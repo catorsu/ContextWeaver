@@ -37,7 +37,7 @@ interface SWApiRequestMessage {
  * @template TResponsePayload The expected type of the response payload.
  */
 async function sendMessageToSW<TResponsePayload>(message: SWApiRequestMessage): Promise<TResponsePayload> {
-    console.log(LOG_PREFIX_SW_CLIENT, `Sending message to SW:`, message);
+    console.log(LOG_PREFIX_SW_CLIENT, 'Sending message to SW:', message);
     try {
         const response = await chrome.runtime.sendMessage(message);
         if (chrome.runtime.lastError) {

@@ -16,6 +16,7 @@ export interface ContextBlockMetadata {
     label: string; // User-friendly label for the indicator
     workspaceFolderUri: string | null;
     workspaceFolderName: string | null;
+    windowId: string; // Unique identifier for the VS Code window instance
 }
 
 /**
@@ -47,6 +48,7 @@ export interface SearchResult {
     workspaceFolderName: string; // Name of the workspace folder
     relativePath: string; // Relative path from the workspace root
     filterTypeApplied?: FilterType; // ADDED: Optional field
+    windowId: string; // Unique identifier for the VS Code window instance
 }
 
 /**
@@ -58,4 +60,5 @@ export interface DirectoryEntry {
     type: 'file' | 'folder';
     uri: string; // Full URI string of the entry
     content_source_id: string; // Canonical ID, typically same as URI string
+    windowId: string; // Unique identifier for the VS Code window instance
 }

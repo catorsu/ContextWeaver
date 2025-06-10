@@ -70,7 +70,7 @@ async function saveOptions() {
 
         // Notify service worker that settings have changed
         chrome.runtime.sendMessage({ action: 'settingsUpdated' }).catch(err => {
-            console.warn(LOG_PREFIX_POPUP, "Could not send settingsUpdated message to service worker.", err);
+            console.warn(LOG_PREFIX_POPUP, 'Could not send settingsUpdated message to service worker.', err);
             showSaveStatus('Could not notify service worker of settings change. Reload extension manually if connection issues persist.', 'error');
         });
 
@@ -97,7 +97,7 @@ async function loadOptions() {
 }
 
 // Listen for messages from the service worker regarding IPC connection status
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message) => {
     if (message.action === 'ipcConnectionStatus') {
         console.log(LOG_PREFIX_POPUP, 'Received ipcConnectionStatus:', message);
         switch (message.status) {

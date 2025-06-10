@@ -22,6 +22,48 @@ To ensure your TypeScript code compiles correctly across the monorepo:
 
 **IMPORTANT**: Always run these commands in order after making changes to shared types to ensure all packages compile successfully.
 
+## Testing and Linting Commands
+
+### Running Tests
+To run tests across the monorepo:
+
+1. **Run all tests** (from root directory):
+   ```bash
+   # Run tests for all packages that have test suites
+   npm test --workspaces --if-present
+   ```
+
+2. **Run tests for specific packages**:
+   ```bash
+   # VS Code extension tests
+   cd packages/vscode-extension && npm test
+   
+   # Chrome extension tests
+   cd packages/chrome-extension && npm test
+   ```
+
+### Code Quality Check
+To run TypeScript compilation and linting checks:
+
+1. **Run full check** (from root directory):
+   ```bash
+   npm run check
+   ```
+   This command will:
+   - Run TypeScript compilation check (`tsc --noEmit`) for all packages
+   - Run ESLint for all packages
+
+2. **Fix auto-fixable lint issues**:
+   ```bash
+   # Fix Chrome extension
+   cd packages/chrome-extension && npm run lint -- --fix
+   
+   # Fix VS Code extension
+   cd packages/vscode-extension && npm run lint -- --fix
+   ```
+
+**NOTE**: The project allows `any` types with warnings (not errors) as configured in `.eslintrc.json`. These warnings can be addressed gradually over time.
+
 ## TypeScript Commenting Rules
 
 **IMPORTANT: YOU MUST follow these rules when generating or modifying TypeScript (`.ts`) code.**
@@ -49,3 +91,10 @@ To ensure your TypeScript code compiles correctly across the monorepo:
 ### 4. Constants and Configuration Objects:
 *   For simple exported constants, a brief single-line comment (`//`) above the declaration is sufficient.
 *   For complex exported configuration objects, use a full JSDoc block (`/** ... */`) to explain the object's structure and the purpose of its properties.
+
+
+## Git Commit Message Guidelines
+
+**IMPORTANT: YOU MUST follow this rule for all Git commits.**
+
+*   Commit messages must not contain the word "claude" in any form. This is a strict project requirement.

@@ -6,7 +6,9 @@
     "build": "npm run bundle",
     "lint": "eslint src --ext ts",
     "bundle": "esbuild src/contentScript.ts --bundle --outfile=dist/contentScript.js --format=iife --platform=browser --sourcemap && esbuild src/serviceWorker.ts --bundle --outfile=dist/serviceWorker.js --format=esm --platform=browser --sourcemap && esbuild src/popup.ts --bundle --outfile=dist/popup.js --format=iife --platform=browser --sourcemap",
-    "watch": "npm run bundle -- --watch"
+    "watch": "npm run bundle -- --watch",
+    "test": "jest",
+    "test:watch": "jest --watch"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.268",
@@ -14,7 +16,13 @@
     "eslint": "^8.56.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
-    "esbuild": "^0.20.0"
+    "esbuild": "^0.20.0",
+    "@jest/globals": "^29.7.0",
+    "@types/jest": "^29.5.14",
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0",
+    "jsdom": "^25.0.1",
+    "ts-jest": "^29.3.4"
   },
   "dependencies": {
     "@contextweaver/shared": "file:../shared"

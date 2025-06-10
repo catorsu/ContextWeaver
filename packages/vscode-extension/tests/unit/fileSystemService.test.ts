@@ -36,7 +36,8 @@ jest.mock('vscode', () => ({
 // Now import modules that use vscode
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { getDirectoryListing, DirectoryEntry } from '../../src/fileSystemService';
+import { getDirectoryListing } from '../../src/fileSystemService';
+import { DirectoryEntry } from '@contextweaver/shared';
 import ignore from 'ignore';
 
 describe('getDirectoryListing', () => {
@@ -76,18 +77,21 @@ describe('getDirectoryListing', () => {
         type: 'folder',
         uri: 'file:///workspace/root/src/subfolder',
         content_source_id: 'file:///workspace/root/src/subfolder',
+        windowId: '',
       },
       {
         name: 'file1.ts',
         type: 'file',
         uri: 'file:///workspace/root/src/file1.ts',
         content_source_id: 'file:///workspace/root/src/file1.ts',
+        windowId: '',
       },
       {
         name: 'file2.js',
         type: 'file',
         uri: 'file:///workspace/root/src/file2.js',
         content_source_id: 'file:///workspace/root/src/file2.js',
+        windowId: '',
       },
     ]);
     expect(result.filterTypeApplied).toBe('gitignore');
@@ -111,6 +115,7 @@ describe('getDirectoryListing', () => {
       type: 'file',
       uri: 'file:///workspace/root/src/file1.ts',
       content_source_id: 'file:///workspace/root/src/file1.ts',
+      windowId: '',
     });
     expect(result.filterTypeApplied).toBe('default');
   });
@@ -132,6 +137,7 @@ describe('getDirectoryListing', () => {
       type: 'file',
       uri: 'file:///workspace/root/src/file1.ts',
       content_source_id: 'file:///workspace/root/src/file1.ts',
+      windowId: '',
     });
     expect(result.filterTypeApplied).toBe('gitignore');
   });

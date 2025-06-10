@@ -319,7 +319,7 @@ export class UIManager {
         }
 
         if (!this.floatingUIPanel || !this.titleElement || !this.contentElement) {
-            console.error(LOG_PREFIX_UI, "Panel elements not created, cannot show.");
+            console.error(LOG_PREFIX_UI, 'Panel elements not created, cannot show.');
             return;
         }
 
@@ -419,7 +419,7 @@ export class UIManager {
             this.createPanel();
         }
         if (!this.floatingUIPanel || !this.contentElement) {
-            console.error(LOG_PREFIX_UI, "Panel elements not created, cannot show loading.");
+            console.error(LOG_PREFIX_UI, 'Panel elements not created, cannot show loading.');
             return;
         }
 
@@ -529,12 +529,12 @@ export class UIManager {
             } else if (targetInputElement.parentElement) {
                 // Fallback: If no grandparent, but a parent exists, insert as a sibling to the input.
                 // This might still cause overlap on some sites but is better than appending to body globally.
-                console.warn(LOG_PREFIX_UI, "Target input's grandparent not found for indicator area. Inserting as sibling to input.");
+                console.warn(LOG_PREFIX_UI, 'Target input\'s grandparent not found for indicator area. Inserting as sibling to input.');
                 targetInputElement.parentElement.insertBefore(this.contextIndicatorArea, targetInputElement);
             }
             else {
                 // Last resort: Append to body.
-                console.warn(LOG_PREFIX_UI, "Target input has no parent for indicator area. Appending to body.");
+                console.warn(LOG_PREFIX_UI, 'Target input has no parent for indicator area. Appending to body.');
                 document.body.appendChild(this.contextIndicatorArea);
             }
         }
@@ -574,7 +574,7 @@ export class UIManager {
                 if (this.onIndicatorRemoveCallback && closeBtn.dataset.uniqueBlockId && closeBtn.dataset.blockType) {
                     this.onIndicatorRemoveCallback(closeBtn.dataset.uniqueBlockId, closeBtn.dataset.blockType);
                 } else {
-                    console.error(LOG_PREFIX_UI, "Indicator remove callback not set or button missing data.");
+                    console.error(LOG_PREFIX_UI, 'Indicator remove callback not set or button missing data.');
                 }
             };
             indicator.appendChild(closeBtn);
