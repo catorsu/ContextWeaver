@@ -414,7 +414,7 @@ class IPCClient {
      */
     async getFileTree(workspaceFolderUri: string | null): Promise<FileTreeResponsePayload> {
         return this.sendRequest<GetFileTreeRequestPayload, FileTreeResponsePayload>(
-            'get_file_tree', { workspaceFolderUri }
+            'get_FileTree', { workspaceFolderUri }
         );
     }
     /**
@@ -593,12 +593,12 @@ chrome.runtime.onMessage.addListener((message: IncomingRuntimeMessage, sender, s
                     sendResponse({ success: false, error: error.message || 'IPC call failed for get_workspace_details.' });
                 });
             return true; // Indicates async response
-        } else if (typedMessage.type === 'GET_FILE_TREE') {
+        } else if (typedMessage.type === 'GET_FileTree') {
             const payload = typedMessage.payload as GetFileTreeRequestPayload;
-            console.log(LOG_PREFIX_SW, `Handling GET_FILE_TREE for URI: ${payload.workspaceFolderUri}`);
+            console.log(LOG_PREFIX_SW, `Handling GET_FileTree for URI: ${payload.workspaceFolderUri}`);
             ipcClient.getFileTree(payload.workspaceFolderUri)
                 .then((responsePayload: FileTreeResponsePayload) => { // responsePayload is the entire payload from VSCE
-                    console.log(LOG_PREFIX_SW, 'Response for get_file_tree (raw payload from VSCE):', responsePayload);
+                    console.log(LOG_PREFIX_SW, 'Response for get_FileTree (raw payload from VSCE):', responsePayload);
 
                     if (responsePayload.success === false) {
                         sendResponse({ success: false, error: responsePayload.error || 'Failed to get file tree from VSCE.' });
@@ -620,8 +620,8 @@ chrome.runtime.onMessage.addListener((message: IncomingRuntimeMessage, sender, s
                     }
                 })
                 .catch(error => {
-                    console.error(LOG_PREFIX_SW, 'Error in get_file_tree IPC call:', error);
-                    sendResponse({ success: false, error: error.message || 'IPC call failed for get_file_tree.' });
+                    console.error(LOG_PREFIX_SW, 'Error in get_FileTree IPC call:', error);
+                    sendResponse({ success: false, error: error.message || 'IPC call failed for get_FileTree.' });
                 });
             return true; // Indicates async response
         } else if (typedMessage.type === 'GET_ACTIVE_FILE_INFO') {

@@ -205,8 +205,8 @@ async function processContentInsertion(
   itemMetadata: {
     name: string;
     contentSourceId: string;
-    type: 'file' | 'folder' | 'file_tree' | 'codebase_content'; // Expanded types for clarity
-    uri?: string; // URI for fetching content (optional for file_tree/codebase_content if not directly URI-based)
+    type: 'file' | 'folder' | 'FileTree' | 'codebase_content'; // Expanded types for clarity
+    uri?: string; // URI for fetching content (optional for FileTree/codebase_content if not directly URI-based)
     workspaceFolderUri?: string | null; // For folder content, file tree, codebase
   },
   itemDivForFeedback?: HTMLElement | null // Optional: for UI feedback like opacity
@@ -237,14 +237,14 @@ async function processContentInsertion(
 
   try {
     let responsePayload: FileContentResponsePayload | FolderContentResponsePayload | FileTreeResponsePayload | EntireCodebaseResponsePayload;
-    let contentTag: 'file_contents' | 'file_tree' = 'file_contents'; // Default for file/folder content
+    let contentTag: 'FileContents' | 'FileTree' = 'FileContents'; // Default for file/folder content
 
     if (itemMetadata.type === 'file') {
       responsePayload = await swClient.getFileContent(itemMetadata.uri!);
     } else if (itemMetadata.type === 'folder') {
       responsePayload = await swClient.getFolderContent(itemMetadata.uri!, itemMetadata.workspaceFolderUri || null);
-    } else if (itemMetadata.type === 'file_tree') {
-      contentTag = 'file_tree';
+    } else if (itemMetadata.type === 'FileTree') {
+      contentTag = 'FileTree';
       responsePayload = await swClient.getFileTree(itemMetadata.workspaceFolderUri || null);
     } else if (itemMetadata.type === 'codebase_content') {
       responsePayload = await swClient.getEntireCodebase(itemMetadata.workspaceFolderUri || null);
@@ -257,7 +257,7 @@ async function processContentInsertion(
       let contentToInsert: string;
       let metadataFromResponse: ContextBlockMetadata;
 
-      if (itemMetadata.type === 'file_tree') {
+      if (itemMetadata.type === 'FileTree') {
         contentToInsert = actualData.fileTreeString;
         metadataFromResponse = actualData.metadata;
       } else if (itemMetadata.type === 'file') {
@@ -331,18 +331,23 @@ function createSearchResultItemElement(result: SharedSearchResult, omitWorkspace
   const nameSpan = uiManager.createSpan({ textContent: result.name });
   itemDiv.appendChild(nameSpan);
 
-  // Add relative path for disambiguation
-  if (result.relativePath) {
-    const relativePathSpan = uiManager.createSpan({
-      classNames: [`${LOCAL_CSS_PREFIX}relative-path`],
-      textContent: ` (${result.relativePath})`
-    });
-    itemDiv.appendChild(relativePathSpan);
+  const detailsParts: string[] = [];
+  // Only show relative path if it's different from the name, to reduce clutter like "src (src)"
+  if (result.relativePath && result.relativePath !== result.name) {
+    detailsParts.push(result.relativePath);
   }
 
   if (!omitWorkspaceName && result.workspaceFolderName) {
-    const workspaceSpan = uiManager.createSpan({ classNames: ['workspace-name'], textContent: `(${result.workspaceFolderName})` });
-    itemDiv.appendChild(workspaceSpan);
+    detailsParts.push(result.workspaceFolderName);
+  }
+
+  if (detailsParts.length > 0) {
+    const detailsText = ` (${detailsParts.join(' • ')})`; // Using a separator for clarity
+    const detailsSpan = uiManager.createSpan({
+      classNames: [`${LOCAL_CSS_PREFIX}relative-path`], // Re-use class for styling
+      textContent: detailsText
+    });
+    itemDiv.appendChild(detailsSpan);
   }
 
   itemDiv.dataset.uri = result.uri;
@@ -455,7 +460,7 @@ function renderSearchResults(response: SearchWorkspaceResponsePayload, query: st
     return;
   }
 
-  const titleText = `Results for "@${query}"`;
+  const titleText = `"@${query}"`;
 
   if (!response.data?.results || response.data.results.length === 0) {
     uiManager.updateTitle(titleText);
@@ -465,27 +470,27 @@ function renderSearchResults(response: SearchWorkspaceResponsePayload, query: st
 
   const contentFragment = document.createDocumentFragment();
   const results = response.data.results as SharedSearchResult[];
-  
+
   // First group by window
   const groupedByWindow = groupItemsByWindow(results);
-  
+
   // If we have results from multiple windows, show window grouping
   if (groupedByWindow.size > 1) {
     for (const [, windowGroupData] of groupedByWindow.entries()) {
-      const windowHeader = uiManager.createDiv({ 
-        classNames: [`${LOCAL_CSS_PREFIX}window-header`], 
+      const windowHeader = uiManager.createDiv({
+        classNames: [`${LOCAL_CSS_PREFIX}window-header`],
         textContent: windowGroupData.name,
         style: { fontWeight: 'bold', marginTop: '10px', marginBottom: '5px' }
       });
       contentFragment.appendChild(windowHeader);
-      
+
       // Then group by workspace within each window
       const groupedByWorkspace = groupItemsByWorkspace(windowGroupData.items);
-      
+
       if (groupedByWorkspace.size > 1) {
         for (const [, workspaceGroupData] of groupedByWorkspace.entries()) {
-          const workspaceHeader = uiManager.createDiv({ 
-            classNames: [`${LOCAL_CSS_PREFIX}group-header`], 
+          const workspaceHeader = uiManager.createDiv({
+            classNames: [`${LOCAL_CSS_PREFIX}group-header`],
             textContent: `  ${workspaceGroupData.name}`,
             style: { marginLeft: '15px' }
           });
@@ -505,26 +510,23 @@ function renderSearchResults(response: SearchWorkspaceResponsePayload, query: st
       }
     }
   } else {
-    // Single window - use original workspace grouping logic
+    // Single window - always group by workspace for consistency
     const groupedResultsMap = groupItemsByWorkspace(results);
-    
-    if (groupedResultsMap.size > 1) {
-      for (const [, groupData] of groupedResultsMap.entries()) {
-        const groupHeader = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}group-header`], textContent: groupData.name });
-        contentFragment.appendChild(groupHeader);
-        groupData.items.forEach(result => {
-          const itemDiv = createSearchResultItemElement(result, true);
-          contentFragment.appendChild(itemDiv);
-        });
-      }
-    } else {
-      results.forEach(result => {
-        const itemDiv = createSearchResultItemElement(result, false);
+
+    // Always iterate and group, even for a single workspace.
+    for (const [, groupData] of groupedResultsMap.entries()) {
+      const groupHeader = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}group-header`], textContent: groupData.name });
+      contentFragment.appendChild(groupHeader);
+
+      // When grouping, we always want to omit the workspace name from the item line itself,
+      // as the header provides the context.
+      groupData.items.forEach(result => {
+        const itemDiv = createSearchResultItemElement(result, true);
         contentFragment.appendChild(itemDiv);
       });
     }
   }
-  
+
   uiManager.updateTitle(titleText);
   uiManager.updateContent(contentFragment);
 }
@@ -532,7 +534,7 @@ function renderSearchResults(response: SearchWorkspaceResponsePayload, query: st
 
 /**
  * Formats an array of file data objects into a single string suitable for LLM input.
- * Each file's content is wrapped in a code block with its language ID, and the entire block is enclosed in `<file_contents>` tags.
+ * Each file's content is wrapped in a code block with its language ID, and the entire block is enclosed in `<FileContents>` tags.
  * @param filesData An array of objects, each containing `fullPath`, `content`, and `languageId` for a file.
  * @returns {string} The formatted string of file contents.
  */
@@ -542,7 +544,7 @@ function formatFileContentsForLLM(filesData: { fullPath: string; content: string
     return '';
   }
   const formattedBlocks = [];
-  const tagsToNeutralize = ['file_contents', 'file_tree', 'code_snippet']; // Contains all wrapper tags we use
+  const tagsToNeutralize = ['FileContents', 'FileTree', 'CodeSnippet']; // Contains all wrapper tags we use
 
   for (const file of filesData) {
     if (file && typeof file.fullPath === 'string' && typeof file.content === 'string') {
@@ -550,7 +552,7 @@ function formatFileContentsForLLM(filesData: { fullPath: string; content: string
 
       // Neutralize potential conflicting tags within the content to prevent premature matching by removal regex.
       // This involves inserting a zero-width space (U+200B) after '<' or '</' and before the tag name.
-      // For example, "</file_contents>" becomes "</\u200Bfile_contents>" and "<file_contents>" becomes "<\u200Bfile_contents>".
+      // For example, "</FileContents>" becomes "</\u200BFileContents>" and "<FileContents>" becomes "<\u200BFileContents>".
       for (const tagName of tagsToNeutralize) {
         const closeTagPattern = new RegExp(`</${tagName}\\b`, 'g');
         processedContent = processedContent.replace(closeTagPattern, `</\u200B${tagName}`);
@@ -572,7 +574,7 @@ function formatFileContentsForLLM(filesData: { fullPath: string; content: string
   }
   if (formattedBlocks.length === 0) return '';
   // The outermost wrapper tag does not need to be neutralized
-  return `<file_contents>\n${formattedBlocks.join('')}</file_contents>`;
+  return `<FileContents>\n${formattedBlocks.join('')}</FileContents>`;
 }
 
 /**
@@ -585,6 +587,7 @@ function createGeneralOptionsSection(workspaceDetails: WorkspaceDetailsResponseP
 
   const activeFileButton = uiManager.createButton('📄 Active File', {
     id: `${LOCAL_CSS_PREFIX}btn-active-file`,
+    classNames: ['vertical-button'],
     onClick: async () => {
       console.log('ContextWeaver: "📄 Active File" clicked');
       activeFileButton.textContent = '📄 Loading...';
@@ -624,6 +627,7 @@ function createGeneralOptionsSection(workspaceDetails: WorkspaceDetailsResponseP
 
   const openFilesButton = uiManager.createButton('📂 Open Files', {
     id: `${LOCAL_CSS_PREFIX}btn-open-files`,
+    classNames: ['vertical-button'],
     onClick: async () => {
       console.log('ContextWeaver: "📂 Open Files" clicked');
       openFilesButton.textContent = '📂 Loading...';
@@ -724,7 +728,7 @@ async function populateFloatingUiContent(uiContext: UIContext): Promise<void> {
 /**
  * Handles the removal of a context indicator and the corresponding content block from the LLM input field.
  * @param uniqueBlockId The unique identifier of the block to be removed.
- * @param blockType The type of the block (e.g., 'file_content', 'code_snippet').
+ * @param blockType The type of the block (e.g., 'file_content', 'CodeSnippet').
  * @returns {void}
  */
 function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string): void {
@@ -741,11 +745,11 @@ function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string):
 
   let tagNameForRegex = '';
   if (blockType === 'file_content' || blockType === 'folder_content' || blockType === 'codebase_content') {
-    tagNameForRegex = 'file_contents';
-  } else if (blockType === 'code_snippet') {
-    tagNameForRegex = 'code_snippet';
-  } else if (blockType === 'file_tree') {
-    tagNameForRegex = 'file_tree';
+    tagNameForRegex = 'FileContents';
+  } else if (blockType === 'CodeSnippet') {
+    tagNameForRegex = 'CodeSnippet';
+  } else if (blockType === 'FileTree') {
+    tagNameForRegex = 'FileTree';
   } else {
     console.warn(LOG_PREFIX_CS, `Unknown blockType for removal: ${blockType}`);
     stateManager.removeActiveContextBlock(uniqueBlockId);
@@ -756,16 +760,14 @@ function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string):
   const escapedUniqueId = uniqueBlockId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
   // Unified and more robust regex for block removal:
-  // - (${tagNameForRegex}) captures the tag name (e.g., "file_contents") into capture group 1.
-  // - \\b ensures tagNameForRegex is a whole word (e.g., prevents matching "file_contents-extra").
+  // - (${tagNameForRegex}) captures the tag name (e.g., "FileContents") into capture group 1.
+  // - \\b ensures tagNameForRegex is a whole word (e.g., prevents matching "FileContents-extra").
   // - [^>]* matches any characters inside the opening tag before '>', including other attributes.
   // - \\bid=["']${escapedUniqueId}["'] matches the id attribute (ensuring "id" is a whole word).
   // - ([\\s\\S]*?) non-greedily captures all content between the tags (including newlines) into capture group 2.
   // - </\\1> uses a back-reference \\1 to ensure the closing tag matches the captured opening tag name.
   const blockRegex = new RegExp(
-    `\\s*<(${tagNameForRegex})\\b[^>]*\\bid=["']${escapedUniqueId}["'][^>]*>\\s*` +
-    '([\\s\\S]*?)' +
-    '\\s*</\\1>\\s*',
+    `<(${tagNameForRegex})\\b[^>]*\\bid=["']${escapedUniqueId}["'][^>]*>([\\s\\S]*?)</\\1>`,
     'g'
   );
 
@@ -875,9 +877,9 @@ function insertTextIntoLLMInput(
   const fullTriggerTextToReplace = triggerQuery ? `@${triggerQuery}` : '@'; // The text we aim to replace
 
   if (targetInput instanceof HTMLTextAreaElement) {
-    handleTextAreaInsertion(targetInput, textToInsert, fullTriggerTextToReplace, !!triggerQuery);
+    handleTextAreaInsertion(targetInput, textToInsert, fullTriggerTextToReplace);
   } else if (targetInput.isContentEditable) {
-    handleContentEditableInsertion(targetInput, textToInsert, fullTriggerTextToReplace, !!triggerQuery);
+    handleContentEditableInsertion(targetInput, textToInsert, fullTriggerTextToReplace);
   } else {
     console.warn(LOG_PREFIX_CS, 'Target input field is neither a textarea nor contenteditable.');
     return;
@@ -887,7 +889,8 @@ function insertTextIntoLLMInput(
 
 /**
  * Handles the insertion of text into a textarea element.
- * It attempts to replace the trigger query if it exists at or near the cursor position.
+ * The new content is prepended to the top of the input field, and the original text (minus the trigger) remains below.
+ * The input field is then scrolled to the bottom.
  * @param textArea The HTMLTextAreaElement to insert text into.
  * @param textToInsert The text content to be inserted.
  * @param fullTriggerToReplace The full trigger string (e.g., "@" or "@query") to be replaced.
@@ -896,62 +899,57 @@ function insertTextIntoLLMInput(
 function handleTextAreaInsertion(
   textArea: HTMLTextAreaElement,
   textToInsert: string,
-  fullTriggerToReplace: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  isSearchTrigger: boolean // Was this triggered by a search query (e.g. @query) or general (@)?
+  fullTriggerToReplace: string
 ): void {
   const originalValue = textArea.value;
-  const selectionStart = textArea.selectionStart || 0;
-  const selectionEnd = textArea.selectionEnd || 0;
-  let triggerReplaced = false;
 
-  // Attempt to replace the trigger query only if it makes sense
-  // (i.e., if a triggerQuery was provided or if it's just "@" very close to the cursor)
-  if (fullTriggerToReplace.length > 0) {
-    // Search backwards from the character just before the original selectionStart
-    // or from the end of the trigger if selectionStart is within/after it.
-    let searchStartIndex = selectionStart - fullTriggerToReplace.length;
-    if (searchStartIndex < 0) searchStartIndex = 0;
+  // 1. Find boundary of all existing CW blocks
+  const wrapperTags = ['FileContents', 'FileTree', 'CodeSnippet'];
+  let lastWrapperEndIndex = -1;
 
-    // More precise search: find the last occurrence of fullTriggerToReplace that ends at or before selectionStart
-    // and is reasonably close to the cursor.
-    let lastAtIndex = -1;
-    // Iterate backwards to find the closest valid trigger
-    for (let i = textBeforeCursor(textArea, selectionStart).lastIndexOf(fullTriggerToReplace); i >= 0; i = textBeforeCursor(textArea, i).lastIndexOf(fullTriggerToReplace)) {
-      // Check if the found trigger is "standalone" or part of a larger word (e.g. email@domain.com)
-      // This check might be too complex or unnecessary if the trigger detection regex is already robust.
-      // For now, let's assume the trigger detection was specific enough.
-
-      // Condition: The trigger must end at or before the original cursor position (selectionStart)
-      // and be "close enough" to where the cursor was.
-      // "Close enough" means the cursor was at the end of the trigger or just after it.
-      if ((i + fullTriggerToReplace.length <= selectionStart) && (selectionStart - (i + fullTriggerToReplace.length) < 5)) {
-        lastAtIndex = i;
-        break;
+  for (const tagName of wrapperTags) {
+    const closingTag = `</${tagName}>`;
+    const lastIndex = originalValue.lastIndexOf(closingTag);
+    if (lastIndex !== -1) {
+      const endIndex = lastIndex + closingTag.length;
+      if (endIndex > lastWrapperEndIndex) {
+        lastWrapperEndIndex = endIndex;
       }
     }
-
-    // If we found a trigger to replace:
-    if (lastAtIndex !== -1) {
-      textArea.value = originalValue.substring(0, lastAtIndex) +
-        textToInsert +
-        originalValue.substring(lastAtIndex + fullTriggerToReplace.length);
-      textArea.selectionStart = textArea.selectionEnd = lastAtIndex + textToInsert.length;
-      triggerReplaced = true;
-      console.log(LOG_PREFIX_CS, `Replaced trigger "${fullTriggerToReplace}" in textarea.`);
-    }
   }
 
-  if (!triggerReplaced) {
-    // Fallback: Insert at cursor or replace selection if no trigger was replaced
-    textArea.value = originalValue.substring(0, selectionStart) +
-      textToInsert +
-      originalValue.substring(selectionEnd);
-    textArea.selectionStart = textArea.selectionEnd = selectionStart + textToInsert.length;
-    console.log(LOG_PREFIX_CS, 'Inserted text at cursor/selection in textarea (no trigger replaced).');
+  let managedContent = '';
+  let userContent = originalValue;
+
+  // 2. Split content based on the last found wrapper tag
+  if (lastWrapperEndIndex !== -1) {
+    managedContent = originalValue.substring(0, lastWrapperEndIndex).trimEnd();
+    userContent = originalValue.substring(lastWrapperEndIndex);
   }
 
+  // 3. Remove the trigger text from the user-typed portion of the content
+  const userContentWithoutTrigger = userContent.replace(fullTriggerToReplace, '');
+
+  // 4. Construct the new value with the correct insertion order
+  const separator = userContentWithoutTrigger.trim().length > 0 ? '\n\n' : '';
+  const newBlockSeparator = managedContent.length > 0 ? '\n\n' : '';
+
+  textArea.value = managedContent + newBlockSeparator + textToInsert + separator + userContentWithoutTrigger.trimStart();
+
+  // After setting the value, move the cursor to the end.
+  const endPosition = textArea.value.length;
+  textArea.selectionStart = endPosition;
+  textArea.selectionEnd = endPosition;
+
+  console.log(LOG_PREFIX_CS, `Inserted content with trigger "${fullTriggerToReplace}" in textarea.`);
+
+  // Dispatch event to notify the host application of the change
   textArea.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+
+  // Scroll to bottom after a short delay to allow for re-render
+  setTimeout(() => {
+    textArea.scrollTop = textArea.scrollHeight;
+  }, 0);
 }
 
 // Helper to get text before cursor in a textarea
@@ -967,7 +965,8 @@ function textBeforeCursor(textArea: HTMLTextAreaElement, cursorPos: number): str
 
 /**
  * Handles the insertion of text into a contenteditable HTML element.
- * It attempts to replace the trigger query if it exists at or near the cursor position.
+ * The new content is prepended to the top of the input field, and the original text (minus the trigger) remains below.
+ * The input field is then scrolled to the bottom, and the cursor is moved to the end of the input.
  * @param targetInput The contenteditable HTML element to insert text into.
  * @param textToInsert The text content (can be HTML) to be inserted.
  * @param fullTriggerToReplace The full trigger string (e.g., "@" or "@query") to be replaced.
@@ -976,22 +975,18 @@ function textBeforeCursor(textArea: HTMLTextAreaElement, cursorPos: number): str
 function handleContentEditableInsertion(
   targetInput: HTMLElement,
   textToInsert: string,
-  fullTriggerToReplace: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  isSearchTrigger: boolean
+  fullTriggerToReplace: string
 ): void {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) {
     console.warn(LOG_PREFIX_CS, 'Cannot insert into contentEditable: No selection or range.');
-    // Fallback: try to append if no selection? Or just return? For now, return.
     return;
   }
 
   let range = selection.getRangeAt(0);
-  let triggerReplaced = false;
 
-  // --- Best-effort trigger replacement for contentEditable ---
-  if (fullTriggerToReplace.length > 0 && range.collapsed) { // Only attempt if range is a cursor (collapsed)
+  // --- Best-effort trigger replacement (Unchanged) ---
+  if (fullTriggerToReplace.length > 0 && range.collapsed) {
     const container = range.startContainer;
     const offset = range.startOffset;
 
@@ -999,56 +994,69 @@ function handleContentEditableInsertion(
       const textContentBeforeCursor = container.textContent.substring(0, offset);
       const lastAtIndex = textContentBeforeCursor.lastIndexOf(fullTriggerToReplace);
 
-      // Check if the found trigger is "close enough" to the cursor
       if (lastAtIndex !== -1 && (offset - (lastAtIndex + fullTriggerToReplace.length) < 5)) {
-        // Create a new range covering the trigger text
         const triggerRange = document.createRange();
         triggerRange.setStart(container, lastAtIndex);
         triggerRange.setEnd(container, lastAtIndex + fullTriggerToReplace.length);
-
-        selection.removeAllRanges(); // Important before modifying range
-        selection.addRange(triggerRange); // Select the trigger text
-        range = triggerRange; // Update the range to be the trigger text range
-        triggerReplaced = true;
+        selection.removeAllRanges();
+        selection.addRange(triggerRange);
+        range = triggerRange;
         console.log(LOG_PREFIX_CS, `Identified trigger "${fullTriggerToReplace}" in contentEditable for replacement.`);
       }
     }
   }
-  // --- End of best-effort trigger replacement ---
+  // --- End of trigger replacement ---
 
-  // Delete contents of the current range (either original selection or the identified trigger)
+  // Delete contents of the range (removes trigger text)
   range.deleteContents();
 
-  // Insert the new HTML content
-  // The existing logic for parsing textToInsert (HTML string) into nodes is good.
+  // --- NEW INSERTION LOGIC ---
+  // 1. Find the last existing CW block element
+  const wrapperTags = ['FileContents', 'FileTree', 'CodeSnippet'];
+  const allWrappers = Array.from(targetInput.querySelectorAll(wrapperTags.join(',')));
+  const lastWrapperElement = allWrappers.length > 0 ? allWrappers[allWrappers.length - 1] : null;
+
+  // 2. Create the fragment to insert
   const tempDoc = document.implementation.createHTMLDocument();
   const tempContainer = tempDoc.createElement('div');
   tempContainer.innerHTML = textToInsert;
-
-  // Insert nodes one by one from tempContainer to maintain order and handle multiple root nodes if any
-  // (though our format typically has one root like <file_contents>)
-  let lastInsertedNode: Node | null = null;
+  const fragment = document.createDocumentFragment();
   while (tempContainer.firstChild) {
-    const nodeToInsert = tempContainer.firstChild;
-    range.insertNode(nodeToInsert);
-    lastInsertedNode = nodeToInsert;
+    fragment.appendChild(tempContainer.firstChild);
   }
 
-  // Collapse range to the end of inserted content
-  if (lastInsertedNode) {
-    range.setStartAfter(lastInsertedNode);
-    range.setEndAfter(lastInsertedNode);
-  }
-  selection.removeAllRanges();
-  selection.addRange(range);
-
-  if (triggerReplaced) {
-    console.log(LOG_PREFIX_CS, 'Replaced trigger and inserted text in contentEditable.');
+  // 3. Insert the new fragment at the correct position
+  if (lastWrapperElement) {
+    // There are existing blocks. Insert after the last one, with separators.
+    const br1 = document.createElement('br');
+    const br2 = document.createElement('br');
+    lastWrapperElement.after(br1, br2, fragment); // .after() inserts nodes in order
+    console.log(LOG_PREFIX_CS, 'Appended new content block after existing blocks in contentEditable.');
   } else {
-    console.log(LOG_PREFIX_CS, 'Inserted text at cursor/selection in contentEditable (no trigger replaced or not applicable).');
+    // This is the first block. Prepend it.
+    // Add separators before the new content if user text already exists.
+    if (targetInput.innerHTML.trim().length > 0) {
+      const br1 = document.createElement('br');
+      const br2 = document.createElement('br');
+      targetInput.insertBefore(br2, targetInput.firstChild);
+      targetInput.insertBefore(br1, targetInput.firstChild);
+    }
+    targetInput.insertBefore(fragment, targetInput.firstChild);
+    console.log(LOG_PREFIX_CS, 'Prepended first content block to contentEditable.');
   }
+
+  // --- Move cursor to the end and scroll to bottom (Unchanged) ---
+  selection.removeAllRanges();
+  const newRange = document.createRange();
+  newRange.selectNodeContents(targetInput);
+  newRange.collapse(false); // false collapses to the end
+  selection.addRange(newRange);
 
   targetInput.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+
+  setTimeout(() => {
+    targetInput.scrollTop = targetInput.scrollHeight;
+  }, 0);
 }
 
 
@@ -1115,7 +1123,7 @@ function attachListenerToInputField(inputField: HTMLElement, config: LLMInputCon
         stateManager.setOriginalQueryTextFromUI(queryText);
         uiManager.show(
           inputField,
-          `Searching for "@${queryText}"...`,
+          `"@${queryText}"`, // Set concise title immediately
           null, // Pass null to show an empty content area initially
           () => {
             console.log(LOG_PREFIX_CS, 'UI hidden (search mode), callback from UIManager.');
@@ -1164,6 +1172,28 @@ function attachListenerToInputField(inputField: HTMLElement, config: LLMInputCon
         stateManager.getCurrentTargetElementForPanel()?.isSameNode(inputField)) {
         console.log(LOG_PREFIX_CS, 'No valid \'@\' trigger found at cursor, hiding UI.');
         uiManager.hide();
+      }
+    }
+    // --- Step 3: Sync Indicators with Input Content ---
+    // After any input, check if any context blocks were manually deleted by the user.
+    if (stateManager.getActiveContextBlocks().length > 0) {
+      const currentContent = config.isContentEditable
+        ? (fieldToRead as HTMLElement).innerHTML
+        : (fieldToRead as HTMLTextAreaElement).value;
+
+      const blocksToRemove: string[] = [];
+      for (const block of stateManager.getActiveContextBlocks()) {
+        if (!currentContent.includes(`id="${block.unique_block_id}"`)) {
+          blocksToRemove.push(block.unique_block_id);
+        }
+      }
+
+      if (blocksToRemove.length > 0) {
+        console.log(LOG_PREFIX_CS, `Detected manual removal of ${blocksToRemove.length} context blocks. Syncing indicators.`);
+        for (const blockId of blocksToRemove) {
+          stateManager.removeActiveContextBlock(blockId);
+        }
+        renderContextIndicators(inputField); // Re-render indicators
       }
     }
   };
@@ -1266,13 +1296,13 @@ chrome.runtime.onMessage.addListener((message) => {
       if (snippetData.metadata) {
         const uniqueBlockId = snippetData.metadata.unique_block_id || `cw-snippet-${Date.now()}`;
         const langId = snippetData.language || 'plaintext';
-        let formattedSnippet = `<code_snippet id="${uniqueBlockId}">\n`;
+        let formattedSnippet = `<CodeSnippet id="${uniqueBlockId}">\n`;
         formattedSnippet += `File: ${snippetData.filePath}\n`;
         formattedSnippet += `lines: ${snippetData.startLine}-${snippetData.endLine}\n`;
         formattedSnippet += `\`\`\`${langId}\n`;
         formattedSnippet += snippetData.snippet.endsWith('\n') ? snippetData.snippet : `${snippetData.snippet}\n`;
         formattedSnippet += '```\n';
-        formattedSnippet += '</code_snippet>';
+        formattedSnippet += '</CodeSnippet>';
 
         if (!stateManager.getCurrentTargetElementForPanel() && targetInputElement) {
           stateManager.setCurrentTargetElementForPanel(targetInputElement);
@@ -1330,11 +1360,12 @@ function renderWorkspaceFolders(workspaceFolders: any[], targetContentArea: Docu
 
     const fileTreeButton = uiManager.createButton('🌲 File Tree', {
       id: `${LOCAL_CSS_PREFIX}btn-file-tree-${folder.uri.replace(/[^a-zA-Z0-9]/g, '_')}`,
+      classNames: ['vertical-button'],
       onClick: async () => {
         await processContentInsertion({
           name: `🌲 File Tree - ${folder.name}`,
-          contentSourceId: `${folder.uri}::file_tree`,
-          type: 'file_tree',
+          contentSourceId: `${folder.uri}::FileTree`,
+          type: 'FileTree',
           workspaceFolderUri: folder.uri
         });
       }
@@ -1343,6 +1374,7 @@ function renderWorkspaceFolders(workspaceFolders: any[], targetContentArea: Docu
 
     const fullCodebaseButton = uiManager.createButton('📚 Codebase', {
       id: `${LOCAL_CSS_PREFIX}btn-full-codebase-${folder.uri.replace(/[^a-zA-Z0-9]/g, '_')}`,
+      classNames: ['vertical-button'],
       onClick: async () => {
         await processContentInsertion({
           name: `📚 Codebase - ${folder.name}`,
@@ -1463,7 +1495,7 @@ function createBrowseViewButtons(
 
               const uniqueBlockId = metadataFromResponse.unique_block_id || `cw-block-${Date.now()}`;
               const formattedContent = formatFileContentsForLLM(filesToFormat);
-              const contentTag = 'file_contents'; // Always file_contents for these types
+              const contentTag = 'FileContents'; // Always FileContents for these types
               allContentToInsert += formattedContent.replace(
                 `<${contentTag}>`,
                 `<${contentTag} id="${uniqueBlockId}">`
@@ -1604,20 +1636,20 @@ function createOpenFilesFormElements(
   // If we have files from multiple windows, show window grouping
   if (groupedByWindow.size > 1) {
     for (const [, windowGroupData] of groupedByWindow.entries()) {
-      const windowHeader = uiManager.createDiv({ 
-        classNames: [`${LOCAL_CSS_PREFIX}window-header`], 
+      const windowHeader = uiManager.createDiv({
+        classNames: [`${LOCAL_CSS_PREFIX}window-header`],
         textContent: windowGroupData.name,
         style: { fontWeight: 'bold', marginTop: '10px', marginBottom: '5px' }
       });
       listContainer.appendChild(windowHeader);
-      
+
       // Then group by workspace within each window
       const groupedByWorkspace = groupItemsByWorkspace(windowGroupData.items);
-      
+
       if (groupedByWorkspace.size > 1) {
         for (const [, workspaceGroupData] of groupedByWorkspace.entries()) {
-          const workspaceHeader = uiManager.createDiv({ 
-            classNames: [`${LOCAL_CSS_PREFIX}group-header`], 
+          const workspaceHeader = uiManager.createDiv({
+            classNames: [`${LOCAL_CSS_PREFIX}group-header`],
             textContent: `  ${workspaceGroupData.name}`,
             style: { marginLeft: '15px' }
           });
@@ -1639,7 +1671,7 @@ function createOpenFilesFormElements(
   } else {
     // Single window - use original workspace grouping logic
     const groupedByWorkspace = groupItemsByWorkspace(openFilesList);
-    
+
     if (groupedByWorkspace.size > 1) {
       for (const [, groupData] of groupedByWorkspace.entries()) {
         const groupHeader = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}group-header`], textContent: groupData.name });
@@ -1682,7 +1714,7 @@ function createOpenFilesFormElements(
           successfulFiles.forEach(item => {
             const formatted = formatFileContentsForLLM([item.fileData]);
             const uniqueBlockId = item.metadata.unique_block_id || `cw-block-${Date.now()}`;
-            const contentTag = item.metadata.type === 'code_snippet' ? 'code_snippet' : 'file_contents';
+            const contentTag = item.metadata.type === 'CodeSnippet' ? 'CodeSnippet' : 'FileContents';
             allContentToInsert += formatted.replace(`<${contentTag}>`, `<${contentTag} id="${uniqueBlockId}">`) + '\n\n';
             stateManager.addActiveContextBlock({ ...item.metadata, unique_block_id: uniqueBlockId });
           });

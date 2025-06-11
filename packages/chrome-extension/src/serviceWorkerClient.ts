@@ -88,7 +88,7 @@ export async function getWorkspaceDetails(): Promise<WorkspaceDetailsResponsePay
  */
 export async function getFileTree(workspaceFolderUri: string | null): Promise<FileTreeResponsePayload> {
     return sendMessageToSW<FileTreeResponsePayload>({
-        type: 'GET_FILE_TREE',
+        type: 'GET_FileTree',
         payload: { workspaceFolderUri } as GetFileTreeRequestPayload // Corrected: GetFileTreeRequestPayload
     });
 }

@@ -68,7 +68,7 @@ export class IPCServer {
     private readonly windowId: string;
     private readonly extensionContext: vscode.ExtensionContext;
     private outputChannel: vscode.OutputChannel;
-    
+
     // Primary/Secondary architecture properties
     private isPrimary: boolean = false;
     private primaryWebSocket: WebSocket | null = null;
@@ -122,7 +122,7 @@ export class IPCServer {
 
         // Try to connect to primary first (leader election)
         const testClient = new WebSocket(`ws://127.0.0.1:${PRIMARY_PORT}`);
-        
+
         testClient.on('open', () => {
             // Another VSCE is already primary
             this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'Found existing primary server. Becoming secondary.');
@@ -149,7 +149,7 @@ export class IPCServer {
     private becomePrimary(): void {
         this.isPrimary = true;
         this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'Setting up as PRIMARY server.');
-        
+
         try {
             this.wss = new WebSocketServer({ port: PRIMARY_PORT, host: '127.0.0.1' });
 
@@ -212,13 +212,13 @@ export class IPCServer {
     private becomeSecondary(): void {
         this.isPrimary = false;
         this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'Setting up as SECONDARY server.');
-        
+
         // Connect to primary
         this.primaryWebSocket = new WebSocket(`ws://127.0.0.1:${PRIMARY_PORT}`);
-        
+
         this.primaryWebSocket.on('open', () => {
             this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'Connected to primary server.');
-            
+
             // Register ourselves as a secondary
             const registerMessage: IPCMessageRequest = {
                 protocol_version: '1.0',
@@ -227,7 +227,7 @@ export class IPCServer {
                 command: 'register_secondary',
                 payload: { windowId: this.windowId, port: 0 } // Port 0 since we're using the same connection
             };
-            
+
             this.primaryWebSocket!.send(JSON.stringify(registerMessage));
             vscode.window.showInformationMessage('ContextWeaver: Connected as secondary to primary server.');
         });
@@ -265,7 +265,7 @@ export class IPCServer {
         if (parsedMessage.command === 'forward_request_to_secondaries') {
             const originalRequest = parsedMessage.payload.originalRequest as IPCMessageRequest;
             this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Received forwarded request: ${originalRequest.command}`);
-            
+
             // Process the request locally
             const dummyClient: Client = {
                 ws: null as any, // We'll handle sending response differently
@@ -273,20 +273,20 @@ export class IPCServer {
                 ip: 'primary-forward',
                 windowId: this.windowId
             };
-            
+
             // Store the original handler responses in a buffer
             const responseBuffer: any[] = [];
             const originalSendMessage = this.sendMessage.bind(this);
             this.sendMessage = (ws: any, type: any, command: any, payload: any, message_id?: string) => {
                 responseBuffer.push({ type, command, payload, message_id });
             };
-            
+
             // Process the request
             await this.handleMessage(dummyClient, Buffer.from(JSON.stringify(originalRequest)));
-            
+
             // Restore original sendMessage
             this.sendMessage = originalSendMessage;
-            
+
             // Send response back to primary
             if (responseBuffer.length > 0) {
                 const response = responseBuffer[0]; // Should only be one response
@@ -369,7 +369,7 @@ export class IPCServer {
         }
 
         const commandsRequiringWorkspace = [
-            'get_file_tree', 'get_file_content', 'get_folder_content',
+            'get_FileTree', 'get_file_content', 'get_folder_content',
             'get_entire_codebase', 'search_workspace', 'get_active_file_info',
             'get_open_files', 'get_filter_info', 'list_folder_contents'
         ];
@@ -403,7 +403,7 @@ export class IPCServer {
             case 'get_workspace_details':
                 this.handleGetWorkspaceDetails(client, message_id);
                 break;
-            case 'get_file_tree':
+            case 'get_FileTree':
                 this.handleGetFileTree(client, payload as GetFileTreeRequestPayload, message_id);
                 break;
             case 'get_file_content':
@@ -601,7 +601,7 @@ export class IPCServer {
     private handleForwardedPush(payload: { originalPushPayload: PushSnippetPayload }): void {
         // Forward the push to all CE clients
         const pushPayload = payload.originalPushPayload;
-        
+
         // Remove targetTabId restriction and send to all CE clients
         for (const client of this.clients.values()) {
             if (client.isAuthenticated && !client.windowId) { // Not a secondary VSCE
@@ -612,7 +612,7 @@ export class IPCServer {
                     command: 'push_snippet',
                     payload: pushPayload
                 };
-                
+
                 if (client.ws.readyState === WebSocket.OPEN) {
                     client.ws.send(JSON.stringify(pushMessage));
                     this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'Forwarded push to CE client');
@@ -648,7 +648,7 @@ export class IPCServer {
                         command: 'push_snippet',
                         payload: fullSnippetData
                     };
-                    
+
                     if (client.ws.readyState === WebSocket.OPEN) {
                         client.ws.send(JSON.stringify(pushMessage));
                         this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'Pushed snippet to CE client');
@@ -665,7 +665,7 @@ export class IPCServer {
                     command: 'forward_push_to_primary',
                     payload: { originalPushPayload: fullSnippetData }
                 };
-                
+
                 this.primaryWebSocket.send(JSON.stringify(forwardPush));
                 this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'Forwarded snippet push to primary');
             } else {
@@ -833,14 +833,14 @@ export class IPCServer {
         payload: GetFileTreeRequestPayload,
         message_id: string
     ): Promise<void> {
-        const targetWorkspaceFolder = await this.getTargetWorkspaceFolder(client, payload.workspaceFolderUri, 'get_file_tree', message_id);
+        const targetWorkspaceFolder = await this.getTargetWorkspaceFolder(client, payload.workspaceFolderUri, 'get_FileTree', message_id);
         if (!targetWorkspaceFolder) return;
 
         try {
             const result = await getFileTree(targetWorkspaceFolder);
 
             if (typeof result === 'string' && result.startsWith('Error:')) {
-                this.sendError(client.ws, message_id, 'FILE_TREE_GENERATION_FAILED', result);
+                this.sendError(client.ws, message_id, 'FileTree_GENERATION_FAILED', result);
                 return;
             }
 
@@ -848,8 +848,8 @@ export class IPCServer {
 
             const metadata: ContextBlockMetadata = {
                 unique_block_id: uuidv4(),
-                content_source_id: `${targetWorkspaceFolder.uri.toString()}::file_tree`,
-                type: 'file_tree',
+                content_source_id: `${targetWorkspaceFolder.uri.toString()}::FileTree`,
+                type: 'FileTree',
                 label: targetWorkspaceFolder.name,
                 workspaceFolderUri: targetWorkspaceFolder.uri.toString(),
                 workspaceFolderName: targetWorkspaceFolder.name,
@@ -868,13 +868,13 @@ export class IPCServer {
                 workspaceFolderUri: targetWorkspaceFolder.uri.toString(),
                 filterType: filterTypeApplied
             };
-            this.sendMessage<FileTreeResponsePayload>(client.ws, 'response', 'response_file_tree', responsePayload, message_id);
+            this.sendMessage<FileTreeResponsePayload>(client.ws, 'response', 'response_FileTree', responsePayload, message_id);
             this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent file tree for ${targetWorkspaceFolder.uri.toString()} (Filter: ${filterTypeApplied}) to ${client.ip}`);
 
         } catch (error: any) {
             this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error generating file tree for ${targetWorkspaceFolder.uri.toString()}: ${error.message}`);
             console.error(LOG_PREFIX_SERVER + 'Error generating file tree:', error);
-            const errorCode = error instanceof WorkspaceServiceError ? error.code : 'FILE_TREE_ERROR';
+            const errorCode = error instanceof WorkspaceServiceError ? error.code : 'FileTree_ERROR';
             this.sendError(client.ws, message_id, errorCode, `Error generating file tree: ${error.message}`);
         }
     }
@@ -1390,7 +1390,7 @@ export class IPCServer {
                 this.wss = null;
             });
         }
-        
+
         // If secondary, close connection to primary
         if (this.primaryWebSocket) {
             this.primaryWebSocket.close();

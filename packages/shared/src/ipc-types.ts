@@ -303,7 +303,7 @@ export interface PushSnippetPayload {
  */
 export type IPCRequest =
     | { command: "register_active_target"; payload: RegisterActiveTargetRequestPayload }
-    | { command: "get_file_tree"; payload: GetFileTreeRequestPayload }
+    | { command: "get_FileTree"; payload: GetFileTreeRequestPayload }
     | { command: "get_file_content"; payload: GetFileContentRequestPayload }
     | { command: "get_folder_content"; payload: GetFolderContentRequestPayload }
     | { command: "get_entire_codebase"; payload: GetEntireCodebaseRequestPayload }
@@ -322,7 +322,7 @@ export type IPCRequest =
  */
 export type IPCResponse =
     | { command: "response_generic_ack"; payload: GenericAckResponsePayload }
-    | { command: "response_file_tree"; payload: FileTreeResponsePayload }
+    | { command: "response_FileTree"; payload: FileTreeResponsePayload }
     | { command: "response_file_content"; payload: FileContentResponsePayload }
     | { command: "response_folder_content"; payload: FolderContentResponsePayload }
     | { command: "response_entire_codebase"; payload: EntireCodebaseResponsePayload }

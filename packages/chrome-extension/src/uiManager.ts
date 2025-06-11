@@ -75,6 +75,18 @@ export class UIManager {
     }
     .${CSS_PREFIX}button:hover { background-color: #4a4a4a; }
     .${CSS_PREFIX}button:disabled { background-color: #2a2a2a; color: #777; cursor: not-allowed; }
+    
+    /* Vertical button layout */
+    .${CSS_PREFIX}vertical-button {
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
+      margin-right: 0;
+      margin-bottom: 8px;
+    }
+    .${CSS_PREFIX}vertical-button:last-of-type {
+      margin-bottom: 0px;
+    }
     .${CSS_PREFIX}search-result-item {
       padding: 8px 12px;
       margin-bottom: 4px;
@@ -553,8 +565,8 @@ export class UIManager {
                 case 'file_content': iconSpan.textContent = '📄'; break;
                 case 'folder_content': iconSpan.textContent = '📁'; break;
                 case 'codebase_content': iconSpan.textContent = '📚'; break;
-                case 'file_tree': iconSpan.textContent = '🌲'; break;
-                case 'code_snippet': iconSpan.textContent = '✂️'; break;
+                case 'FileTree': iconSpan.textContent = '🌲'; break;
+                case 'CodeSnippet': iconSpan.textContent = '✂️'; break;
                 default: iconSpan.textContent = '❔';
             }
             indicator.appendChild(iconSpan);

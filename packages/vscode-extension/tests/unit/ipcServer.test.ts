@@ -13,7 +13,7 @@ class MockWebSocket extends EventEmitter {
     readyState: number = MockWebSocket.OPEN;
     send = jest.fn();
     close = jest.fn();
-    
+
     constructor(public url: string) {
         super();
     }
@@ -22,7 +22,7 @@ class MockWebSocket extends EventEmitter {
 class MockWebSocketServer extends EventEmitter {
     clients = new Set<MockWebSocket>();
     close = jest.fn();
-    
+
     constructor(_options: any) {
         super();
         // Simulate server starting
@@ -40,7 +40,7 @@ jest.mock('ws', () => {
     // Add static properties to MockWebSocket class
     (MockWebSocket as any).OPEN = 1;
     (MockWebSocket as any).CLOSED = 3;
-    
+
     const MockWebSocketConstructor: any = jest.fn().mockImplementation((url: string) => {
         const ws = new MockWebSocket(url);
         createdWebSockets.push(ws);
@@ -49,7 +49,7 @@ jest.mock('ws', () => {
     // Add static properties to the constructor function
     MockWebSocketConstructor.OPEN = 1;
     MockWebSocketConstructor.CLOSED = 3;
-    
+
     return {
         __esModule: true,
         default: MockWebSocketConstructor,
@@ -97,7 +97,7 @@ import * as vscode from 'vscode';
 import { IPCServer } from '../../src/ipcServer';
 import { SearchService } from '../../src/searchService';
 import { WorkspaceService } from '../../src/workspaceService';
-import { 
+import {
     IPCMessageRequest
 } from '@contextweaver/shared';
 import { v4 as uuidv4 } from 'uuid';
@@ -178,7 +178,7 @@ describe('IPCServer - Leader Election', () => {
         // Simulate connection failure
         const testClient = createdWebSockets[0];
         expect(testClient).toBeDefined();
-        
+
         const error = new Error('connect ECONNREFUSED 127.0.0.1:30001');
         (error as any).code = 'ECONNREFUSED';
         testClient.emit('error', error);
@@ -242,7 +242,7 @@ describe('IPCServer - Primary Role', () => {
             getWorkspaceFolder: jest.fn(),
             ensureWorkspaceTrustedAndOpen: jest.fn().mockResolvedValue(undefined)  // Add this mock!
         } as any;
-        
+
         // Create server instance
         server = new IPCServer(
             30001,
@@ -252,10 +252,10 @@ describe('IPCServer - Primary Role', () => {
             mockSearchService as any,
             mockWorkspaceService as any
         );
-        
+
         // Manually set as primary
         (server as any).isPrimary = true;
-        
+
         // Create mock WebSocket instances
         mockSecondaryWs = new MockWebSocket('ws://test');
         mockCEWs = new MockWebSocket('ws://test');
@@ -275,17 +275,17 @@ describe('IPCServer - Primary Role', () => {
             isAuthenticated: true,
             ip: '127.0.0.1'
         };
-        
+
         // Add client to server's clients map
         (server as any).clients.set(mockSecondaryWs, client);
-        
+
         // Call handleMessage
         await (server as any).handleMessage(client, Buffer.from(JSON.stringify(message)));
-        
+
         // Verify secondary was registered
         expect((server as any).secondaryClients.has('secondary-window-id')).toBe(true);
         expect((server as any).secondaryClients.get('secondary-window-id')).toBe(mockSecondaryWs);
-        
+
         // Verify acknowledgment was sent
         expect(mockSecondaryWs.send).toHaveBeenCalled();
         const response = JSON.parse(mockSecondaryWs.send.mock.calls[0][0]);
@@ -298,10 +298,10 @@ describe('IPCServer - Primary Role', () => {
         // Setup: Register a secondary properly
         const secondaryWindowId = 'secondary-window-id';
         (server as any).secondaryClients.set(secondaryWindowId, mockSecondaryWs);
-        
+
         // Ensure the mock WebSocket is in OPEN state
         mockSecondaryWs.readyState = MockWebSocket.OPEN;
-        
+
         // Setup: Add CE client WITHOUT windowId to trigger broadcast
         const ceClient = {
             ws: mockCEWs,
@@ -310,7 +310,7 @@ describe('IPCServer - Primary Role', () => {
             // No windowId property - this is important for broadcast logic
         };
         (server as any).clients.set(mockCEWs, ceClient);
-        
+
         // Create search request from CE
         const searchRequest: IPCMessageRequest = {
             protocol_version: "1.0",
@@ -319,7 +319,7 @@ describe('IPCServer - Primary Role', () => {
             command: "search_workspace",
             payload: { query: "test", workspaceFolderUri: null }
         };
-        
+
         // Mock search results for primary
         (mockSearchService.search as jest.Mock).mockResolvedValueOnce([{
             path: '/workspace/test.js',
@@ -331,13 +331,13 @@ describe('IPCServer - Primary Role', () => {
             workspaceFolderName: 'TestWorkspace',
             relativePath: 'test.js'
         }]);
-        
+
         // Call handleMessage
         await (server as any).handleMessage(ceClient, Buffer.from(JSON.stringify(searchRequest)));
-        
+
         // Wait for async operations
         await new Promise(resolve => setTimeout(resolve, 50));
-        
+
         // Verify forward_request_to_secondaries was sent
         expect(mockSecondaryWs.send).toHaveBeenCalled();
         const forwardedMessage = JSON.parse(mockSecondaryWs.send.mock.calls[0][0]);
@@ -357,16 +357,16 @@ describe('IPCServer - Primary Role', () => {
         // Manually create an aggregation entry
         const originalMessageId = uuidv4();
         const aggregationId = uuidv4();
-        
+
         (server as any).pendingAggregatedResponses.set(aggregationId, {
             originalRequester: mockCEWs,
             responses: [],
             expectedResponses: 2,
-            timeout: setTimeout(() => {}, 5000),
+            timeout: setTimeout(() => { }, 5000),
             originalMessageId: originalMessageId,
             originalCommand: 'search_workspace'
         });
-        
+
         // Call completeAggregation directly with proper responses
         const aggregation = (server as any).pendingAggregatedResponses.get(aggregationId);
         aggregation.responses = [
@@ -409,10 +409,10 @@ describe('IPCServer - Primary Role', () => {
                 }
             }
         ];
-        
+
         // Complete aggregation
         (server as any).completeAggregation(aggregationId);
-        
+
         // Verify aggregated response was sent to CE
         expect(mockCEWs.send).toHaveBeenCalled();
         const aggregatedResponse = JSON.parse(mockCEWs.send.mock.calls[0][0]);
@@ -445,7 +445,7 @@ describe('IPCServer - Secondary Role', () => {
             getWorkspaceFolder: jest.fn(),
             ensureWorkspaceTrustedAndOpen: jest.fn().mockResolvedValue(undefined)  // Add this mock!
         } as any;
-        
+
         // Create server instance
         server = new IPCServer(
             30001,
@@ -455,10 +455,10 @@ describe('IPCServer - Secondary Role', () => {
             mockSearchService as any,
             mockWorkspaceService as any
         );
-        
+
         // Manually set as secondary
         (server as any).isPrimary = false;
-        
+
         // Create mock primary WebSocket
         mockPrimaryWs = new MockWebSocket('ws://127.0.0.1:30001');
         (server as any).primaryWebSocket = mockPrimaryWs;
@@ -476,17 +476,17 @@ describe('IPCServer - Secondary Role', () => {
             metadata: {
                 unique_block_id: uuidv4(),
                 content_source_id: 'file:///workspace2/test.js',
-                type: 'code_snippet' as const,
+                type: 'CodeSnippet' as const,
                 label: 'test.js:1-1',
                 workspaceFolderUri: 'file:///workspace2',
                 workspaceFolderName: 'Workspace2',
                 windowId: 'secondary-window-id'
             }
         };
-        
+
         // Call handleSnippetSendRequest
         server.handleSnippetSendRequest(snippetData);
-        
+
         // Verify forward_push_to_primary was sent
         expect(mockPrimaryWs.send).toHaveBeenCalledTimes(1);
         const forwardedPush = JSON.parse(mockPrimaryWs.send.mock.calls[0][0]);
@@ -509,7 +509,7 @@ describe('IPCServer - Secondary Role', () => {
             workspaceFolderName: 'Workspace2',
             relativePath: 'secondary-file.js'
         }]);
-        
+
         // Create forwarded request
         const originalRequest: IPCMessageRequest = {
             protocol_version: "1.0",
@@ -518,7 +518,7 @@ describe('IPCServer - Secondary Role', () => {
             command: "search_workspace",
             payload: { query: "test", workspaceFolderUri: null }
         };
-        
+
         const forwardedMessage = {
             command: 'forward_request_to_secondaries',
             payload: { originalRequest }
@@ -526,20 +526,20 @@ describe('IPCServer - Secondary Role', () => {
 
         // Ensure the mock primary WebSocket is in OPEN state
         mockPrimaryWs.readyState = MockWebSocket.OPEN;
-        
+
         // Call handleSecondaryMessage
         await (server as any).handleSecondaryMessage(Buffer.from(JSON.stringify(forwardedMessage)));
-        
+
         // Wait for async processing
         await new Promise(resolve => setTimeout(resolve, 50));
-        
+
         // Verify response was sent back to primary
         expect(mockPrimaryWs.send).toHaveBeenCalled();
         const response = JSON.parse(mockPrimaryWs.send.mock.calls[0][0]);
         expect(response.type).toBe('push');
         expect(response.command).toBe('forward_response_to_primary');
         expect(response.payload.originalMessageId).toBe(originalRequest.message_id);
-        
+
         // Check the response payload structure
         expect(response.payload.originalMessageId).toBe(originalRequest.message_id);
         expect(response.payload.responsePayload).toBeTruthy();

@@ -75,40 +75,45 @@ export class SearchService {
     gitignoreFilter: Ignore | null,
     defaultIgnorePatterns: readonly string[]
   ): { ignored: boolean; filterTypeApplied: FilterType } { // Changed to FilterType
-    if (gitignoreFilter) {
-      let pathToCheck = relativePath;
-      if (pathToCheck.startsWith('./')) {
-        pathToCheck = pathToCheck.substring(2);
-      }
+    const normalizedRelativePath = relativePath.replace(/\\/g, '/');
 
+    // 1. Check default patterns first, as per SRS FR-VSCE-005
+    for (const pattern of defaultIgnorePatterns) {
+      const isDirPattern = pattern.endsWith('/');
+      const cleanPattern = isDirPattern ? pattern.slice(0, -1) : pattern;
+
+      if (isDirPattern) { // Pattern targets a directory
+        if (isDirectory && (name === cleanPattern || normalizedRelativePath === cleanPattern || normalizedRelativePath.startsWith(cleanPattern + '/'))) {
+          return { ignored: true, filterTypeApplied: 'default' };
+        }
+      } else if (pattern.startsWith('*.')) { // Pattern targets an extension
+        if (!isDirectory && name.endsWith(pattern.substring(1))) {
+          return { ignored: true, filterTypeApplied: 'default' };
+        }
+      } else { // Pattern targets a specific file/folder name
+        if (name === pattern) {
+          return { ignored: true, filterTypeApplied: 'default' };
+        }
+      }
+    }
+
+    // 2. If not ignored by default, check gitignore if it exists
+    if (gitignoreFilter) {
+      let gitignorePath = normalizedRelativePath;
+      if (gitignorePath.startsWith('./')) {
+        gitignorePath = gitignorePath.substring(2);
+      }
       // For directories, check with and without trailing slash for comprehensive matching by 'ignore'
-      const isGitignored = gitignoreFilter.ignores(pathToCheck) ||
-        (isDirectory && !pathToCheck.endsWith('/') && gitignoreFilter.ignores(pathToCheck + '/'));
+      const isGitignored = gitignoreFilter.ignores(gitignorePath) ||
+        (isDirectory && !gitignorePath.endsWith('/') && gitignoreFilter.ignores(gitignorePath + '/'));
 
       if (isGitignored) {
         return { ignored: true, filterTypeApplied: 'gitignore' };
       }
-      return { ignored: false, filterTypeApplied: 'gitignore' }; // If gitignoreFilter exists, it's the source even if not ignored
-    } else {
-      for (const pattern of defaultIgnorePatterns) {
-        const cleanPatternName = pattern.endsWith('/') ? pattern.slice(0, -1) : pattern;
-
-        if (pattern.endsWith('/')) {
-          if (isDirectory && (name === cleanPatternName || relativePath === cleanPatternName || relativePath.startsWith(cleanPatternName + '/'))) {
-            return { ignored: true, filterTypeApplied: 'default' };
-          }
-        } else if (pattern.startsWith('*.')) {
-          if (!isDirectory && name.endsWith(pattern.substring(1))) {
-            return { ignored: true, filterTypeApplied: 'default' };
-          }
-        } else {
-          if (name === pattern) {
-            return { ignored: true, filterTypeApplied: 'default' };
-          }
-        }
-      }
-      return { ignored: false, filterTypeApplied: 'default' }; // If no gitignore, default is the source
     }
+
+    // 3. Not ignored by anything. The "applied" filter is the one that was consulted.
+    return { ignored: false, filterTypeApplied: gitignoreFilter ? 'gitignore' : 'default' };
   }
 
 

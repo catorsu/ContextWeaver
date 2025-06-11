@@ -12,7 +12,7 @@
 export interface ContextBlockMetadata {
     unique_block_id: string; // UUID for this specific instance of content
     content_source_id: string; // Canonical identifier for the source (file path, folder path, special ID)
-    type: "file_tree" | "file_content" | "folder_content" | "codebase_content" | "code_snippet";
+    type: "FileTree" | "file_content" | "folder_content" | "codebase_content" | "CodeSnippet";
     label: string; // User-friendly label for the indicator
     workspaceFolderUri: string | null;
     workspaceFolderName: string | null;

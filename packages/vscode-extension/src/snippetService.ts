@@ -22,7 +22,7 @@ export interface SnippetPayload {
     metadata: {
         unique_block_id: string;
         content_source_id: string;
-        type: 'code_snippet';
+        type: 'CodeSnippet';
         label: string;
         workspaceFolderUri: string | null;
         workspaceFolderName: string | null;
@@ -105,7 +105,7 @@ export class SnippetService {
             metadata: {
                 unique_block_id,
                 content_source_id,
-                type: 'code_snippet',
+                type: 'CodeSnippet',
                 label,
                 workspaceFolderUri: workspaceFolderUriString,
                 workspaceFolderName: workspaceFolderName,

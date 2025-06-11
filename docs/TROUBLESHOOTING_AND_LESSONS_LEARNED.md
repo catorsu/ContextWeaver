@@ -468,23 +468,23 @@ Each new entry should follow the format below:
 **Phase/Task in Development Plan:** Phase 3 - Context Block Indicator Management & Content Insertion/Removal
 
 **Problem Encountered:**
-*   **Symptoms:** When removing content (specifically `contentScript.ts` itself, or any file containing strings identical to the extension's own wrapping tags like `</file_contents>`) from an LLM chat input via its context indicator's "x" button, only a portion of the content block was removed. The beginning of the block up to the point where the internal `</file_contents>` string occurred was deleted, but the rest of the file content and the true outer closing tag remained. This issue was specific to files whose content included strings that matched the extension's own XML-like wrapper tags.
-*   **Context:** The removal logic in `contentScript.ts` used a regular expression with a non-greedy match `([\s\S]*?)` for the content between custom tags (e.g., `<file_contents id="...">` and `</file_contents>`).
+*   **Symptoms:** When removing content (specifically `contentScript.ts` itself, or any file containing strings identical to the extension's own wrapping tags like `</FileContents>`) from an LLM chat input via its context indicator's "x" button, only a portion of the content block was removed. The beginning of the block up to the point where the internal `</FileContents>` string occurred was deleted, but the rest of the file content and the true outer closing tag remained. This issue was specific to files whose content included strings that matched the extension's own XML-like wrapper tags.
+*   **Context:** The removal logic in `contentScript.ts` used a regular expression with a non-greedy match `([\s\S]*?)` for the content between custom tags (e.g., `<FileContents id="...">` and `</FileContents>`).
 *   **Initial Diagnosis/Hypothesis:** The non-greedy regex was prematurely terminating its content match upon encountering an instance of the closing tag string *within* the actual file content being wrapped, rather than matching up to the legitimate, outermost closing tag.
 
 **Investigation & Iterations:**
 1.  Verified that the regular expression for identifying the block to remove was correctly constructed to match the outer tags and capture content non-greedily.
 2.  Initial tests with simple file contents worked correctly, suggesting the regex itself was fundamentally sound for "clean" content.
-3.  The issue was consistently reproducible when the `contentScript.ts` file itself was inserted, as this file contained the string `</file_contents>` within its `formatFileContentsForLLM` function's return statement.
-4.  Detailed logging using `regex.exec()` in a loop confirmed that the non-greedy `([\s\S]*?)` was indeed stopping at the first occurrence of `</file_contents>` it found, even if that occurrence was part of the *content* rather than the *wrapper*.
+3.  The issue was consistently reproducible when the `contentScript.ts` file itself was inserted, as this file contained the string `</FileContents>` within its `formatFileContentsForLLM` function's return statement.
+4.  Detailed logging using `regex.exec()` in a loop confirmed that the non-greedy `([\s\S]*?)` was indeed stopping at the first occurrence of `</FileContents>` it found, even if that occurrence was part of the *content* rather than the *wrapper*.
 5.  Confirmed that the issue was independent of the insertion method (e.g., "active file" vs. "search") as long as the problematic file (`contentScript.ts`) was the one being inserted and removed.
 
 **Solution Implemented:**
 *   Modified the `formatFileContentsForLLM` function in `contentScript.ts`.
-*   Before a file's content is wrapped in the Markdown code block and then the outer XML-like tags (e.g., `<file_contents>`), the function now processes the raw file content.
-*   This processing step iterates through a predefined list of the extension's own wrapping tag names (e.g., `file_contents`, `file_tree`, `code_snippet`).
+*   Before a file's content is wrapped in the Markdown code block and then the outer XML-like tags (e.g., `<FileContents>`), the function now processes the raw file content.
+*   This processing step iterates through a predefined list of the extension's own wrapping tag names (e.g., `FileContents`, `FileTree`, `CodeSnippet`).
 *   For each tag name, it uses regular expressions to find occurrences of `</tagName` and `<tagName` within the raw file content.
-*   It then replaces these occurrences by inserting a zero-width space (`\u200B`) between the `<` or `</` and the `tagName` (e.g., `</file_contents>` becomes `</\u200Bfile_contents>`, and `<file_contents` becomes `<\u200Bfile_contents`).
+*   It then replaces these occurrences by inserting a zero-width space (`\u200B`) between the `<` or `</` and the `tagName` (e.g., `</FileContents>` becomes `</\u200BFileContents>`, and `<FileContents` becomes `<\u200BFileContents`).
 *   This "neutralizes" any instances of the wrapping tags within the file content, preventing them from being mistakenly recognized by the removal regex as the legitimate outer closing tag. The legitimate outer tags added by `formatFileContentsForLLM` are not subjected to this neutralization.
 
 **Key Takeaway(s) / How to Avoid in Future:**
