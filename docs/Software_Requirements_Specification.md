@@ -1,8 +1,5 @@
 ## Software Requirements Specification: ContextWeaver
 
-**Version:** 1.1
-**Date:** May 26, 2025
-
 **Table of Contents:**
 
 1.  **Introduction**
@@ -342,12 +339,12 @@ The floating UI should use a standardized loading indicator (CSS spinner and mes
     *   If the user attempts to insert content (file, folder, file tree, entire codebase) that is already represented by an active context block indicator, the floating UI (or a temporary toast/message) shall inform the user, e.g., "Content from `[source_name]` is already added." or "File Tree is already present." The specific option in the floating UI might be temporarily disabled or show a distinct visual cue.
 
 #### 3.3. Data Formatting Requirements
-The content inserted into the LLM chat input shall be wrapped in specific XML-like tags.
+The content inserted into the LLM chat input shall be wrapped in specific XML-like tags. **Each distinct block of content MUST be wrapped in a single, top-level tag that includes a unique `id` attribute, which MUST be a Version 4 UUID (e.g., `<FileTree id="f81d4fae-7dec-11d0-a765-00a0c91e6bf6">`).** This `id` is critical for the management and removal of the content block via its corresponding context indicator.
 
 *   **3.3.1. File Directory Structure Format:**
-    The inserted content shall be wrapped in `<FileTree>` tags and formatted as an ASCII tree, for example:
+    The inserted content shall be wrapped in `<FileTree>` tags and formatted as an ASCII tree. The top-level tag must include a unique `id`. For example:
     ```text
-    <FileTree>
+    <FileTree id="a1b2c3d4-e5f6-4a5b-b6c7-d8e9f0a1b2c3">
     C:/project/SmartInfo
     ├── src
     │   ├── services
@@ -360,16 +357,16 @@ The content inserted into the LLM chat input shall be wrapped in specific XML-li
     ```
 
 *   **3.3.2. File, Folder, or Codebase Content Format:**
-    When inserting content from a single file, multiple files (e.g., from a folder), or the entire codebase, the content shall be wrapped in a single `<FileContents>` tag.
+    When inserting content from a single file, multiple files (e.g., from a folder), or the entire codebase, the content shall be wrapped in a single `<FileContents>` tag that includes a unique `id`.
     Within this tag, each file's content is represented by:
     1.  A `File: <full_path_to_file>` line.
     2.  The actual file content, enclosed in a Markdown code block with its determined language identifier (e.g., `javascript`, `python`, `plaintext`).
 
-    For multiple files (representing a folder or an entire codebase), these `File: ... ```<language_id> ... ``` ` blocks are concatenated sequentially within the single `<FileContents>` tag. The order of file content should ideally match a logical traversal (e.g., as in a file tree).
+    For multiple files (representing a folder or an entire codebase), these `File: ... ```<language_id> ... ``` ` blocks are concatenated sequentially within the single `<FileContents>` tag.
 
     Example (representing content from a single file):
     ```text
-    <FileContents>
+    <FileContents id="b4c5d6e7-f890-4c5d-a1b2-c3d4e5f6a7b8">
     File: C:/project/SmartInfo/src/utils.ts
     ```typescript
     // Some utility functions
@@ -382,9 +379,9 @@ The content inserted into the LLM chat input shall be wrapped in specific XML-li
     </FileContents>
     ```
 
-    Example (representing content from multiple files, e.g., a folder's content):
+    Example (representing content from multiple files):
     ```text
-    <FileContents>
+    <FileContents id="c7d8e9f0-1a2b-4e5f-b8c9-d0e1f2a3b4c5">
     File: C:/project/SmartInfo/src/services/userService.ts
     ```typescript
     interface User {
@@ -425,15 +422,15 @@ The content inserted into the LLM chat input shall be wrapped in specific XML-li
     ```
 
 *   **3.3.3. Code Snippet Format:**
-    Inserted code snippets (e.g., from a VS Code context menu selection) shall be wrapped in `<CodeSnippet>` tags.
+    Inserted code snippets shall be wrapped in `<CodeSnippet>` tags, which must include a unique `id`.
     Inside the `<CodeSnippet>` tag, the following information shall be included before the code block:
     1.  `File: <full_path_to_file>`: The path to the source file.
     2.  `lines: <start_line>-<end_line>`: The line numbers of the snippet.
-    Followed by the code snippet itself, enclosed in a Markdown code block with its determined language identifier (e.g., `javascript`, `python`, `plaintext`).
+    Followed by the code snippet itself, enclosed in a Markdown code block with its determined language identifier.
 
     Example:
     ```text
-    <CodeSnippet>
+    <CodeSnippet id="d1e2f3a4-b5c6-4d7e-8f90-1a2b3c4d5e6f">
     File: C:/project/ContextWeaver/packages/chrome-extension/src/serviceWorker.ts
     lines: 20-30
     ```typescript

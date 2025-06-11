@@ -85,6 +85,13 @@ export interface ListFolderContentsRequestPayload {
     workspaceFolderUri: string | null; // Changed to allow null
 }
 
+/**
+ * Payload for requesting workspace problems.
+ */
+export interface GetWorkspaceProblemsRequestPayload {
+    workspaceFolderUri: string;
+}
+
 
 // --- VSCE -> CE (Responses) ---
 
@@ -268,6 +275,23 @@ export interface ListFolderContentsResponsePayload {
     errorCode?: string;
 }
 
+export interface WorkspaceProblemsResponseData {
+    problemsString: string;
+    problemCount: number;
+    metadata: ContextBlockMetadata;
+    windowId: string;
+}
+/**
+ * Response payload for a workspace problems request.
+ */
+export interface WorkspaceProblemsResponsePayload {
+    success: boolean;
+    data: WorkspaceProblemsResponseData | null;
+    error: string | null;
+    errorCode?: string;
+    workspaceFolderUri: string;
+}
+
 /**
  * Standard error response payload for IPC messages.
  */
@@ -313,6 +337,7 @@ export type IPCRequest =
     | { command: "get_filter_info"; payload: GetFilterInfoRequestPayload }
     | { command: "get_workspace_details"; payload: {} }
     | { command: "list_folder_contents"; payload: ListFolderContentsRequestPayload }
+    | { command: "get_workspace_problems"; payload: GetWorkspaceProblemsRequestPayload }
     | { command: "register_secondary"; payload: { windowId: string; port: number } }
     | { command: "forward_request_to_secondaries"; payload: { originalRequest: IPCMessageRequest } }
     | { command: "unregister_secondary"; payload: { windowId: string } };
@@ -332,6 +357,7 @@ export type IPCResponse =
     | { command: "response_workspace_details"; payload: WorkspaceDetailsResponsePayload }
     | { command: "response_filter_info"; payload: FilterInfoResponsePayload }
     | { command: "response_list_folder_contents"; payload: ListFolderContentsResponsePayload }
+    | { command: "response_workspace_problems"; payload: WorkspaceProblemsResponsePayload }
     | { command: "response_unregister_secondary_ack"; payload: GenericAckResponsePayload };
 // error_response is handled separately or as part of specific responses with success:false
 

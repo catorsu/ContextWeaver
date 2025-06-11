@@ -11,6 +11,7 @@ import { IPCServer } from './ipcServer';
 import { SearchService } from './searchService';
 import { SnippetService } from './snippetService';
 import { WorkspaceService } from './workspaceService'; // Added import
+import { DiagnosticsService } from './diagnosticsService';
 
 const EXTENSION_ID = 'contextweaver'; // For settings and prefixing
 const LOG_PREFIX = '[ContextWeaver] ';
@@ -18,6 +19,7 @@ let outputChannel: vscode.OutputChannel;
 let ipcServer: IPCServer | null = null;
 let snippetService: SnippetService;
 let workspaceService: WorkspaceService; // Added declaration
+let diagnosticsService: DiagnosticsService;
 
 // Interface for the subset of vscode.window methods needed by command handlers
 /**
@@ -84,13 +86,14 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Initialize services
     workspaceService = new WorkspaceService(outputChannel); // Instantiate WorkspaceService
+    diagnosticsService = new DiagnosticsService(outputChannel);
     const searchService = new SearchService(outputChannel, workspaceService); // Pass outputChannel and workspaceService to SearchService
 
     // Retrieve configuration for IPC
     const configuration = vscode.workspace.getConfiguration(EXTENSION_ID);
     const port = configuration.get('ipc.port', 30001);
 
-    ipcServer = new IPCServer(port, windowId, context, outputChannel, searchService, workspaceService); // Pass windowId and workspaceService
+    ipcServer = new IPCServer(port, windowId, context, outputChannel, searchService, workspaceService, diagnosticsService); // Pass windowId, workspaceService and diagnosticsService
 
     // --- ADDED LOGGING ---
     console.log(LOG_PREFIX + 'IPCServer instance created. Attempting to start...');

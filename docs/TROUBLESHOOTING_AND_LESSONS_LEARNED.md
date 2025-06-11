@@ -495,5 +495,30 @@ Each new entry should follow the format below:
 *   **Testing with Self-Referential Content:** Always test systems that process or wrap code with the system's own source code as input, as this is a common way to uncover self-referential bugs or tag collisions.
 
 ---
+## [20] - Redundant Content Wrapping Leading to Nested Tags
+
+**Phase/Task in Development Plan:** Phase 3 - Full Integration and Testing
+
+**Problem Encountered:**
+*   **Symptoms:** When inserting a file tree or a folder's content, the resulting text in the LLM chat input was incorrectly formatted with nested wrapper tags (e.g., `<FileContents id="..."><FileContents>...</FileContents></FileContents>`). This broke the content removal logic, as the removal regex would only match the inner block, leaving orphaned content in the input field.
+*   **Context:** The issue was caused by a violation of the Separation of Concerns principle. The VSCE's `fileSystemService` was pre-wrapping the file tree in `<FileTree>` tags, and the CE's `formatFileContentsForLLM` function was pre-wrapping content in `<FileContents>` tags. The client-side insertion logic then added another, outer wrapper tag with the unique ID, leading to the nested structure.
+
+**Investigation & Iterations:**
+*   Confirmed that the VSCE `getFileTree` response payload contained a string that already included `<FileTree>` tags.
+*   Confirmed that the CE `formatFileContentsForLLM` function returned a string that already included `<FileContents>` tags.
+*   Identified that multiple locations in the CE (`processContentInsertion`, `createBrowseViewButtons`, `createOpenFilesFormElements`) were attempting to add a final wrapper tag to what they assumed was raw content, but was in fact already-wrapped content.
+
+**Solution Implemented:**
+*   The architecture was refactored to enforce a strict Separation of Concerns.
+*   **VSCE (`fileSystemService.ts`):** The `getFileTree` function was modified to return only the raw, unwrapped ASCII tree string.
+*   **CE (`contentScript.ts`):** The `formatFileContentsForLLM` function was modified to return only the concatenated, unwrapped `File: ...` blocks.
+*   **CE (Insertion Logic):** All call sites in the CE that insert content are now solely responsible for wrapping the received raw content in the appropriate top-level tag (e.g., `<FileContents id="...">`) before insertion. This ensures there is a single, unambiguous source of truth for the final formatting.
+
+**Key Takeaway(s) / How to Avoid in Future:**
+*   **Data Providers vs. Presenters:** A service or module that provides data (like an IPC backend) should provide raw, unformatted data. The component that consumes and displays that data (the presenter, or client) should be responsible for all presentation-layer formatting (like adding HTML/XML tags). This clear boundary prevents redundant processing and bugs caused by incorrect assumptions about data format.
+*   **Single Source of Truth:** The logic for applying a specific format (like the final wrapper tag with a unique ID) should exist in exactly one place. In this case, it now correctly resides in the CE's content insertion logic. This aligns with the DRY principle and improves maintainability.
+*   **Prevention:** When designing an API or IPC contract, be explicit about the format of the data being exchanged. Specify whether data is raw or pre-formatted.
+
+---
 
 <!-- Add new log entries above this line | This comment must remain at the end of the file -->

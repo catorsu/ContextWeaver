@@ -9,12 +9,12 @@ import {
     // Request Payloads (for methods sending requests)
     RegisterActiveTargetRequestPayload, GetFileTreeRequestPayload, GetFileContentRequestPayload,
     GetFolderContentRequestPayload, GetEntireCodebaseRequestPayload, SearchWorkspaceRequestPayload,
-    GetFilterInfoRequestPayload, ListFolderContentsRequestPayload,
+    GetFilterInfoRequestPayload, ListFolderContentsRequestPayload, GetWorkspaceProblemsRequestPayload,
     // Response Payloads (for resolving promises)
     GenericAckResponsePayload, FileTreeResponsePayload, FileContentResponsePayload,
     FolderContentResponsePayload, EntireCodebaseResponsePayload, ActiveFileInfoResponsePayload,
     OpenFilesResponsePayload, SearchWorkspaceResponsePayload, WorkspaceDetailsResponsePayload,
-    FilterInfoResponsePayload, ListFolderContentsResponsePayload, ErrorResponsePayload,
+    FilterInfoResponsePayload, ListFolderContentsResponsePayload, WorkspaceProblemsResponsePayload, ErrorResponsePayload,
     // Push Payloads
     PushSnippetPayload,
     // IPC Message Structure Types
@@ -495,6 +495,17 @@ class IPCClient {
         );
     }
 
+    /**
+     * Requests workspace problems for a specified workspace folder from the VSCE.
+     * @param workspaceFolderUri The URI of the workspace folder.
+     * @returns A Promise that resolves with the WorkspaceProblemsResponsePayload.
+     */
+    async getWorkspaceProblems(workspaceFolderUri: string): Promise<WorkspaceProblemsResponsePayload> {
+        return this.sendRequest<GetWorkspaceProblemsRequestPayload, WorkspaceProblemsResponsePayload>(
+            'get_workspace_problems', { workspaceFolderUri }
+        );
+    }
+
 
     /**
      * Checks if the IPC client is currently connected to the VSCE IPC server.
@@ -799,6 +810,19 @@ chrome.runtime.onMessage.addListener((message: IncomingRuntimeMessage, sender, s
                 .catch(error => {
                     console.error(LOG_PREFIX_SW, 'Error in search_workspace IPC call:', error);
                     sendResponse({ success: false, error: error.message || 'IPC call failed for search_workspace.' });
+                });
+            return true;
+        } else if (typedMessage.type === 'GET_WORKSPACE_PROBLEMS') {
+            const payload = typedMessage.payload as GetWorkspaceProblemsRequestPayload;
+            console.log(LOG_PREFIX_SW, `Handling GET_WORKSPACE_PROBLEMS for URI: ${payload.workspaceFolderUri}`);
+            ipcClient.getWorkspaceProblems(payload.workspaceFolderUri)
+                .then((responsePayload: WorkspaceProblemsResponsePayload) => {
+                    console.log(LOG_PREFIX_SW, 'Response for get_workspace_problems:', responsePayload);
+                    sendResponse(responsePayload); // Forward the full payload
+                })
+                .catch(error => {
+                    console.error(LOG_PREFIX_SW, 'Error in get_workspace_problems IPC call:', error);
+                    sendResponse({ success: false, error: error.message || 'IPC call failed for get_workspace_problems.' });
                 });
             return true;
         } else {

@@ -14,7 +14,8 @@ import {
     GetEntireCodebaseRequestPayload, EntireCodebaseResponsePayload, // Corrected: GetEntireCodebaseRequestPayload
     OpenFilesResponsePayload,
     GetFolderContentRequestPayload, FolderContentResponsePayload, // Corrected: GetFolderContentRequestPayload
-    ListFolderContentsRequestPayload, ListFolderContentsResponsePayload
+    ListFolderContentsRequestPayload, ListFolderContentsResponsePayload,
+    GetWorkspaceProblemsRequestPayload, WorkspaceProblemsResponsePayload
     // Add other request/response payload types from @contextweaver/shared as needed
 } from '@contextweaver/shared';
 
@@ -182,5 +183,17 @@ export async function listFolderContents(folderUri: string, workspaceFolderUri: 
     return sendMessageToSW<ListFolderContentsResponsePayload>({
         type: 'LIST_FOLDER_CONTENTS',
         payload: { folderUri, workspaceFolderUri } as ListFolderContentsRequestPayload
+    });
+}
+
+/**
+ * Requests workspace problems for a specified workspace folder via the service worker.
+ * @param workspaceFolderUri The URI of the workspace folder.
+ * @returns A Promise that resolves with the workspace problems payload.
+ */
+export async function getWorkspaceProblems(workspaceFolderUri: string): Promise<WorkspaceProblemsResponsePayload> {
+    return sendMessageToSW<WorkspaceProblemsResponsePayload>({
+        type: 'GET_WORKSPACE_PROBLEMS',
+        payload: { workspaceFolderUri } as GetWorkspaceProblemsRequestPayload
     });
 }

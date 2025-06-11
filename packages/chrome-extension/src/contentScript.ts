@@ -18,6 +18,7 @@ import {
   EntireCodebaseResponsePayload,
   ListFolderContentsResponsePayload,
   WorkspaceDetailsResponsePayload,
+  WorkspaceProblemsResponsePayload,
   DirectoryEntry as CWDirectoryEntry // Alias DirectoryEntry to avoid collision
 } from '@contextweaver/shared';
 import { StateManager } from './stateManager';
@@ -205,7 +206,7 @@ async function processContentInsertion(
   itemMetadata: {
     name: string;
     contentSourceId: string;
-    type: 'file' | 'folder' | 'FileTree' | 'codebase_content'; // Expanded types for clarity
+    type: 'file' | 'folder' | 'FileTree' | 'codebase_content' | 'WorkspaceProblems'; // Expanded types for clarity
     uri?: string; // URI for fetching content (optional for FileTree/codebase_content if not directly URI-based)
     workspaceFolderUri?: string | null; // For folder content, file tree, codebase
   },
@@ -236,8 +237,8 @@ async function processContentInsertion(
   uiManager.showLoading(`Loading ${itemMetadata.name}...`, `Fetching content for ${itemMetadata.name}...`);
 
   try {
-    let responsePayload: FileContentResponsePayload | FolderContentResponsePayload | FileTreeResponsePayload | EntireCodebaseResponsePayload;
-    let contentTag: 'FileContents' | 'FileTree' = 'FileContents'; // Default for file/folder content
+    let responsePayload: FileContentResponsePayload | FolderContentResponsePayload | FileTreeResponsePayload | EntireCodebaseResponsePayload | WorkspaceProblemsResponsePayload;
+    let contentTag: 'FileContents' | 'FileTree' | 'WorkspaceProblems' = 'FileContents'; // Default for file/folder content
 
     if (itemMetadata.type === 'file') {
       responsePayload = await swClient.getFileContent(itemMetadata.uri!);
@@ -248,17 +249,34 @@ async function processContentInsertion(
       responsePayload = await swClient.getFileTree(itemMetadata.workspaceFolderUri || null);
     } else if (itemMetadata.type === 'codebase_content') {
       responsePayload = await swClient.getEntireCodebase(itemMetadata.workspaceFolderUri || null);
+    } else if (itemMetadata.type === 'WorkspaceProblems') {
+      contentTag = 'WorkspaceProblems';
+      responsePayload = await swClient.getWorkspaceProblems(itemMetadata.workspaceFolderUri!);
     } else {
       throw new Error(`Unsupported item type for processContentInsertion: ${itemMetadata.type}`);
     }
 
     if (responsePayload.success && responsePayload.data) {
+      // Check if this is a WorkspaceProblems response with zero problems
+      if (itemMetadata.type === 'WorkspaceProblems' && (responsePayload.data as any).problemCount === 0) {
+        uiManager.showToast('No problems found in this workspace.', 'info');
+        if (itemDivForFeedback) {
+          itemDivForFeedback.style.opacity = '';
+          itemDivForFeedback.style.pointerEvents = '';
+        }
+        // The loading overlay will be hidden by the 'finally' block
+        return;
+      }
+
       const actualData = responsePayload.data as any; // Cast to any to access specific data properties
       let contentToInsert: string;
       let metadataFromResponse: ContextBlockMetadata;
 
       if (itemMetadata.type === 'FileTree') {
         contentToInsert = actualData.fileTreeString;
+        metadataFromResponse = actualData.metadata;
+      } else if (itemMetadata.type === 'WorkspaceProblems') {
+        contentToInsert = actualData.problemsString;
         metadataFromResponse = actualData.metadata;
       } else if (itemMetadata.type === 'file') {
         contentToInsert = formatFileContentsForLLM([actualData.fileData]);
@@ -269,10 +287,8 @@ async function processContentInsertion(
       }
 
       const uniqueBlockId = metadataFromResponse.unique_block_id || `cw-block-${Date.now()}`;
-      const finalContentToInsertInLLM = contentToInsert.replace(
-        `<${contentTag}>`,
-        `<${contentTag} id="${uniqueBlockId}">`
-      );
+      // Correctly handle the new tag
+      const finalContentToInsertInLLM = `<${contentTag} id="${uniqueBlockId}">\n${contentToInsert}\n</${contentTag}>`;
 
       insertTextIntoLLMInput(
         finalContentToInsertInLLM,
@@ -573,8 +589,8 @@ function formatFileContentsForLLM(filesData: { fullPath: string; content: string
     }
   }
   if (formattedBlocks.length === 0) return '';
-  // The outermost wrapper tag does not need to be neutralized
-  return `<FileContents>\n${formattedBlocks.join('')}</FileContents>`;
+  // Return only the concatenated blocks. The caller is responsible for the final wrapper tag with ID.
+  return formattedBlocks.join('');
 }
 
 /**
@@ -750,6 +766,8 @@ function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string):
     tagNameForRegex = 'CodeSnippet';
   } else if (blockType === 'FileTree') {
     tagNameForRegex = 'FileTree';
+  } else if (blockType === 'WorkspaceProblems') {
+    tagNameForRegex = 'WorkspaceProblems';
   } else {
     console.warn(LOG_PREFIX_CS, `Unknown blockType for removal: ${blockType}`);
     stateManager.removeActiveContextBlock(uniqueBlockId);
@@ -1385,6 +1403,20 @@ function renderWorkspaceFolders(workspaceFolders: any[], targetContentArea: Docu
       }
     });
     sectionContainer.appendChild(fullCodebaseButton);
+
+    const problemsButton = uiManager.createButton('❗ Problems', {
+      id: `${LOCAL_CSS_PREFIX}btn-problems-${folder.uri.replace(/[^a-zA-Z0-9]/g, '_')}`,
+      classNames: ['vertical-button'],
+      onClick: async () => {
+        await processContentInsertion({
+          name: `❗ Problems - ${folder.name}`,
+          contentSourceId: `${folder.uri}::Problems`,
+          type: 'WorkspaceProblems',
+          workspaceFolderUri: folder.uri
+        });
+      }
+    });
+    sectionContainer.appendChild(problemsButton);
   });
 }
 
@@ -1494,12 +1526,10 @@ function createBrowseViewButtons(
               const metadataFromResponse = actualData.metadata as ContextBlockMetadata;
 
               const uniqueBlockId = metadataFromResponse.unique_block_id || `cw-block-${Date.now()}`;
-              const formattedContent = formatFileContentsForLLM(filesToFormat);
+              const rawContent = formatFileContentsForLLM(filesToFormat);
               const contentTag = 'FileContents'; // Always FileContents for these types
-              allContentToInsert += formattedContent.replace(
-                `<${contentTag}>`,
-                `<${contentTag} id="${uniqueBlockId}">`
-              ) + '\n\n';
+              const finalBlock = `<${contentTag} id="${uniqueBlockId}">\n${rawContent}\n</${contentTag}>`;
+              allContentToInsert += finalBlock + '\n\n';
               newContextBlocks.push({ ...metadataFromResponse, unique_block_id: uniqueBlockId });
               successCount++;
             } else {
@@ -1712,10 +1742,11 @@ function createOpenFilesFormElements(
           const successfulFiles = response.data;
           let allContentToInsert = '';
           successfulFiles.forEach(item => {
-            const formatted = formatFileContentsForLLM([item.fileData]);
+            const rawContent = formatFileContentsForLLM([item.fileData]);
             const uniqueBlockId = item.metadata.unique_block_id || `cw-block-${Date.now()}`;
-            const contentTag = item.metadata.type === 'CodeSnippet' ? 'CodeSnippet' : 'FileContents';
-            allContentToInsert += formatted.replace(`<${contentTag}>`, `<${contentTag} id="${uniqueBlockId}">`) + '\n\n';
+            const contentTag = 'FileContents'; // This flow only deals with FileContents
+            const finalBlock = `<${contentTag} id="${uniqueBlockId}">\n${rawContent}\n</${contentTag}>`;
+            allContentToInsert += finalBlock + '\n\n';
             stateManager.addActiveContextBlock({ ...item.metadata, unique_block_id: uniqueBlockId });
           });
 

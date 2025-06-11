@@ -235,7 +235,7 @@ Response to `get_FileTree`.
     {
       "success": "boolean",
       "data": { // Present if success is true
-        "fileTreeString": "string", // ASCII tree representation
+        "fileTreeString": "string", // The raw, unwrapped ASCII tree representation. The client is responsible for wrapping this content in the final <FileTree> tag with an ID.
         "metadata": { // ContextBlockMetadata object
           "unique_block_id": "string",
           "content_source_id": "string", // e.g., "workspace_uri::FileTree"

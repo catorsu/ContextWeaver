@@ -17,6 +17,7 @@ import {
 } from './fileSystemService'; // Ensure correct functions are imported
 import { SearchService } from './searchService'; // Removed local SearchResult import
 import { WorkspaceService, WorkspaceServiceError } from './workspaceService';
+import { DiagnosticsService } from './diagnosticsService';
 import { v4 as uuidv4 } from 'uuid';
 
 // Import shared types
@@ -24,12 +25,12 @@ import {
     // Request Payloads
     GetFileTreeRequestPayload, GetFileContentRequestPayload, GetFolderContentRequestPayload,
     GetEntireCodebaseRequestPayload, SearchWorkspaceRequestPayload, GetFilterInfoRequestPayload,
-    ListFolderContentsRequestPayload, RegisterActiveTargetRequestPayload,
+    ListFolderContentsRequestPayload, RegisterActiveTargetRequestPayload, GetWorkspaceProblemsRequestPayload,
     // Response Payloads
     FileTreeResponsePayload, FileContentResponsePayload, FolderContentResponsePayload,
     EntireCodebaseResponsePayload, SearchWorkspaceResponsePayload as CWSearchWorkspaceResponsePayload, // Alias to avoid conflict if SearchResult differs
     ActiveFileInfoResponsePayload, OpenFilesResponsePayload, WorkspaceDetailsResponsePayload,
-    FilterInfoResponsePayload, ListFolderContentsResponsePayload, GenericAckResponsePayload, ErrorResponsePayload,
+    FilterInfoResponsePayload, ListFolderContentsResponsePayload, WorkspaceProblemsResponsePayload, GenericAckResponsePayload, ErrorResponsePayload,
     // IPC Message Structure Types
     IPCMessageRequest, IPCMessageResponse, IPCMessageErrorResponse, IPCBaseMessage, IPCMessagePush, // We primarily deal with requests and send responses
     // Data Models (if directly used)
@@ -64,6 +65,7 @@ export class IPCServer {
     private clients: Map<WebSocket, Client> = new Map();
     private searchService: SearchService;
     private workspaceService: WorkspaceService;
+    private diagnosticsService: DiagnosticsService;
     private readonly port: number;
     private readonly windowId: string;
     private readonly extensionContext: vscode.ExtensionContext;
@@ -90,6 +92,7 @@ export class IPCServer {
      * @param outputChannelInstance The VS Code output channel for logging.
      * @param searchServiceInstance The SearchService instance for handling search requests.
      * @param workspaceServiceInstance The WorkspaceService instance for handling workspace-related requests.
+     * @param diagnosticsServiceInstance The DiagnosticsService instance for handling diagnostics requests.
      */
     constructor(
         port: number,
@@ -97,7 +100,8 @@ export class IPCServer {
         context: vscode.ExtensionContext,
         outputChannelInstance: vscode.OutputChannel,
         searchServiceInstance: SearchService,
-        workspaceServiceInstance: WorkspaceService
+        workspaceServiceInstance: WorkspaceService,
+        diagnosticsServiceInstance: DiagnosticsService
     ) {
         console.log(LOG_PREFIX_SERVER + 'Constructor called.');
         outputChannelInstance.appendLine(LOG_PREFIX_SERVER + 'Constructor called.');
@@ -108,6 +112,7 @@ export class IPCServer {
         this.outputChannel = outputChannelInstance;
         this.searchService = searchServiceInstance;
         this.workspaceService = workspaceServiceInstance;
+        this.diagnosticsService = diagnosticsServiceInstance;
         this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Initialized with port ${port}, windowId ${windowId}.`);
     }
 
@@ -371,7 +376,7 @@ export class IPCServer {
         const commandsRequiringWorkspace = [
             'get_FileTree', 'get_file_content', 'get_folder_content',
             'get_entire_codebase', 'search_workspace', 'get_active_file_info',
-            'get_open_files', 'get_filter_info', 'list_folder_contents'
+            'get_open_files', 'get_filter_info', 'list_folder_contents', 'get_workspace_problems'
         ];
 
         if (commandsRequiringWorkspace.includes(command)) {
@@ -429,6 +434,9 @@ export class IPCServer {
                 break;
             case 'list_folder_contents':
                 this.handleListFolderContents(client, payload as ListFolderContentsRequestPayload, message_id);
+                break;
+            case 'get_workspace_problems':
+                this.handleGetWorkspaceProblems(client, payload as GetWorkspaceProblemsRequestPayload, message_id);
                 break;
             // Note: 'check_workspace_trust' was deprecated and removed from IPCRequest union type
             default: {
@@ -1288,6 +1296,52 @@ export class IPCServer {
             console.error(LOG_PREFIX_SERVER + 'Error listing folder contents:', error);
             const errorCode = error.code === 'DirectoryNotFound' ? 'DIRECTORY_NOT_FOUND' : 'DIRECTORY_READ_ERROR';
             this.sendError(client.ws, message_id, errorCode, `Error listing folder contents: ${error.message}`);
+        }
+    }
+
+    /**
+     * Handles a request to get workspace problems (diagnostics).
+     * @param client The client that sent the request.
+     * @param payload The request payload containing the workspace folder URI.
+     * @param message_id The message ID for the response.
+     */
+    private async handleGetWorkspaceProblems(
+        client: Client,
+        payload: GetWorkspaceProblemsRequestPayload,
+        message_id: string
+    ): Promise<void> {
+        const targetWorkspaceFolder = await this.getTargetWorkspaceFolder(client, payload.workspaceFolderUri, 'get_workspace_problems', message_id);
+        if (!targetWorkspaceFolder) return;
+
+        try {
+            const { problemsString, problemCount } = this.diagnosticsService.getProblemsForWorkspace(targetWorkspaceFolder);
+
+            const metadata: ContextBlockMetadata = {
+                unique_block_id: uuidv4(),
+                content_source_id: `${targetWorkspaceFolder.uri.toString()}::Problems`,
+                type: 'WorkspaceProblems',
+                label: targetWorkspaceFolder.name,
+                workspaceFolderUri: targetWorkspaceFolder.uri.toString(),
+                workspaceFolderName: targetWorkspaceFolder.name,
+                windowId: this.windowId
+            };
+
+            const responsePayload: WorkspaceProblemsResponsePayload = {
+                success: true,
+                data: {
+                    problemsString: problemsString,
+                    problemCount: problemCount,
+                    metadata: metadata,
+                    windowId: this.windowId,
+                },
+                error: null,
+                workspaceFolderUri: targetWorkspaceFolder.uri.toString(),
+            };
+            this.sendMessage<WorkspaceProblemsResponsePayload>(client.ws, 'response', 'response_workspace_problems', responsePayload, message_id);
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent workspace problems for ${targetWorkspaceFolder.name} to ${client.ip}`);
+        } catch (error: any) {
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error getting workspace problems for ${targetWorkspaceFolder.uri.toString()}: ${error.message}`);
+            this.sendError(client.ws, message_id, 'PROBLEMS_ERROR', `Error getting workspace problems: ${error.message}`);
         }
     }
 

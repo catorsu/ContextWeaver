@@ -125,13 +125,13 @@ export async function getFileTree(workspaceFolder: vscode.WorkspaceFolder): Prom
   try {
     const internalTree = await generateFileTreeTextInternal(workspaceFolder.uri, workspaceFolder.uri, '', gitignoreFilter);
     const workspacePath = workspaceFolder.uri.fsPath.replace(/\\\\/g, '/'); // Ensure forward slashes for consistency
-    // SRS 3.3.1: <FileTree>\nC:/project/SmartInfo\n...
-    const formattedTree = `<FileTree>\n${workspacePath}\n${internalTree.trim()}\n</FileTree>`;
+    // The content is the workspace path followed by the generated tree. The wrapper tag will be added by the client.
+    const rawTreeContent = `${workspacePath}\n${internalTree.trim()}`;
 
-    console.log('[ContextWeaver FileSystemService] getFileTree: formattedTree to be sent:');
-    // console.log(formattedTree); // Keep this commented out for brevity in logs unless debugging tree specifically
+    console.log('[ContextWeaver FileSystemService] getFileTree: raw tree content to be sent:');
+    // console.log(rawTreeContent);
 
-    return { tree: formattedTree, filterTypeApplied: actualFilterType };
+    return { tree: rawTreeContent, filterTypeApplied: actualFilterType };
   } catch (error: any) {
     console.error(`[ContextWeaver FileSystemService] Error in getFileTree for ${workspaceFolder.name}: ${error.message}`);
     return `Error generating file tree for ${workspaceFolder.name}: ${error.message}`;

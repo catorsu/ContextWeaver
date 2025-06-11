@@ -567,6 +567,7 @@ export class UIManager {
                 case 'codebase_content': iconSpan.textContent = '📚'; break;
                 case 'FileTree': iconSpan.textContent = '🌲'; break;
                 case 'CodeSnippet': iconSpan.textContent = '✂️'; break;
+                case 'WorkspaceProblems': iconSpan.textContent = '❗'; break;
                 default: iconSpan.textContent = '❔';
             }
             indicator.appendChild(iconSpan);
