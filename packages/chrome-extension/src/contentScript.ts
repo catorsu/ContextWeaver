@@ -971,15 +971,6 @@ function handleTextAreaInsertion(
 }
 
 // Helper to get text before cursor in a textarea
-/**
- * Helper function to get the text content in a textarea before the specified cursor position.
- * @param textArea The HTMLTextAreaElement.
- * @param cursorPos The current cursor position.
- * @returns The substring of the textarea's value from the beginning up to the cursor position.
- */
-function textBeforeCursor(textArea: HTMLTextAreaElement, cursorPos: number): string {
-  return textArea.value.substring(0, cursorPos);
-}
 
 /**
  * Handles the insertion of text into a contenteditable HTML element.

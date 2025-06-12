@@ -1,184 +1,128 @@
 /**
  * @file popup.ts
- * @description Logic for the ContextWeaver Chrome Extension popup, now including settings.
+ * @description Logic for the ContextWeaver Chrome Extension popup.
  * @module ContextWeaver/CE
  */
 const LOG_PREFIX_POPUP = '[ContextWeaver CE-Popup]';
 
-const portInput = document.getElementById('ipcPort') as HTMLInputElement;
+const statusContainer = document.getElementById('status-container');
+const statusIcon = document.getElementById('status-icon');
+const tooltipText = document.getElementById('tooltip-text');
+const reconnectButton = document.getElementById('reconnect-button');
 
-const saveButton = document.getElementById('saveSettings');
-const connectButton = document.getElementById('connectIPC');
-const saveStatusMessageElement = document.getElementById('saveStatusMessage');
-const connectionStatusMessageElement = document.getElementById('connectionStatusMessage');
+// Rationale: Use reliable, inline SVGs instead of Unicode characters to prevent rendering issues.
+const STATUS_ICONS = {
+    connected: `<svg viewBox="0 0 24 24" width="32" height="32"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"></path></svg>`,
+    connecting: `<svg viewBox="0 0 24 24" width="32" height="32"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"></path></svg>`,
+    failed: `<svg viewBox="0 0 24 24" width="32" height="32"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"></path></svg>`
+};
 
 /**
- * Displays a status message on the popup page, typically for save operations.
- * @param message The message to display.
- * @param type The type of message ('success', 'error', or 'info') for styling.
+ * Updates the entire popup UI based on the connection state.
+ * @param state The current connection state.
+ * @param details An object containing optional details like port or message.
  */
-function showSaveStatus(message: string, type: 'success' | 'error' | 'info' = 'info') {
-    if (saveStatusMessageElement) {
-        saveStatusMessageElement.textContent = message;
-        saveStatusMessageElement.className = `status ${type}`; // Apply class for styling
-        saveStatusMessageElement.style.display = 'block';
-        console.log(LOG_PREFIX_POPUP, `Save Status: ${message}`);
-        setTimeout(() => {
-            saveStatusMessageElement.textContent = '';
-            saveStatusMessageElement.style.display = 'none';
-        }, 4000);
-    } else {
-        console.log(LOG_PREFIX_POPUP, `Save Status (no element): ${message}`);
+function updateStatusUI(state: 'connected' | 'connecting' | 'failed', details: { port?: number, message?: string }) {
+    if (!statusIcon || !tooltipText || !statusContainer) return;
+
+    // Reset classes
+    statusContainer.className = '';
+    statusIcon.className = '';
+
+    switch (state) {
+        case 'connected':
+            statusIcon.innerHTML = STATUS_ICONS.connected;
+            statusIcon.classList.add('status-connected');
+            tooltipText.textContent = `Connected to VS Code on port ${details.port}.`;
+            break;
+        case 'connecting':
+            statusIcon.innerHTML = STATUS_ICONS.connecting;
+            statusIcon.classList.add('status-connecting');
+            tooltipText.textContent = details.message || 'Searching for VS Code server...';
+            break;
+        case 'failed':
+            statusIcon.innerHTML = STATUS_ICONS.failed;
+            statusIcon.classList.add('status-failed');
+            tooltipText.textContent = details.message || 'Connection failed. Check VS Code and click to reconnect.';
+            break;
     }
 }
 
 /**
- * Displays a connection status message on the popup page.
- * @param message The message to display.
- * @param type The type of message ('success', 'error', or 'info') for styling.
+ * Sends a message to the service worker to trigger a reconnection attempt.
  */
-function showConnectionStatus(message: string, type: 'success' | 'error' | 'info' = 'info') {
-    if (connectionStatusMessageElement) {
-        connectionStatusMessageElement.textContent = message;
-        connectionStatusMessageElement.className = `status ${type}`; // Apply class for styling
-        connectionStatusMessageElement.style.display = 'block';
-        console.log(LOG_PREFIX_POPUP, `Connection Status: ${message}`);
-        // This message can be more persistent or cleared by subsequent status updates
-    } else {
-        console.log(LOG_PREFIX_POPUP, `Connection Status (no element): ${message}`);
-    }
-}
-
-/**
- * Saves the IPC port setting to Chrome storage.
- */
-async function saveOptions() {
-    console.log(LOG_PREFIX_POPUP, 'saveOptions function called');
-    const port = parseInt(portInput.value, 10);
-
-    if (isNaN(port) || port < 1024 || port > 65535) {
-        showSaveStatus('Error: Port must be a number between 1024 and 65535.', 'error');
-        return;
-    }
-
-    try {
-        await chrome.storage.sync.set({
-            ipcPort: port
+function triggerReconnect() {
+    console.log(LOG_PREFIX_POPUP, 'Reconnect triggered. Sending message to service worker.');
+    updateStatusUI('connecting', { message: 'Attempting to reconnect...' });
+    chrome.runtime.sendMessage({ action: 'reconnectIPC' })
+        .catch(err => {
+            console.error(LOG_PREFIX_POPUP, 'Error sending reconnectIPC message:', err);
+            updateStatusUI('failed', { message: 'Failed to send reconnect command.' });
         });
-        showSaveStatus('Settings saved successfully! Reconnecting if necessary...', 'success');
-        console.log(LOG_PREFIX_POPUP, `Settings saved: Port=${port}`);
-
-        // Notify service worker that settings have changed
-        chrome.runtime.sendMessage({ action: 'settingsUpdated' }).catch(err => {
-            console.warn(LOG_PREFIX_POPUP, 'Could not send settingsUpdated message to service worker.', err);
-            showSaveStatus('Could not notify service worker of settings change. Reload extension manually if connection issues persist.', 'error');
-        });
-
-    } catch (error: any) {
-        showSaveStatus(`Error saving settings: ${error.message}`, 'error');
-        console.error(LOG_PREFIX_POPUP, 'Error saving settings:', error);
-    }
 }
 
-/**
- * Loads the IPC port setting from Chrome storage and populates the input field.
- */
-async function loadOptions() {
-    try {
-        const items = await chrome.storage.sync.get({
-            ipcPort: 30001 // Default port
-        });
-        portInput.value = items.ipcPort.toString();
-        console.log(LOG_PREFIX_POPUP, `Settings loaded: Port=${items.ipcPort}`);
-    } catch (error: any) {
-        showSaveStatus(`Error loading settings: ${error.message}`, 'error'); // Use saveStatus for loading errors too
-        console.error(LOG_PREFIX_POPUP, 'Error loading settings:', error);
-    }
-}
-
-// Listen for messages from the service worker regarding IPC connection status
+// Listen for status updates from the service worker
 chrome.runtime.onMessage.addListener((message) => {
     if (message.action === 'ipcConnectionStatus') {
         console.log(LOG_PREFIX_POPUP, 'Received ipcConnectionStatus:', message);
-        switch (message.status) {
+        const { status, payload } = message;
+        switch (status) {
             case 'connected':
-                showConnectionStatus(`Connected to VS Code on port ${message.port}.`, 'success');
+                updateStatusUI('connected', { port: payload.port });
+                break;
+            case 'connecting':
+                updateStatusUI('connecting', { message: payload.message });
                 break;
             case 'disconnected_unexpectedly':
-                showConnectionStatus(message.message || 'Unexpectedly disconnected from VS Code. Will attempt to reconnect.', 'error');
-                break;
             case 'connection_error':
-                showConnectionStatus(message.message || 'Error connecting to VS Code. Retrying...', 'error');
-                break;
             case 'failed_max_retries':
-                showConnectionStatus(message.message || 'Failed to connect after multiple retries. Check settings and VSCE.', 'error');
+                updateStatusUI('failed', { message: payload.message });
                 break;
-            default:
-                showConnectionStatus(`Unknown IPC Status: ${message.status} - ${message.message || ''}`, 'info');
         }
     }
-    // Keep the channel open for other listeners if any, or remove if this is the only one.
-    // For this simple case, we don't need to return true.
 });
 
-// Request initial connection status when popup loads
 /**
- * Requests the current IPC connection status from the service worker and displays it.
+ * Requests the initial connection status from the service worker upon opening.
  */
 function requestInitialConnectionStatus() {
-    console.log(LOG_PREFIX_POPUP, 'Requesting initial IPC connection status from service worker.');
+    console.log(LOG_PREFIX_POPUP, 'Requesting initial IPC connection status.');
+    updateStatusUI('connecting', { message: 'Checking status...' });
     chrome.runtime.sendMessage({ action: 'getIPCConnectionStatus' })
         .then(response => {
-            if (response && response.action === 'ipcConnectionStatus') {
-                console.log(LOG_PREFIX_POPUP, 'Initial IPC connection status received:', response);
-                switch (response.status) {
+            if (chrome.runtime.lastError || !response) {
+                updateStatusUI('failed', { message: 'Could not communicate with service worker.' });
+                return;
+            }
+            if (response.action === 'ipcConnectionStatus') {
+                const { status, payload } = response;
+                switch (status) {
                     case 'connected':
-                        showConnectionStatus(`Currently connected to VS Code on port ${response.port}.`, 'success');
-                        break;
-                    case 'disconnected_unexpectedly':
-                    case 'connection_error':
-                    case 'failed_max_retries':
-                        showConnectionStatus(response.message || 'Currently not connected to VS Code.', 'error');
+                        updateStatusUI('connected', { port: payload.port });
                         break;
                     default:
-                        showConnectionStatus('IPC status unknown or connecting...', 'info');
+                        updateStatusUI('failed', { message: payload.message });
+                        break;
                 }
-            } else if (response && response.error) {
-                showConnectionStatus(`Error getting status: ${response.error}`, 'error');
             }
         })
-        .catch(err => {
-            console.warn(LOG_PREFIX_POPUP, 'Error requesting initial IPC status (SW might not be ready or listening):', err);
-            showConnectionStatus('Could not retrieve initial connection status. Service worker may be starting.', 'info');
+        .catch(() => {
+            updateStatusUI('failed', { message: 'Could not retrieve initial status.' });
         });
 }
 
-
-if (saveButton) {
-    saveButton.addEventListener('click', saveOptions);
+// Attach event listeners
+if (reconnectButton) {
+    reconnectButton.addEventListener('click', triggerReconnect);
 }
 
-if (connectButton) {
-    connectButton.addEventListener('click', () => {
-        console.log(LOG_PREFIX_POPUP, 'Connect/Reconnect button clicked. Sending reconnect message to service worker.');
-        showConnectionStatus('Attempting to connect to VS Code...', 'info');
-        chrome.runtime.sendMessage({ action: 'reconnectIPC' })
-            .then(response => {
-                if (response && response.action === 'ipcConnectionStatus') {
-                    // Status will be updated by the onMessage listener, but we can log here
-                    console.log(LOG_PREFIX_POPUP, 'Reconnect message sent, initial response:', response);
-                } else if (response && response.error) {
-                    showConnectionStatus(`Error initiating reconnect: ${response.error}`, 'error');
-                }
-            })
-            .catch(err => {
-                console.error(LOG_PREFIX_POPUP, 'Error sending reconnectIPC message to service worker:', err);
-                showConnectionStatus('Failed to send reconnect command. Service worker might be unavailable.', 'error');
-            });
+if (statusContainer) {
+    statusContainer.addEventListener('click', () => {
+        // Only allow clicking the icon to reconnect if it's in a failed state
+        if (statusIcon?.classList.contains('status-failed')) {
+            triggerReconnect();
+        }
     });
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    loadOptions();
-    requestInitialConnectionStatus(); // Request status once DOM is loaded
-});
+document.addEventListener('DOMContentLoaded', requestInitialConnectionStatus);

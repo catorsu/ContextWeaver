@@ -2,115 +2,140 @@
 <html>
 
 <head>
-  <title>ContextWeaver Popup</title>
+  <title>ContextWeaver Status</title>
+  <meta charset="UTF-8">
   <style>
     body {
-      font-family: sans-serif;
-      width: 300px;
-      /* Increased width to accommodate new elements */
-      padding: 10px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      width: 200px;
+      padding: 15px;
+      text-align: center;
+      background-color: #ffffff;
     }
 
     h3 {
       margin-top: 0;
-      text-align: center;
+      margin-bottom: 15px;
+      color: #333;
+      font-weight: 500;
     }
 
-    div {
-      margin-bottom: 10px;
-      /* Reduced margin for compactness */
+    #status-container {
+      position: relative;
+      margin-bottom: 15px;
     }
 
-    label {
-      display: block;
-      margin-bottom: 5px;
-      font-weight: bold;
-    }
-
-    input[type="number"] {
-      width: calc(100% - 12px);
-      padding: 8px;
-      margin-bottom: 5px;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-    }
-
-    button {
-      padding: 8px 12px;
-      /* Smaller padding for buttons */
-      background-color: #007bff;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 0.9em;
-      /* Smaller font size for buttons */
-    }
-
-    button:hover {
-      background-color: #0056b3;
-    }
-
-    .button-group {
+    #status-icon {
+      padding: 15px;
+      border-radius: 50%;
       display: flex;
-      justify-content: space-between;
-      margin-bottom: 10px;
+      align-items: center;
+      justify-content: center;
+      width: 60px;
+      height: 60px;
+      transition: background-color 0.3s;
+      margin: 0 auto;
+      /* Center the icon container */
     }
 
-    .button-group button {
-      flex-grow: 1;
-      margin-right: 5px;
+    #status-icon.status-connected {
+      background-color: #e6f4ea;
+      /* Light green */
     }
 
-    .button-group button:last-child {
-      margin-right: 0;
+    #status-icon.status-connected svg {
+      fill: #34a853;
+      /* Google Green */
     }
 
-    .status {
-      margin-top: 5px;
-      /* Reduced margin for compactness */
-      font-weight: bold;
-      padding: 8px;
-      /* Smaller padding for status messages */
-      border-radius: 4px;
+    #status-icon.status-failed {
+      background-color: #fce8e6;
+      /* Light red */
+      cursor: pointer;
+      /* Make it clickable in failed state */
+    }
+
+    #status-icon.status-failed svg {
+      fill: #ea4335;
+      /* Google Red */
+    }
+
+    #status-icon.status-connecting {
+      background-color: #e8f0fe;
+      /* Light blue */
+    }
+
+    #status-icon.status-connecting svg {
+      fill: #4285f4;
+      /* Google Blue */
+      animation: spin 1.2s linear infinite;
+    }
+
+    @keyframes spin {
+      0% {
+        transform: rotate(0deg);
+      }
+
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+
+    /* Custom Tooltip */
+    #tooltip-text {
+      visibility: hidden;
+      width: 160px;
+      background-color: #333;
+      color: #fff;
       text-align: center;
-      display: none;
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      position: absolute;
+      z-index: 1;
+      bottom: 125%;
+      left: 50%;
+      margin-left: -80px;
+      /* Half of width to center */
     }
 
-    .status.success {
-      color: #155724;
-      background-color: #d4edda;
-      border: 1px solid #c3e6cb;
+    #status-container:hover #tooltip-text {
+      visibility: visible;
+      opacity: 1;
     }
 
-    .status.error {
-      color: #721c24;
-      background-color: #f8d7da;
-      border: 1px solid #f5c6cb;
+    #reconnect-container {
+      height: 40px;
+      /* Reserve space to prevent layout shift */
     }
 
-    .status.info {
-      color: #004085;
-      background-color: #cce5ff;
-      border: 1px solid #b8daff;
+    #reconnect-button {
+      background-color: #f1f3f4;
+      border: 1px solid #f1f3f4;
+      border-radius: 4px;
+      color: #3c4043;
+      font-size: 14px;
+      padding: 8px 16px;
+      cursor: pointer;
+      transition: background-color 0.2s, box-shadow 0.2s;
+    }
+
+    #reconnect-button:hover {
+      background-color: #e8eaed;
+      box-shadow: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
     }
   </style>
 </head>
 
 <body>
-  <h3>ContextWeaver</h3>
-
-  <div>
-    <label for="ipcPort">VS Code IPC Port:</label>
-    <input type="number" id="ipcPort" name="ipcPort" min="1024" max="65535">
+  <div id="status-container">
+    <div id="status-icon">⏳</div>
+    <span id="tooltip-text">Initial status...</span>
   </div>
 
-  <div class="button-group">
-    <button id="saveSettings">Save Settings</button>
-    <button id="connectIPC">Connect/Reconnect</button>
+  <div id="reconnect-container">
+    <button id="reconnect-button">Reconnect</button>
   </div>
-  <div id="saveStatusMessage" class="status"></div>
-  <div id="connectionStatusMessage" class="status"></div>
 
   <script src="dist/popup.js"></script>
 </body>

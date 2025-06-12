@@ -34,16 +34,6 @@
                     "group": "navigation@5"
                 }
             ]
-        },
-        "configuration": {
-            "title": "ContextWeaver",
-            "properties": {
-                "contextweaver.ipc.port": {
-                    "type": "number",
-                    "default": 30001,
-                    "description": "Port for IPC communication with the ContextWeaver Chrome Extension."
-                }
-            }
         }
     },
     "scripts": {

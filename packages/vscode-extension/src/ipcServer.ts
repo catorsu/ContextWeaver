@@ -39,7 +39,9 @@ import {
 
 
 const LOG_PREFIX_SERVER = '[ContextWeaver IPCServer] ';
-const PRIMARY_PORT = 30001;
+// Rationale: Define a port range for the server to try, making it resilient to port conflicts.
+const PORT_RANGE_START = 30001;
+const PORT_RANGE_END = 30005;
 
 /**
  * Represents a connected client (Chrome Extension instance or Secondary VSCE) to the IPC server.
@@ -69,6 +71,7 @@ export class IPCServer {
     private readonly port: number;
     private readonly windowId: string;
     private readonly extensionContext: vscode.ExtensionContext;
+    private activePort: number | null = null; // Rationale: Store the port the server successfully binds to.
     private outputChannel: vscode.OutputChannel;
 
     // Primary/Secondary architecture properties
@@ -95,7 +98,7 @@ export class IPCServer {
      * @param diagnosticsServiceInstance The DiagnosticsService instance for handling diagnostics requests.
      */
     constructor(
-        port: number,
+        _port: number, // Rationale: Port is no longer needed here as it's determined dynamically. Underscore indicates it's unused.
         windowId: string,
         context: vscode.ExtensionContext,
         outputChannelInstance: vscode.OutputChannel,
@@ -106,19 +109,19 @@ export class IPCServer {
         console.log(LOG_PREFIX_SERVER + 'Constructor called.');
         outputChannelInstance.appendLine(LOG_PREFIX_SERVER + 'Constructor called.');
 
-        this.port = port;
+        this.port = PORT_RANGE_START; // Set a default/initial port, but it will be updated.
         this.windowId = windowId;
         this.extensionContext = context;
         this.outputChannel = outputChannelInstance;
         this.searchService = searchServiceInstance;
         this.workspaceService = workspaceServiceInstance;
         this.diagnosticsService = diagnosticsServiceInstance;
-        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Initialized with port ${port}, windowId ${windowId}.`);
+        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Initialized with port ${this.port}, windowId ${this.windowId}.`);
     }
 
     /**
      * Starts the IPC server with leader election for Primary/Secondary architecture.
-     * Attempts to connect to the primary port first. If connection fails, becomes primary.
+     * Attempts to connect to a primary server across a range of ports. If connection fails, becomes primary.
      * If connection succeeds, becomes secondary and registers with the primary.
      */
     public start(): void {
@@ -126,44 +129,94 @@ export class IPCServer {
         this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'start() method called.');
 
         // Try to connect to primary first (leader election)
-        const testClient = new WebSocket(`ws://127.0.0.1:${PRIMARY_PORT}`);
+        this.findPrimaryAndInitialize();
+    }
 
-        testClient.on('open', () => {
-            // Another VSCE is already primary
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'Found existing primary server. Becoming secondary.');
-            testClient.close();
-            this.becomeSecondary();
-        });
-
-        testClient.on('error', (error: any) => {
-            if (error.code === 'ECONNREFUSED') {
-                // No primary exists, we become primary
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'No primary server found. Becoming primary.');
-                this.becomePrimary();
-            } else {
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error during leader election: ${error.message}`);
-                console.error(LOG_PREFIX_SERVER + 'Error during leader election:', error);
+    // Rationale: New method to encapsulate leader election with port scanning.
+    private async findPrimaryAndInitialize(): Promise<void> {
+        for (let port = PORT_RANGE_START; port <= PORT_RANGE_END; port++) {
+            try {
+                const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+                await new Promise<void>((resolve, reject) => {
+                    const timeout = setTimeout(() => reject(new Error('Connection timed out')), 200); // Quick timeout
+                    ws.on('open', () => {
+                        clearTimeout(timeout);
+                        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Found existing primary server on port ${port}. Becoming secondary.`);
+                        ws.close();
+                        this.becomeSecondary(port); // Connect to the found port
+                        resolve();
+                    });
+                    ws.on('error', (err) => {
+                        clearTimeout(timeout);
+                        // ECONNREFUSED is expected, other errors might be noteworthy
+                        if ((err as any).code !== 'ECONNREFUSED') {
+                            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Non-refused error on port ${port}: ${err.message}`);
+                        }
+                        reject(err);
+                    });
+                });
+                // If promise resolved, we found a primary and became secondary, so we can stop scanning.
+                return;
+            } catch (error) {
+                // This is the expected path when a port is not open. Continue to next port.
             }
+        }
+
+        // If loop completes, no primary was found. Become primary.
+        this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'No primary server found in range. Becoming primary.');
+        this.becomePrimary();
+    }
+
+    // Rationale: New method to encapsulate the logic for starting the server on a specific port.
+    private tryStartServerOnPort(port: number): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const wss = new WebSocketServer({ port, host: '127.0.0.1' });
+
+            const onError = (error: Error & { code?: string }) => {
+                wss.removeAllListeners();
+                wss.close();
+                reject(error);
+            };
+
+            const onListening = () => {
+                wss.removeListener('error', onError); // Don't reject on subsequent errors
+                this.wss = wss;
+                this.activePort = port;
+                resolve();
+            };
+
+            wss.once('error', onError);
+            wss.once('listening', onListening);
         });
     }
 
     /**
-     * Becomes the primary VSCE server. Starts listening on the primary port
+     * Becomes the primary VSCE server. Finds an open port and starts listening.
      * and handles connections from both Chrome Extension and secondary VSCEs.
      */
-    private becomePrimary(): void {
+    private async becomePrimary(): Promise<void> {
         this.isPrimary = true;
         this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'Setting up as PRIMARY server.');
 
-        try {
-            this.wss = new WebSocketServer({ port: PRIMARY_PORT, host: '127.0.0.1' });
+        for (let port = PORT_RANGE_START; port <= PORT_RANGE_END; port++) {
+            try {
+                await this.tryStartServerOnPort(port);
+                break; // Exit loop on success
+            } catch (error: any) {
+                if (error.code === 'EADDRINUSE') {
+                    this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Port ${port} is in use, trying next...`);
+                    continue;
+                }
+                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Failed to start PRIMARY server with unexpected error: ${error.message}`);
+                vscode.window.showErrorMessage(`ContextWeaver: A critical error occurred while starting the server: ${error.message}`);
+                return; // Stop trying if it's not a port conflict
+            }
+        }
 
-            this.wss.on('listening', () => {
-                const msg = `PRIMARY WebSocket server listening on 127.0.0.1:${PRIMARY_PORT}`;
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + msg);
-                console.log(LOG_PREFIX_SERVER + msg);
-                vscode.window.showInformationMessage(`ContextWeaver: Primary IPC Server started on port ${PRIMARY_PORT}.`);
-            });
+        if (this.wss && this.activePort) {
+            const msg = `PRIMARY WebSocket server listening on 127.0.0.1:${this.activePort}`;
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + msg);
+            vscode.window.showInformationMessage(`ContextWeaver: Primary IPC Server started on port ${this.activePort}.`);
 
             this.wss.on('connection', (ws: WebSocket, req) => {
                 const clientIp = req.socket.remoteAddress || 'unknown';
@@ -197,16 +250,11 @@ export class IPCServer {
                 });
             });
 
-            this.wss.on('error', (error: Error & { code?: string }) => {
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `PRIMARY WebSocket server error: ${error.message}`);
-                console.error(LOG_PREFIX_SERVER + 'PRIMARY WebSocket server error:', error);
-                vscode.window.showErrorMessage(`ContextWeaver: Primary IPC Server failed to start. Error: ${error.message}`);
-            });
-
-        } catch (error: any) {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Failed to create PRIMARY WebSocket server: ${error.message}`);
-            console.error(LOG_PREFIX_SERVER + 'Failed to create PRIMARY WebSocket server:', error);
-            vscode.window.showErrorMessage(`ContextWeaver: Exception while starting Primary IPC Server. Error: ${error.message}`);
+        } else {
+            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `CRITICAL: All ports in range ${PORT_RANGE_START}-${PORT_RANGE_END} are in use.`);
+            vscode.window.showErrorMessage(
+                `ContextWeaver: Server failed to start. All ports from ${PORT_RANGE_START}-${PORT_RANGE_END} are busy. Please free up a port and restart VS Code.`
+            );
         }
     }
 
@@ -214,12 +262,12 @@ export class IPCServer {
      * Becomes a secondary VSCE server. Connects to the primary server
      * and forwards requests/responses between primary and local resources.
      */
-    private becomeSecondary(): void {
+    private becomeSecondary(primaryPort: number): void {
         this.isPrimary = false;
         this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'Setting up as SECONDARY server.');
 
         // Connect to primary
-        this.primaryWebSocket = new WebSocket(`ws://127.0.0.1:${PRIMARY_PORT}`);
+        this.primaryWebSocket = new WebSocket(`ws://127.0.0.1:${primaryPort}`);
 
         this.primaryWebSocket.on('open', () => {
             this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'Connected to primary server.');

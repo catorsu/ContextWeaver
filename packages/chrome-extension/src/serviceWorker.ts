@@ -23,14 +23,17 @@ import {
 
 const LOG_PREFIX_SW = '[ContextWeaver CE-SW]';
 
+// Rationale: Define a port range for the client to scan, matching the server's range.
+const PORT_RANGE_START = 30001;
+const PORT_RANGE_END = 30005;
+
 /**
  * Manages the WebSocket client connection to the VS Code Extension (VSCE) IPC server.
  * Handles sending requests, receiving responses, and managing connection state.
  */
 class IPCClient {
-    private ws: WebSocket | null = null;
-    private readonly primaryPort: number = 30001; // Fixed primary port
-    public port: number = 30001; // Current port being used
+    private ws: WebSocket | null = null;    
+    public port: number = PORT_RANGE_START; // Current port being used
     private connectionPromise: Promise<void> | null = null;
     private resolveConnectionPromise: (() => void) | null = null;
     private rejectConnectionPromise: ((reason?: any) => void) | null = null;
@@ -45,22 +48,8 @@ class IPCClient {
      */
     constructor() {
         console.log(LOG_PREFIX_SW, 'IPCClient constructor called.');
-        this.loadConfiguration();
+        // Rationale: No longer loading config. Immediately try to connect.
         this.connectWithRetry();
-    }
-
-    /**
-     * Loads the IPC port configuration from Chrome storage.
-     */
-    public async loadConfiguration(): Promise<void> {
-        try {
-            const result = await chrome.storage.sync.get(['ipcPort', 'ipcToken']);
-            this.port = result.ipcPort || 30001;
-            console.log(LOG_PREFIX_SW, `Configuration loaded: Port=${this.port}`);
-        } catch (error) {
-            console.error(LOG_PREFIX_SW, 'Error loading configuration:', error);
-            this.port = 30001;
-        }
     }
 
     private initializeConnectionPromise() {
@@ -102,28 +91,22 @@ class IPCClient {
     }
 
 
-    private connect(): void { // This method attempts a single connection
-        console.log(LOG_PREFIX_SW, 'connect() called.');
+    // Rationale: Renamed from connect() to be more descriptive of its action.
+    private attemptConnection(port: number): Promise<WebSocket> {
+        console.log(LOG_PREFIX_SW, `attemptConnection() called for port ${port}.`);
         if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
-            console.log(LOG_PREFIX_SW, 'connect: WebSocket connection already open or connecting.');
-            if (this.ws.readyState === WebSocket.OPEN && this.resolveConnectionPromise) {
-                this.resolveConnectionPromise(); // Resolve if already open and promise was pending
-                this.resolveConnectionPromise = null;
-                this.rejectConnectionPromise = null;
-            }
-            return;
+            console.log(LOG_PREFIX_SW, 'attemptConnection: WebSocket connection already open or connecting.');
+            return Promise.resolve(this.ws);
         }
 
-        // Ensure a promise exists for this attempt
-        this.initializeConnectionPromise();
+        return new Promise((resolve, reject) => {
+            const serverUrl = `ws://127.0.0.1:${port}`;
+            console.log(LOG_PREFIX_SW, `Attempting to connect to VSCE IPC Server at ${serverUrl}`);
 
-        const serverUrl = `ws://127.0.0.1:${this.port}`;
-        console.log(LOG_PREFIX_SW, `Attempting to connect to VSCE IPC Server at ${serverUrl}`);
+            const ws = new WebSocket(serverUrl);
 
-        try {
-            this.ws = new WebSocket(serverUrl);
-
-            this.ws.onopen = () => {
+            ws.onopen = () => {
+                this.ws = ws; // Assign to class property on success
                 console.log(LOG_PREFIX_SW, `Successfully connected to ${serverUrl}`);
                 if (this.resolveConnectionPromise) {
                     this.resolveConnectionPromise();
@@ -131,13 +114,14 @@ class IPCClient {
                 // Nullify promise handlers after resolution/rejection
                 this.resolveConnectionPromise = null;
                 this.rejectConnectionPromise = null;
+                resolve(ws);
             };
 
-            this.ws.onmessage = (event) => {
+            ws.onmessage = (event) => {
                 this.handleServerMessage(event.data);
             };
 
-            this.ws.onclose = (event) => {
+            ws.onclose = (event) => {
                 const wasIntentional = this.isIntentionalDisconnect;
                 this.isIntentionalDisconnect = false; // Reset flag
 
@@ -146,59 +130,50 @@ class IPCClient {
                     console.log(LOG_PREFIX_SW, `Intentionally ${reason}`);
                 } else {
                     console.warn(LOG_PREFIX_SW, `Unintentionally ${reason}`);
+                    // Don't reject here; let the retry logic handle it.
                     // Notify UI about unexpected disconnect
                     chrome.runtime.sendMessage({
-                        type: 'IPC_CONNECTION_STATUS',
-                        payload: { status: 'disconnected_unexpectedly', message: `Unexpectedly disconnected from VS Code. Code: ${event.code}, Reason: ${event.reason}. Will attempt to reconnect.` }
+                        action: 'ipcConnectionStatus',
+                        status: 'disconnected_unexpectedly',
+                        payload: { message: `Unexpectedly disconnected from VS Code. Code: ${event.code}, Reason: ${event.reason}. Will attempt to reconnect.` }
                     }).catch(err => console.warn(LOG_PREFIX_SW, 'Error sending IPC_CONNECTION_STATUS (disconnected_unexpectedly) message:', err));
+                    this.connectWithRetry(); // Rationale: Automatically try to reconnect if connection is lost.
                 }
 
                 const currentReject = this.rejectConnectionPromise;
                 this.ws = null; // Clear WebSocket instance
-
-                if (currentReject && !wasIntentional) {
-                    currentReject(new Error(`Connection closed unexpectedly. ${reason}`));
-                }
-                // Nullify promise handlers after resolution/rejection
-                this.resolveConnectionPromise = null;
-                this.rejectConnectionPromise = null;
-                // Do NOT re-initialize connectionPromise here, connectWithRetry will handle it.
             };
 
-            this.ws.onerror = (errorEvent) => {
+            ws.onerror = (errorEvent) => {
                 const errorMsg = `WebSocket error with ${serverUrl}: ${errorEvent.type}`;
                 console.error(LOG_PREFIX_SW, errorMsg, errorEvent);
-
-                const currentWs = this.ws; // Capture current ws before nulling
-                this.ws = null; // Clear WebSocket instance
-
-                const currentReject = this.rejectConnectionPromise;
-                if (currentReject) {
-                    currentReject(new Error(`WebSocket error. ${errorMsg}`));
-                }
-                // Nullify promise handlers
-                this.resolveConnectionPromise = null;
-                this.rejectConnectionPromise = null;
-
-                if (currentWs && (currentWs.readyState === WebSocket.OPEN || currentWs.readyState === WebSocket.CONNECTING)) {
-                    currentWs.close(); // Attempt to clean up the problematic socket
-                }
-                chrome.runtime.sendMessage({
-                    type: 'IPC_CONNECTION_STATUS',
-                    payload: { status: 'connection_error', message: 'WebSocket error connecting to VS Code. Retrying...' }
-                }).catch(err => console.warn(LOG_PREFIX_SW, 'Error sending IPC_CONNECTION_STATUS (connection_error) message:', err));
-                // Do NOT re-initialize connectionPromise here, connectWithRetry will handle it.
+                reject(new Error(`WebSocket error on port ${port}.`));
             };
-        } catch (error) {
-            const errorMsg = `Error initializing WebSocket connection to ${serverUrl}: ${error}`;
-            console.error(LOG_PREFIX_SW, errorMsg);
-            const currentReject = this.rejectConnectionPromise;
-            if (currentReject) {
-                currentReject(new Error(errorMsg));
+        });
+    }
+
+    // Rationale: New method to scan the port range and find the active server.
+    private async scanForServer(): Promise<void> {
+        for (let port = PORT_RANGE_START; port <= PORT_RANGE_END; port++) {
+            try {
+                await this.attemptConnection(port);
+                // If connection is successful, this.ws is set.
+                this.port = port; // Store the successfully connected port.
+
+                // Notify the popup of the successful connection
+                chrome.runtime.sendMessage({
+                    action: 'ipcConnectionStatus',
+                    status: 'connected',
+                    payload: { message: `Connected to VS Code on port ${this.port}.`, port: this.port }
+                }).catch(err => console.warn(LOG_PREFIX_SW, 'Error sending IPC_CONNECTION_STATUS (connected) message:', err));
+
+                return; // Exit after successful connection
+            } catch (error) {
+                // This is expected if the port is not the one. Continue to the next.
             }
-            this.resolveConnectionPromise = null;
-            this.rejectConnectionPromise = null;
         }
+        // If the loop completes, no server was found.
+        throw new Error(`Could not find a ContextWeaver server in the port range ${PORT_RANGE_START}-${PORT_RANGE_END}.`);
     }
 
     /**
@@ -213,32 +188,16 @@ class IPCClient {
         this.initializeConnectionPromise();
 
         const tryConnect = () => {
-            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                // If already connected (e.g., by a concurrent call or previous success), resolve.
-                if (this.resolveConnectionPromise) {
-                    this.resolveConnectionPromise();
-                    this.resolveConnectionPromise = null;
-                    this.rejectConnectionPromise = null;
-                }
-                return;
-            }
+            // Rationale: Call the new port scanning logic instead of a single connect.
             attempt++;
             console.log(LOG_PREFIX_SW, `Connection attempt ${attempt}`);
 
-            this.connect(); // This attempts one connection and uses/resolves/rejects this.connectionPromise
-
-            this.connectionPromise!
+            this.scanForServer() // Scan all ports instead of connecting to one
                 .then(() => {
                     console.log(LOG_PREFIX_SW, 'Connection successful after retry.');
                     // Promise already resolved by connect()'s onopen
                 })
-                .catch((error) => { // This catch is for the current attempt's promise
-                    console.error(LOG_PREFIX_SW, `Connection attempt ${attempt} failed:`, error.message);
-
-                    // Prepare for the next attempt by ensuring a new promise can be created
-                    this.resolveConnectionPromise = null;
-                    this.rejectConnectionPromise = null;
-                    this.connectionPromise = null; // Allow initializeConnectionPromise to create a new one
+                .catch(() => { // This catch is for the current attempt's promise
 
                     if (attempt < maxRetries) {
                         setTimeout(tryConnect, delay);
@@ -255,8 +214,9 @@ class IPCClient {
                         this.resolveConnectionPromise = null;
                         this.rejectConnectionPromise = null;
                         chrome.runtime.sendMessage({
-                            type: 'IPC_CONNECTION_STATUS',
-                            payload: { status: 'failed_max_retries', message: `Could not connect to VS Code primary server after ${maxRetries} attempts. Please ensure VS Code is running with ContextWeaver extension.` }
+                            action: 'ipcConnectionStatus',
+                            status: 'failed_max_retries',
+                            payload: { message: `Could not connect to VS Code primary server after ${maxRetries} attempts. Please ensure VS Code is running with ContextWeaver extension.` }
                         }).catch(err => console.warn(LOG_PREFIX_SW, 'Error sending IPC_CONNECTION_STATUS (failed_max_retries) message:', err));
                     }
                 });
@@ -292,17 +252,16 @@ class IPCClient {
                 console.log(LOG_PREFIX_SW, `handleServerMessage: Detected 'push' message type. Command: ${pushMessage.command}`);
 
                 if (pushMessage.command === 'push_snippet') {
-                    const snippetPayload = pushMessage.payload as PushSnippetPayload; // Typed payload
                     console.log(LOG_PREFIX_SW, `handleServerMessage: Broadcasting 'push_snippet' to all LLM tabs.`);
 
                     // Query for all tabs matching supported LLM host permissions
                     chrome.tabs.query({
                         url: [
-                            "*://gemini.google.com/*",
-                            "*://chatgpt.com/*",
-                            "*://claude.ai/*",
-                            "*://aistudio.google.com/*",
-                            "*://chat.deepseek.com/*"
+                            '*://gemini.google.com/*',
+                            '*://chatgpt.com/*',
+                            '*://claude.ai/*',
+                            '*://aistudio.google.com/*',
+                            '*://chat.deepseek.com/*'
                         ]
                     }).then(tabs => {
                         console.log(LOG_PREFIX_SW, `Found ${tabs.length} LLM tabs to send snippet to`);
@@ -832,11 +791,8 @@ chrome.runtime.onMessage.addListener((message: IncomingRuntimeMessage, sender, s
     } else if ('action' in message) { // Handle messages from options/popup pages
         const optionsMessage = message as OptionsPageMessage;
         if (optionsMessage.action === 'settingsUpdated') {
-            console.log(LOG_PREFIX_SW, 'Settings updated message received. Reloading configuration and reconnecting.');
-            ipcClient.loadConfiguration().then(() => {
-                ipcClient.disconnect();
-                ipcClient.connectWithRetry();
-            });
+            // Rationale: This action is now obsolete as there are no settings to save.
+            console.log(LOG_PREFIX_SW, 'Received obsolete settingsUpdated message. Ignoring.');
             return false;
         } else if (optionsMessage.action === 'reconnectIPC') {
             console.log(LOG_PREFIX_SW, 'Received reconnectIPC message. Forcing reconnection.');
@@ -850,16 +806,15 @@ chrome.runtime.onMessage.addListener((message: IncomingRuntimeMessage, sender, s
             console.log(LOG_PREFIX_SW, 'Received request for current IPC status.');
             if (ipcClient.isConnected()) {
                 sendResponse({
-                    action: 'ipcConnectionStatus', // Echo action for options.ts listener
+                    action: 'ipcConnectionStatus',
                     status: 'connected',
-                    port: ipcClient.port,
-                    message: `Currently connected to VS Code on port ${ipcClient.port}.`
+                    payload: { port: ipcClient.port, message: `Currently connected to VS Code on port ${ipcClient.port}.` }
                 });
             } else {
                 sendResponse({
-                    action: 'ipcConnectionStatus', // Echo action for options.ts listener
+                    action: 'ipcConnectionStatus',
                     status: 'disconnected_unexpectedly',
-                    message: 'Currently not connected to VS Code.'
+                    payload: { message: 'Currently not connected to VS Code.' }
                 });
             }
             return false;
@@ -901,7 +856,6 @@ function startKeepAlive() {
 // --- Lifecycle Event Listeners ---
 chrome.runtime.onStartup.addListener(async () => {
     console.log(LOG_PREFIX_SW, 'Extension started up via onStartup.');
-    await ipcClient.loadConfiguration();
     ipcClient.connectWithRetry();
     startKeepAlive();
 });
@@ -911,7 +865,6 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     if (details.reason === chrome.runtime.OnInstalledReason.INSTALL) {
         chrome.runtime.openOptionsPage();
     }
-    await ipcClient.loadConfiguration();
     ipcClient.connectWithRetry();
     startKeepAlive();
 });
@@ -924,9 +877,7 @@ if (typeof keepAliveIntervalId === 'undefined') {
 
 if (!ipcClient.isConnected()) {
     console.log(LOG_PREFIX_SW, 'Service worker script loaded, attempting initial connection (if not already handled by startup/install).');
-    ipcClient.loadConfiguration().then(() => {
-        ipcClient.connectWithRetry();
-    });
+    ipcClient.connectWithRetry();
 }
 
 const SUPPORTED_LLM_HOST_SUFFIXES = [
@@ -1015,9 +966,8 @@ async function registerInitialActiveTab() {
 // Call this function when the service worker script is loaded, after ipcClient is initialized.
 // This ensures that even if the extension is reloaded or browser starts with an LLM tab open,
 // it gets registered.
-ipcClient.loadConfiguration().then(() => {
-    ipcClient.connectWithRetry();
-    registerInitialActiveTab(); // Call after ipcClient is ready and attempting connection
-});
+// Rationale: Connection is already attempted in the constructor. This ensures the active tab is registered
+// once the connection is established.
+ipcClient.ensureConnected().then(() => registerInitialActiveTab());
 
 console.log(LOG_PREFIX_SW, 'Service worker script fully loaded and IPCClient instantiated.');

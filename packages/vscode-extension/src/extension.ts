@@ -89,11 +89,8 @@ export function activate(context: vscode.ExtensionContext) {
     diagnosticsService = new DiagnosticsService(outputChannel);
     const searchService = new SearchService(outputChannel, workspaceService); // Pass outputChannel and workspaceService to SearchService
 
-    // Retrieve configuration for IPC
-    const configuration = vscode.workspace.getConfiguration(EXTENSION_ID);
-    const port = configuration.get('ipc.port', 30001);
-
-    ipcServer = new IPCServer(port, windowId, context, outputChannel, searchService, workspaceService, diagnosticsService); // Pass windowId, workspaceService and diagnosticsService
+    // Rationale: Port is now determined automatically by the server. Pass a placeholder.
+    ipcServer = new IPCServer(0, windowId, context, outputChannel, searchService, workspaceService, diagnosticsService); // Pass windowId, workspaceService and diagnosticsService
 
     // --- ADDED LOGGING ---
     console.log(LOG_PREFIX + 'IPCServer instance created. Attempting to start...');
