@@ -329,6 +329,55 @@ export async function getFolderContentsForIPC(
   }
 }
 
+/**
+ * Recursively traverses a directory, collecting all file and folder entries that are not ignored.
+ * @param dirUri The URI of the directory to start traversal from.
+ * @param baseWorkspaceFolder The root workspace folder for context and ignore path calculations.
+ * @param gitignoreFilter The parsed ignore filter to apply.
+ * @returns A promise that resolves to a flat array of all descendant directory entries.
+ */
+async function getDirectoryListingRecursive(
+  dirUri: vscode.Uri,
+  baseWorkspaceFolder: vscode.WorkspaceFolder,
+  gitignoreFilter: Ignore | null
+): Promise<CWDirectoryEntry[]> {
+  const allEntries: CWDirectoryEntry[] = [];
+  let dirEntries: [string, vscode.FileType][];
+
+  try {
+    dirEntries = await vscode.workspace.fs.readDirectory(dirUri);
+  } catch (error) {
+    console.warn(`[ContextWeaver FileSystemService] Could not read directory ${dirUri.fsPath} during recursive listing:`, error);
+    return []; // Return empty array if a directory is unreadable, skipping it
+  }
+
+  for (const [name, type] of dirEntries) {
+    const entryUri = vscode.Uri.joinPath(dirUri, name);
+    const relativePath = path.relative(baseWorkspaceFolder.uri.fsPath, entryUri.fsPath).replace(/\\/g, '/');
+    const isDirectory = type === vscode.FileType.Directory;
+
+    const ignoreInfo = getPathIgnoreInfo(relativePath, name, isDirectory, gitignoreFilter, IGNORE_PATTERNS_DEFAULT);
+
+    if (ignoreInfo.ignored) {
+      continue;
+    }
+
+    const uriString = entryUri.toString();
+    allEntries.push({
+      name,
+      type: isDirectory ? 'folder' : 'file',
+      uri: uriString,
+      content_source_id: uriString,
+      windowId: '' // Will be populated by ipcServer
+    });
+
+    if (isDirectory) {
+      const subEntries = await getDirectoryListingRecursive(entryUri, baseWorkspaceFolder, gitignoreFilter);
+      allEntries.push(...subEntries);
+    }
+  }
+  return allEntries;
+}
 
 /**
  * @description Lists files and folders in a directory, applying workspace filters.
@@ -344,41 +393,15 @@ export async function getDirectoryListing(
   const gitignoreFilter = await parseGitignore(containingWorkspaceFolder);
   const filterTypeApplied: FilterType = gitignoreFilter !== null ? 'gitignore' : 'default';
   const entries: CWDirectoryEntry[] = [];
-
+  
   try {
-    const dirEntries = await vscode.workspace.fs.readDirectory(folderToScanUri);
-
-    dirEntries.sort((a, b) => {
-      if (a[1] === vscode.FileType.Directory && b[1] !== vscode.FileType.Directory) return -1;
-      if (a[1] !== vscode.FileType.Directory && b[1] === vscode.FileType.Directory) return 1;
-      return a[0].localeCompare(b[0]);
-    });
-
-    for (const [name, type] of dirEntries) {
-      const entryUri = vscode.Uri.joinPath(folderToScanUri, name);
-      const relativePathForIgnoreCheck = path.relative(containingWorkspaceFolder.uri.fsPath, entryUri.fsPath).replace(/\\/g, '/');
-      const isDirectory = type === vscode.FileType.Directory;
-
-      const ignoreInfo = getPathIgnoreInfo(
-        relativePathForIgnoreCheck,
-        name,
-        isDirectory,
-        gitignoreFilter,
-        IGNORE_PATTERNS_DEFAULT
-      );
-
-      if (!ignoreInfo.ignored) {
-        const entryType = isDirectory ? 'folder' : 'file';
-        const uriString = entryUri.toString();
-        entries.push({
-          name,
-          type: entryType,
-          uri: uriString,
-          content_source_id: uriString,
-          windowId: '' // Will be added by ipcServer
-        });
-      }
-    }
+    // Call the recursive function to get all descendants
+    const recursiveEntries = await getDirectoryListingRecursive(
+      folderToScanUri,
+      containingWorkspaceFolder,
+      gitignoreFilter
+    );
+    entries.push(...recursiveEntries);
 
     return { entries, filterTypeApplied };
   } catch (error: any) {

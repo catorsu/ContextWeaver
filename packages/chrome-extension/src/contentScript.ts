@@ -1588,10 +1588,127 @@ function createBrowseItemElement(entry: CWDirectoryEntry): HTMLDivElement { // U
     if (e.key === 'Enter') {
       e.preventDefault();
       checkbox.checked = !checkbox.checked;
+      // Trigger change event to enable cascading selection
+      checkbox.dispatchEvent(new Event('change', { bubbles: true }));
     }
   });
   
   return itemDiv;
+}
+
+// Tree node interface for hierarchical structure
+interface TreeNode {
+  entry: CWDirectoryEntry;
+  children: TreeNode[];
+}
+
+/**
+ * Gets the parent URI of a given URI string.
+ * @param uri The URI string.
+ * @returns The parent URI string, or null if it's a root.
+ */
+function getParentUri(uri: string): string | null {
+  // Normalize by removing any trailing slash to handle directories consistently
+  const normalizedUri = uri.endsWith('/') ? uri.slice(0, -1) : uri;
+  const lastSlashIndex = normalizedUri.lastIndexOf('/');
+
+  // Check for root cases like 'file:///' or 'http://domain.com'
+  const schemeIndex = normalizedUri.indexOf('://');
+  if (lastSlashIndex <= (schemeIndex !== -1 ? schemeIndex + 2 : 0)) {
+    return null;
+  }
+
+  return normalizedUri.substring(0, lastSlashIndex);
+}
+
+/**
+ * Builds a hierarchical tree structure from a flat list of all descendant directory entries.
+ * @param entries The flat list of all directory entries from the backend.
+ * @returns {TreeNode[]} The root level tree nodes.
+ */
+function buildTreeStructure(entries: CWDirectoryEntry[]): TreeNode[] {
+  const nodeMap = new Map<string, TreeNode>();
+
+  // First pass: create a node for each entry and store it in the map.
+  entries.forEach(entry => {
+    nodeMap.set(entry.uri, { entry, children: [] });
+  });
+
+  const rootNodes: TreeNode[] = [];
+
+  // Second pass: link each node to its parent.
+  entries.forEach(entry => {
+    const node = nodeMap.get(entry.uri)!;
+    const parentUri = getParentUri(entry.uri);
+    const parentNode = parentUri ? nodeMap.get(parentUri) : null;
+
+    if (parentNode) {
+      parentNode.children.push(node);
+    } else {
+      // If a node has no parent within the provided list, it's a root node.
+      rootNodes.push(node);
+    }
+  });
+
+  // Sort nodes at each level: folders first, then alphabetically by name.
+  const sortNodes = (nodesToSort: TreeNode[]) => {
+    if (!nodesToSort) return;
+    nodesToSort.sort((a, b) => {
+      if (a.entry.type !== b.entry.type) {
+        return a.entry.type === 'folder' ? -1 : 1;
+      }
+      return a.entry.name.localeCompare(b.entry.name);
+    });
+    nodesToSort.forEach(node => sortNodes(node.children));
+  };
+
+  sortNodes(rootNodes);
+  return rootNodes;
+}
+
+/**
+ * Creates tree node elements recursively with proper indentation for a static tree view.
+ * @param node The tree node to render.
+ * @param level The indentation level.
+ * @returns {HTMLDivElement} A div element containing the rendered node and its children.
+ */
+function createTreeNodeElement(node: TreeNode, level: number = 0): HTMLDivElement {
+  // Create container for this node and its children
+  const nodeContainer = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}tree-node`] });
+  
+  // Create the item element for the current node with indentation
+  const itemDiv = createBrowseItemElement(node.entry);
+  itemDiv.style.paddingLeft = `${level * 20 + 8}px`;
+  nodeContainer.appendChild(itemDiv);
+
+  // If this node has children, create a container for them
+  if (node.children.length > 0) {
+    const childrenContainer = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}tree-children`] });
+    
+    // Render children recursively
+    node.children.forEach(childNode => {
+      const childElement = createTreeNodeElement(childNode, level + 1);
+      childrenContainer.appendChild(childElement);
+    });
+    
+    nodeContainer.appendChild(childrenContainer);
+    
+    // Add cascading selection for folders
+    if (node.entry.type === 'folder') {
+      const checkbox = itemDiv.querySelector('input[type="checkbox"]') as HTMLInputElement;
+      if (checkbox) {
+        checkbox.addEventListener('change', () => {
+          // Update all descendant checkboxes to match this folder's state
+          const descendantCheckboxes = childrenContainer.querySelectorAll('input[type="checkbox"]:not(:disabled)');
+          descendantCheckboxes.forEach((descendantCheckbox: Element) => {
+            (descendantCheckbox as HTMLInputElement).checked = checkbox.checked;
+          });
+        });
+      }
+    }
+  }
+
+  return nodeContainer;
 }
 
 // Helper for browse view buttons
@@ -1610,7 +1727,11 @@ function createBrowseViewButtons(
   workspaceFolderUri: string | null
 ): HTMLDivElement {
   const buttonContainer = uiManager.createDiv({ style: { marginTop: '10px' } });
-  const insertButton = uiManager.createButton('Insert Selected Items', {
+  const insertButton = uiManager.createButton('✅', {
+    style: {
+      fontSize: '16px',
+      padding: '6px 12px'
+    },
     onClick: async () => {
       interface SelectedBrowseEntry { // Define local interface for clarity
         uri: string;
@@ -1636,7 +1757,7 @@ function createBrowseViewButtons(
       }
 
       insertButton.disabled = true;
-      insertButton.textContent = `Loading ${selectedEntries.length} selected items...`;
+      insertButton.textContent = '⏳';
       const progressDiv = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}progress`], style: { marginTop: '10px' } });
       buttonContainer.appendChild(progressDiv);
       uiManager.updateContent(uiManager.createDiv({ children: [listContainer, buttonContainer, progressDiv] })); // Re-render with progress
@@ -1697,16 +1818,21 @@ function createBrowseViewButtons(
         uiManager.hideLoading(); // Hide loading for this operation
         if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible')) {
           insertButton.disabled = false;
-          insertButton.textContent = 'Insert Selected Items';
+          insertButton.textContent = '✅';
           if (progressDiv.parentNode) progressDiv.parentNode.removeChild(progressDiv);
         }
       }
     }
   });
   buttonContainer.appendChild(insertButton);
+  insertButton.title = 'Insert Selected Items';
 
-  const backButton = uiManager.createButton('Back', {
-    style: { marginLeft: '10px' },
+  const backButton = uiManager.createButton('↩️', {
+    style: {
+      marginLeft: '10px',
+      fontSize: '16px',
+      padding: '6px 12px'
+    },
     onClick: () => {
       const currentSearchResponse = stateManager.getSearchResponse();
       const currentSearchQuery = stateManager.getSearchQuery();
@@ -1718,6 +1844,7 @@ function createBrowseViewButtons(
     }
   });
   buttonContainer.appendChild(backButton);
+  backButton.title = 'Back to search results';
   return buttonContainer;
 }
 
@@ -1746,9 +1873,13 @@ function renderBrowseView(browseResponse: ListFolderContentsResponsePayload, par
 
   const listContainer = uiManager.createDiv({ style: { maxHeight: '250px', overflowY: 'auto', marginBottom: '10px' } });
 
-  browseResponse.data.entries.forEach((entry: CWDirectoryEntry) => { // Use aliased type
-    const itemDiv = createBrowseItemElement(entry);
-    listContainer.appendChild(itemDiv);
+  // Build hierarchical tree structure from the flat list of all descendants
+  const treeNodes = buildTreeStructure(browseResponse.data.entries);
+
+  // Render the tree nodes into the container
+  treeNodes.forEach(node => {
+    const nodeElement = createTreeNodeElement(node, 0);
+    listContainer.appendChild(nodeElement);
   });
   contentFragment.appendChild(listContainer);
 

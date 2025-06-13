@@ -369,6 +369,12 @@ export class UIManager {
         display: flex;
         align-items: center;
     }
+    .${CSS_PREFIX}tree-node {
+        display: block;
+    }
+    .${CSS_PREFIX}tree-children {
+        display: block;
+    }
     .${CSS_PREFIX}open-files-selector { /* Added from displayOpenFilesSelectorUI */
         /* No specific styles provided, but class is available */
     }
