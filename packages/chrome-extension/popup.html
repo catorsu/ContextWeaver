@@ -5,34 +5,61 @@
   <title>ContextWeaver Status</title>
   <meta charset="UTF-8">
   <style>
+    /* Light theme (default) */
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       width: 200px;
-      padding: 15px;
+      padding: 16px;
       text-align: center;
       background-color: #ffffff;
+      line-height: 1.5;
+      color: #333;
+      transition: background-color 0.3s, color 0.3s;
+    }
+    
+    /* Dark theme */
+    @media (prefers-color-scheme: dark) {
+      body {
+        background-color: #1a1a1a;
+        color: #e0e0e0;
+      }
+    }
+    
+    body[data-theme="dark"] {
+      background-color: #1a1a1a;
+      color: #e0e0e0;
     }
 
     h3 {
       margin-top: 0;
-      margin-bottom: 15px;
+      margin-bottom: 16px;
       color: #333;
       font-weight: 500;
+    }
+    
+    @media (prefers-color-scheme: dark) {
+      h3 {
+        color: #e0e0e0;
+      }
+    }
+    
+    body[data-theme="dark"] h3 {
+      color: #e0e0e0;
     }
 
     #status-container {
       position: relative;
-      margin-bottom: 15px;
+      margin-bottom: 16px;
     }
 
     #status-icon {
-      padding: 15px;
+      padding: 16px;
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
-      width: 60px;
-      height: 60px;
+      width: 64px;
+      height: 64px;
       transition: background-color 0.3s;
       margin: 0 auto;
       /* Center the icon container */
@@ -98,6 +125,16 @@
       margin-left: -80px;
       /* Half of width to center */
     }
+    
+    @media (prefers-color-scheme: dark) {
+      #tooltip-text {
+        background-color: #505050;
+      }
+    }
+    
+    body[data-theme="dark"] #tooltip-text {
+      background-color: #505050;
+    }
 
     #status-container:hover #tooltip-text {
       visibility: visible;
@@ -123,6 +160,30 @@
     #reconnect-button:hover {
       background-color: #e8eaed;
       box-shadow: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
+    }
+    
+    @media (prefers-color-scheme: dark) {
+      #reconnect-button {
+        background-color: #3a3a3a;
+        border: 1px solid #4a4a4a;
+        color: #e0e0e0;
+      }
+      
+      #reconnect-button:hover {
+        background-color: #4a4a4a;
+        box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.15);
+      }
+    }
+    
+    body[data-theme="dark"] #reconnect-button {
+      background-color: #3a3a3a;
+      border: 1px solid #4a4a4a;
+      color: #e0e0e0;
+    }
+    
+    body[data-theme="dark"] #reconnect-button:hover {
+      background-color: #4a4a4a;
+      box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.15);
     }
   </style>
 </head>

@@ -137,6 +137,10 @@ class IPCClient {
                         status: 'disconnected_unexpectedly',
                         payload: { message: `Unexpectedly disconnected from VS Code. Code: ${event.code}, Reason: ${event.reason}. Will attempt to reconnect.` }
                     }).catch(err => console.warn(LOG_PREFIX_SW, 'Error sending IPC_CONNECTION_STATUS (disconnected_unexpectedly) message:', err));
+                    
+                    // Update badge to show failed status
+                    this.updateBadge('failed');
+                    
                     this.connectWithRetry(); // Rationale: Automatically try to reconnect if connection is lost.
                 }
 
@@ -147,6 +151,7 @@ class IPCClient {
             ws.onerror = (errorEvent) => {
                 const errorMsg = `WebSocket error with ${serverUrl}: ${errorEvent.type}`;
                 console.error(LOG_PREFIX_SW, errorMsg, errorEvent);
+                this.updateBadge('failed');
                 reject(new Error(`WebSocket error on port ${port}.`));
             };
         });
@@ -166,6 +171,9 @@ class IPCClient {
                     status: 'connected',
                     payload: { message: `Connected to VS Code on port ${this.port}.`, port: this.port }
                 }).catch(err => console.warn(LOG_PREFIX_SW, 'Error sending IPC_CONNECTION_STATUS (connected) message:', err));
+                
+                // Update badge to show connected status
+                this.updateBadge('connected');
 
                 return; // Exit after successful connection
             } catch (error) {
@@ -174,6 +182,27 @@ class IPCClient {
         }
         // If the loop completes, no server was found.
         throw new Error(`Could not find a ContextWeaver server in the port range ${PORT_RANGE_START}-${PORT_RANGE_END}.`);
+    }
+
+    /**
+     * Updates the browser action badge based on connection status.
+     * @param status The connection status to display.
+     */
+    public updateBadge(status: 'connected' | 'connecting' | 'failed'): void {
+        switch (status) {
+            case 'connected':
+                chrome.action.setBadgeText({ text: 'ON' });
+                chrome.action.setBadgeBackgroundColor({ color: '#34a853' }); // Green
+                break;
+            case 'connecting':
+                chrome.action.setBadgeText({ text: '...' });
+                chrome.action.setBadgeBackgroundColor({ color: '#4285f4' }); // Blue
+                break;
+            case 'failed':
+                chrome.action.setBadgeText({ text: 'OFF' });
+                chrome.action.setBadgeBackgroundColor({ color: '#ea4335' }); // Red
+                break;
+        }
     }
 
     /**
@@ -191,6 +220,16 @@ class IPCClient {
             // Rationale: Call the new port scanning logic instead of a single connect.
             attempt++;
             console.log(LOG_PREFIX_SW, `Connection attempt ${attempt}`);
+            
+            // Update badge to show connecting status
+            this.updateBadge('connecting');
+            
+            // Send connecting status to popup
+            chrome.runtime.sendMessage({
+                action: 'ipcConnectionStatus',
+                status: 'connecting',
+                payload: { message: `Attempting connection (attempt ${attempt}/${maxRetries})...` }
+            }).catch(err => console.warn(LOG_PREFIX_SW, 'Error sending connecting status:', err));
 
             this.scanForServer() // Scan all ports instead of connecting to one
                 .then(() => {
@@ -818,6 +857,15 @@ chrome.runtime.onMessage.addListener((message: IncomingRuntimeMessage, sender, s
                 });
             }
             return false;
+        } else if (optionsMessage.action === 'updateBadge') {
+            console.log(LOG_PREFIX_SW, 'Received request to update badge.');
+            // Update badge based on current connection status
+            if (ipcClient.isConnected()) {
+                ipcClient.updateBadge('connected');
+            } else {
+                ipcClient.updateBadge('failed');
+            }
+            return false;
         }
     }
 
@@ -856,6 +904,7 @@ function startKeepAlive() {
 // --- Lifecycle Event Listeners ---
 chrome.runtime.onStartup.addListener(async () => {
     console.log(LOG_PREFIX_SW, 'Extension started up via onStartup.');
+    ipcClient.updateBadge('connecting'); // Set initial badge state
     ipcClient.connectWithRetry();
     startKeepAlive();
 });
@@ -865,6 +914,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     if (details.reason === chrome.runtime.OnInstalledReason.INSTALL) {
         chrome.runtime.openOptionsPage();
     }
+    ipcClient.updateBadge('connecting'); // Set initial badge state
     ipcClient.connectWithRetry();
     startKeepAlive();
 });
@@ -877,6 +927,7 @@ if (typeof keepAliveIntervalId === 'undefined') {
 
 if (!ipcClient.isConnected()) {
     console.log(LOG_PREFIX_SW, 'Service worker script loaded, attempting initial connection (if not already handled by startup/install).');
+    ipcClient.updateBadge('connecting'); // Set initial badge state
     ipcClient.connectWithRetry();
 }
 

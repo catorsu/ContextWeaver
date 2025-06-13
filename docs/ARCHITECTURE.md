@@ -9,7 +9,7 @@ This document outlines the software architecture of the ContextWeaver system. It
 
 The primary goal of the ContextWeaver is to provide users with a convenient and efficient way to add content and context from their VS Code projects directly into Large Language Model (LLM) chat interfaces.
 
-Refer to the `Software_Requirements_Specification.md` for detailed functional and non-functional requirements.
+Refer to the `SRS.md` for detailed functional and non-functional requirements.
 Refer to the `Development_Plan.md` for the project's development phases and tasks.
 
 ## 2. Guiding Principles
@@ -46,7 +46,7 @@ ContextWeaver/
 │   ├── ARCHITECTURE.MD
 │   ├── Development_Plan.md
 │   ├── IPC_Protocol_Design.md
-│   ├── Software_Requirements_Specification.md
+│   ├── SRS.md
 │   └── TROUBLESHOOTING_AND_LESSONS_LEARNED.md
 ├── packages/
 │   ├── vscode-extension/      # VS Code Extension (VSCE)

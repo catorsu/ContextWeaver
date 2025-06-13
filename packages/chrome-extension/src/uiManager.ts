@@ -23,6 +23,7 @@ export class UIManager {
     private closeButton: HTMLElement | null = null;
     private contextIndicatorArea: HTMLElement | null = null;
     private currentTargetElementForPanel: HTMLElement | null = null; // Added to store target
+    private currentTheme: 'light' | 'dark' = 'dark';
 
     // Callback types for event handlers
     private onHideCallback: (() => void) | null = null;
@@ -37,23 +38,70 @@ export class UIManager {
         console.log(LOG_PREFIX_UI, 'UIManager initialized and CSS injected.');
     }
 
+    /**
+     * Sets the theme for the UI.
+     * @param theme The theme to apply ('light' or 'dark').
+     */
+    public setTheme(theme: 'light' | 'dark'): void {
+        this.currentTheme = theme;
+        this.updateThemeStyles();
+        console.log(LOG_PREFIX_UI, `Theme set to: ${theme}`);
+    }
+
+    /**
+     * Updates the CSS to reflect the current theme.
+     */
+    private updateThemeStyles(): void {
+        // Update existing style or reinject with new theme
+        const styleId = `${CSS_PREFIX}styles`;
+        const existingStyle = document.getElementById(styleId);
+        if (existingStyle) {
+            existingStyle.remove();
+        }
+        this.injectFloatingUiCss();
+        
+        // Apply theme class to floating panel if it exists
+        if (this.floatingUIPanel) {
+            this.floatingUIPanel.setAttribute('data-theme', this.currentTheme);
+        }
+        
+        // Apply theme to context indicator area if it exists
+        if (this.contextIndicatorArea) {
+            this.contextIndicatorArea.setAttribute('data-theme', this.currentTheme);
+        }
+    }
+
     private injectFloatingUiCss(): void {
         const styleId = `${CSS_PREFIX}styles`;
         if (document.getElementById(styleId)) return;
 
-        // IMPORTANT: This is the CSS string from the original contentScript.ts injectFloatingUiCss()
-        // All IDs and class selectors have been updated to use UI_PANEL_ID, CONTEXT_INDICATOR_AREA_ID, and CSS_PREFIX.
+        // Theme-aware CSS with light and dark mode support
         const css = `
+    /* Dark theme (default) */
     #${UI_PANEL_ID} {
-      position: absolute; background-color: #333; color: #f0f0f0; border: 1px solid #484848;
-      border-radius: 8px; padding: 10px; z-index: 2147483647; font-family: sans-serif;
-      font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); width: 320px;
-      height: 300px; overflow-y: auto; display: none;    
+      position: absolute; background-color: rgba(40, 40, 40, 0.95); color: #f0f0f0; border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px; padding: 12px; z-index: 2147483647; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px; line-height: 1.5; box-shadow: 0 2px 8px rgba(0,0,0,0.1); width: 320px;
+      height: 350px; overflow-y: auto; 
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+      opacity: 0; pointer-events: none; transform: translateY(4px);
+      transition: opacity 150ms ease-out, transform 150ms ease-out;    
     }
-    #${UI_PANEL_ID}.${CSS_PREFIX}visible { display: block; }
+    
+    /* Light theme overrides */
+    #${UI_PANEL_ID}[data-theme="light"] {
+      background-color: rgba(255, 255, 255, 0.95);
+      color: #1a1a1a;
+      border: 1px solid rgba(0, 0, 0, 0.1);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+    }
+    #${UI_PANEL_ID}.${CSS_PREFIX}visible { opacity: 1; pointer-events: auto; transform: translateY(0); }
     .${CSS_PREFIX}title-bar {
       display: flex; justify-content: space-between; align-items: center;
       margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #4a4a4a;
+    }
+    #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}title-bar {
+      border-bottom: 1px solid #e0e0e0;
     }
     .${CSS_PREFIX}title { font-size: 16px; font-weight: bold; }
     .${CSS_PREFIX}close-button {
@@ -61,12 +109,25 @@ export class UIManager {
       cursor: pointer; padding: 0 5px; line-height: 1;
     }
     .${CSS_PREFIX}close-button:hover { color: #fff; }
+    #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}close-button {
+      color: #666;
+    }
+    #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}close-button:hover {
+      color: #000;
+    }
     .${CSS_PREFIX}content { /* No height or overflow properties */ }
-    .${CSS_PREFIX}content p { margin: 10px 0; color: #ccc; } 
+    .${CSS_PREFIX}content p { margin: 10px 0; color: #ccc; }
+    #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}content p {
+      color: #333;
+    } 
     .${CSS_PREFIX}folder-section { margin-bottom: 15px; }
     .${CSS_PREFIX}folder-title {
       font-size: 14px; font-weight: bold; color: #bbb; margin-bottom: 5px;
       padding-bottom: 3px; border-bottom: 1px dashed #444;
+    }
+    #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}folder-title {
+      color: #444;
+      border-bottom: 1px dashed #ccc;
     }
     .${CSS_PREFIX}button {
       background-color: #3a3a3a; color: #e0e0e0; border: 1px solid #4a4a4a;
@@ -75,6 +136,18 @@ export class UIManager {
     }
     .${CSS_PREFIX}button:hover { background-color: #4a4a4a; }
     .${CSS_PREFIX}button:disabled { background-color: #2a2a2a; color: #777; cursor: not-allowed; }
+    #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}button {
+      background-color: #f5f5f5;
+      color: #1a1a1a;
+      border: 1px solid #ddd;
+    }
+    #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}button:hover {
+      background-color: #e8e8e8;
+    }
+    #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}button:disabled {
+      background-color: #fafafa;
+      color: #999;
+    }
     
     /* Vertical button layout */
     .${CSS_PREFIX}vertical-button {
@@ -98,8 +171,13 @@ export class UIManager {
       background-color: #4a4a4a;
       border-color: #666;
     }
+    #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}search-result-item:hover {
+      background-color: #f0f0f0;
+      border-color: #ddd;
+    }
     .${CSS_PREFIX}context-indicator span.${CSS_PREFIX}type-icon {
-      margin-right: 5px;
+      font-size: 16px;
+      margin-right: 4px;
       display: inline-block;
     }
 
@@ -111,25 +189,55 @@ export class UIManager {
       color: #aaa;
       margin-left: 5px;
     }
+    #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}search-result-item span.workspace-name {
+      color: #666;
+    }
     #${CONTEXT_INDICATOR_AREA_ID} {
       display: flex;       /* For layout of indicators inside */
-      flex-wrap: wrap;
-      gap: 5px;
+      flex-wrap: nowrap;
+      gap: 4px;
       margin-bottom: 5px;  /* Space below the indicator area */
       padding: 5px;
+      background-color: rgba(40, 40, 40, 0.95); /* Dark theme background */
       border: 1px solid #444;
       border-radius: 4px;
       width: 100%;         /* ADDED: Make it take full available width */
       box-sizing: border-box; /* ADDED: Include padding and border in the element's total width and height */
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+    #${UI_PANEL_ID}[data-theme="light"] #${CONTEXT_INDICATOR_AREA_ID} {
+      border: 1px solid #ddd;
+    }
+    /* Standalone context indicator area (not inside panel) */
+    #${CONTEXT_INDICATOR_AREA_ID}[data-theme="light"] {
+      background-color: rgba(255, 255, 255, 0.95);
+      border: 1px solid #ddd;
+    }
+    #${CONTEXT_INDICATOR_AREA_ID}::-webkit-scrollbar { height: 4px; }
+    #${CONTEXT_INDICATOR_AREA_ID}::-webkit-scrollbar-thumb { background: #555; border-radius: 2px; }
+    #${UI_PANEL_ID}[data-theme="light"] #${CONTEXT_INDICATOR_AREA_ID}::-webkit-scrollbar-thumb {
+      background: #bbb;
     }
     .${CSS_PREFIX}context-indicator {
       background-color: #3a3a3a;
       color: #e0e0e0;
-      padding: 3px 8px;
-      border-radius: 10px;
+      padding: 0 12px;
+      height: 28px;
+      border-radius: 16px;
       font-size: 12px;
-      display: flex;
+      display: inline-flex;
       align-items: center;
+      flex-shrink: 0;
+    }
+    #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}context-indicator {
+      background-color: #f0f0f0;
+      color: #1a1a1a;
+    }
+    /* Standalone context indicators (not inside panel) */
+    #${CONTEXT_INDICATOR_AREA_ID}[data-theme="light"] .${CSS_PREFIX}context-indicator {
+      background-color: #f0f0f0;
+      color: #1a1a1a;
     }
     .${CSS_PREFIX}indicator-close-btn {
       background: none;
@@ -140,9 +248,27 @@ export class UIManager {
       cursor: pointer;
       padding: 0;
       line-height: 1;
+      opacity: 0;
+      transition: opacity 150ms ease-out;
+    }
+    .${CSS_PREFIX}context-indicator:hover .${CSS_PREFIX}indicator-close-btn {
+      opacity: 1;
     }
     .${CSS_PREFIX}indicator-close-btn:hover {
       color: #fff;
+    }
+    #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}indicator-close-btn {
+      color: #666;
+    }
+    #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}indicator-close-btn:hover {
+      color: #000;
+    }
+    /* Standalone context indicator close buttons */
+    #${CONTEXT_INDICATOR_AREA_ID}[data-theme="light"] .${CSS_PREFIX}indicator-close-btn {
+      color: #666;
+    }
+    #${CONTEXT_INDICATOR_AREA_ID}[data-theme="light"] .${CSS_PREFIX}indicator-close-btn:hover {
+      color: #000;
     }
     .${CSS_PREFIX}loader {
       border: 4px solid #f3f3f3; /* Light grey */
@@ -153,6 +279,10 @@ export class UIManager {
       animation: ${CSS_PREFIX}spin 1s linear infinite;
       margin: 20px auto; /* Center the spinner */
     }
+    #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}loader {
+      border: 4px solid #e0e0e0;
+      border-top: 4px solid #2563eb;
+    }
     @keyframes ${CSS_PREFIX}spin {
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
@@ -161,6 +291,9 @@ export class UIManager {
       text-align: center;
       color: #ccc;
       margin-top: 10px;
+    }
+    #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}loading-text {
+      color: #555;
     }
     .${CSS_PREFIX}loading-overlay {
       position: absolute;
@@ -176,12 +309,19 @@ export class UIManager {
       z-index: 10; /* Above other content in the panel */
       border-radius: 8px; /* Match panel border-radius */
     }
+    #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}loading-overlay {
+      background-color: rgba(255, 255, 255, 0.8);
+    }
     .${CSS_PREFIX}error-panel {
       padding: 15px;
       background-color: #3c3c3c;
       border-radius: 8px;
       margin-top: 10px;
       border: 1px solid #6a0000;
+    }
+    #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}error-panel {
+      background-color: #fef2f2;
+      border: 1px solid #f87171;
     }
     .${CSS_PREFIX}error-icon {
       font-size: 30px;
@@ -196,6 +336,9 @@ export class UIManager {
       color: #f8d7da; /* Light red/pink */
       font-size: 13px;
     }
+    #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}error-text {
+      color: #b91c1c;
+    }
     .${CSS_PREFIX}group-header {
       font-size: 15px;
       font-weight: bold;
@@ -205,12 +348,19 @@ export class UIManager {
       padding-bottom: 4px;
       border-bottom: 1px solid #555;
     }
+    #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}group-header {
+      color: #1a1a1a;
+      border-bottom: 1px solid #d1d5db;
+    }
     .${CSS_PREFIX}filter-status-text {
       font-size: 0.85em;
       color: #aaa; /* Muted gray */
       font-style: italic;
       text-align: center;
       margin-bottom: 8px;
+    }
+    #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}filter-status-text {
+      color: #6b7280;
     }
     .${CSS_PREFIX}browse-item { /* Added from renderBrowseView */
         padding: 6px 8px;
@@ -232,6 +382,9 @@ export class UIManager {
       font-size: 0.8em;
       margin-left: 5px;
     }
+    #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}relative-path {
+      color: #6b7280;
+    }
     .${CSS_PREFIX}button-subtle {
       background: none;
       border: none;
@@ -244,12 +397,19 @@ export class UIManager {
       color: #fff;
       background-color: #3a3a3a;
     }
+    #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}button-subtle {
+      color: #6b7280;
+    }
+    #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}button-subtle:hover {
+      color: #1a1a1a;
+      background-color: #f3f4f6;
+    }
     /* Toast Notifications */
     .${CSS_PREFIX}toast-notification {
       position: fixed;
-      bottom: 20px; /* Or top: 20px; */
-      left: 50%;
-      transform: translateX(-50%);
+      top: 16px;
+      right: 16px;
+      transform: none;
       background-color: #333;
       color: #fff;
       padding: 10px 20px;
@@ -260,6 +420,9 @@ export class UIManager {
       transition: opacity 0.3s ease-in-out;
       min-width: 250px;
       text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
     }
     .${CSS_PREFIX}toast-notification.show {
       opacity: 1;
@@ -272,6 +435,44 @@ export class UIManager {
     }
     .${CSS_PREFIX}toast-notification.info {
       background-color: #17a2b8; /* Blue for info */
+    }
+    
+    /* Focus state styling for keyboard navigation */
+    .${CSS_PREFIX}button:focus-visible, 
+    .${CSS_PREFIX}search-result-item:focus-visible, 
+    .${CSS_PREFIX}indicator-close-btn:focus-visible, 
+    .${CSS_PREFIX}close-button:focus-visible {
+      outline: 2px solid #4285f4;
+      outline-offset: 2px;
+    }
+    
+    /* Skeleton loading items */
+    .${CSS_PREFIX}skeleton-item {
+      height: 48px;
+      background: linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.05) 75%);
+      background-size: 200% 100%;
+      animation: ${CSS_PREFIX}skeleton-pulse 1.5s infinite;
+      border-radius: 4px;
+      margin-bottom: 8px;
+    }
+    #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}skeleton-item {
+      background: linear-gradient(90deg, rgba(0,0,0,0.03) 25%, rgba(0,0,0,0.06) 50%, rgba(0,0,0,0.03) 75%);
+    }
+    
+    @keyframes ${CSS_PREFIX}skeleton-pulse {
+      0% { background-position: 200% center; }
+      100% { background-position: -200% center; }
+    }
+    
+    /* Respect reduced motion preference */
+    @media (prefers-reduced-motion: reduce) {
+      #${UI_PANEL_ID}, .${CSS_PREFIX}toast-notification {
+        transition: none;
+      }
+      .${CSS_PREFIX}skeleton-item {
+        animation: none;
+        background: rgba(255,255,255,0.05);
+      }
     }
   `;
         const style = document.createElement('style');
@@ -286,6 +487,10 @@ export class UIManager {
 
         this.floatingUIPanel = document.createElement('div');
         this.floatingUIPanel.id = UI_PANEL_ID;
+        this.floatingUIPanel.setAttribute('role', 'dialog');
+        this.floatingUIPanel.setAttribute('aria-modal', 'true');
+        this.floatingUIPanel.setAttribute('aria-label', 'ContextWeaver Panel');
+        this.floatingUIPanel.setAttribute('data-theme', this.currentTheme);
 
         const titleBarDiv = document.createElement('div');
         titleBarDiv.className = `${CSS_PREFIX}title-bar`;
@@ -346,9 +551,29 @@ export class UIManager {
         const inputRect = targetInputElement.getBoundingClientRect();
         const panelHeight = this.floatingUIPanel.offsetHeight || 200; // Measure height
 
-        // Step 3: Position it.
-        this.floatingUIPanel.style.top = `${window.scrollY + inputRect.top - panelHeight - 10}px`;
-        this.floatingUIPanel.style.left = `${window.scrollX + inputRect.left}px`;
+        // Step 3: Position it with viewport collision detection.
+        let top = window.scrollY + inputRect.top - panelHeight - 8;
+        let left = window.scrollX + inputRect.left;
+
+        // Check if panel would go above viewport
+        if (top < window.scrollY) {
+            // Position below input instead
+            top = window.scrollY + inputRect.bottom + 8;
+        }
+
+        // Check if panel would go beyond right edge
+        const panelWidth = this.floatingUIPanel.offsetWidth || 320;
+        if (left + panelWidth > window.scrollX + window.innerWidth) {
+            left = window.scrollX + window.innerWidth - panelWidth - 8;
+        }
+
+        // Check if panel would go beyond left edge
+        if (left < window.scrollX) {
+            left = window.scrollX + 8;
+        }
+
+        this.floatingUIPanel.style.top = `${top}px`;
+        this.floatingUIPanel.style.left = `${left}px`;
 
         // Step 4: Make it fully visible.
         // The 'cw-visible' class already handles 'display: block'.
@@ -412,12 +637,42 @@ export class UIManager {
      */
     public updateContent(content: HTMLElement | DocumentFragment | string): void {
         if (this.contentElement) {
-            if (typeof content === 'string') {
-                this.contentElement.innerHTML = content;
-            } else {
-                this.contentElement.innerHTML = ''; // Clear previous content
-                this.contentElement.appendChild(content); // Works for HTMLElement or DocumentFragment
-            }
+            // Preserve scroll position of any scrollable containers
+            const scrollableElements = this.contentElement.querySelectorAll('[style*="overflow"]');
+            const scrollPositions = new Map<Element, number>();
+            scrollableElements.forEach((el) => {
+                if (el.scrollTop > 0) {
+                    scrollPositions.set(el, el.scrollTop);
+                }
+            });
+
+            window.requestAnimationFrame(() => {
+                if (this.contentElement) { // Check again inside requestAnimationFrame
+                    if (typeof content === 'string') {
+                        this.contentElement.innerHTML = content;
+                    } else {
+                        this.contentElement.innerHTML = ''; // Clear previous content
+                        this.contentElement.appendChild(content); // Works for HTMLElement or DocumentFragment
+                    }
+
+                    // Restore scroll positions after content update
+                    if (scrollPositions.size > 0) {
+                        // Wait for next frame to ensure DOM is updated
+                        window.requestAnimationFrame(() => {
+                            scrollPositions.forEach((scrollTop, el) => {
+                                // Try to find the element by its class or similar identifier
+                                const selector = el.className ? `.${el.className.split(' ').join('.')}` : null;
+                                if (selector && this.contentElement) {
+                                    const newEl = this.contentElement.querySelector(selector);
+                                    if (newEl) {
+                                        newEl.scrollTop = scrollTop;
+                                    }
+                                }
+                            });
+                        });
+                    }
+                }
+            });
         }
     }
 
@@ -427,6 +682,8 @@ export class UIManager {
      * @param loadingMessage The message to display below the loading spinner.
      */
     public showLoading(title: string, loadingMessage: string): void {
+        // Update title if needed
+        this.updateTitle(title);
         if (!this.floatingUIPanel) {
             this.createPanel();
         }
@@ -472,6 +729,23 @@ export class UIManager {
     }
 
     /**
+     * Displays skeleton loading items in the content area.
+     * @param count The number of skeleton items to display.
+     */
+    public showSkeletonLoading(count: number = 5): void {
+        if (!this.contentElement) return;
+
+        const container = document.createElement('div');
+        for (let i = 0; i < count; i++) {
+            const skeletonItem = document.createElement('div');
+            skeletonItem.className = `${CSS_PREFIX}skeleton-item`;
+            container.appendChild(skeletonItem);
+        }
+
+        this.updateContent(container);
+    }
+
+    /**
      * Displays an error message in the UI panel.
      * @param title The title for the error message.
      * @param errorMessage The main error message to display.
@@ -492,7 +766,34 @@ export class UIManager {
     public showToast(message: string, type: 'success' | 'error' | 'info'): void {
         const toast = document.createElement('div');
         toast.className = `${CSS_PREFIX}toast-notification ${type}`;
-        toast.textContent = message;
+
+        // Create message span
+        const messageSpan = document.createElement('span');
+        messageSpan.textContent = message;
+        toast.appendChild(messageSpan);
+
+        // Create dismiss button
+        const dismissBtn = document.createElement('button');
+        dismissBtn.textContent = '×';
+        Object.assign(dismissBtn.style, {
+            background: 'none',
+            border: 'none',
+            color: 'inherit',
+            fontSize: '20px',
+            marginLeft: '12px',
+            cursor: 'pointer',
+            padding: '0',
+            lineHeight: '1'
+        });
+
+        let isManuallyDismissed = false;
+        dismissBtn.onclick = () => {
+            isManuallyDismissed = true;
+            toast.classList.remove('show');
+            toast.addEventListener('transitionend', () => toast.remove());
+        };
+        toast.appendChild(dismissBtn);
+
         document.body.appendChild(toast);
 
         // Trigger reflow to enable transition
@@ -500,9 +801,11 @@ export class UIManager {
         toast.classList.add('show');
 
         setTimeout(() => {
-            toast.classList.remove('show');
-            toast.addEventListener('transitionend', () => toast.remove());
-        }, 3000); // Toast disappears after 3 seconds
+            if (!isManuallyDismissed) {
+                toast.classList.remove('show');
+                toast.addEventListener('transitionend', () => toast.remove());
+            }
+        }, 3000); // Toast disappears after 3 seconds if not manually dismissed
     }
 
     // --- Context Indicators ---
@@ -533,6 +836,8 @@ export class UIManager {
         if (!this.contextIndicatorArea) {
             this.contextIndicatorArea = document.createElement('div');
             this.contextIndicatorArea.id = CONTEXT_INDICATOR_AREA_ID;
+            // Apply current theme to context indicator area
+            this.contextIndicatorArea.setAttribute('data-theme', this.currentTheme);
             // Check if both parent and grandparent exist for robust insertion
             if (targetInputElement.parentElement && targetInputElement.parentElement.parentElement) {
                 // Insert the indicator area BEFORE the input element's parent (targetInputElement.parentElement)

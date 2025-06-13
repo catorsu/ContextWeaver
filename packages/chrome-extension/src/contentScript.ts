@@ -30,8 +30,76 @@ const LOCAL_CSS_PREFIX = 'cw-'; // For classes not managed by UIManager but need
 
 console.log(`${LOG_PREFIX_CS} Content script loaded.`);
 
+// Theme detection
+type Theme = 'light' | 'dark';
+let currentTheme: Theme = 'dark'; // Default theme
+
+/**
+ * Detects the current browser theme using prefers-color-scheme media query.
+ * @returns The detected theme ('light' or 'dark').
+ */
+function detectBrowserTheme(): Theme {
+  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    return 'dark';
+  }
+  return 'light';
+}
+
+/**
+ * Updates the theme for the extension UI.
+ * @param theme The theme to apply ('light' or 'dark').
+ */
+function updateTheme(theme: Theme): void {
+  currentTheme = theme;
+  console.log(`${LOG_PREFIX_CS} Theme updated to: ${theme}`);
+  
+  // Update UIManager with the new theme
+  uiManager.setTheme(theme);
+  
+  // Store theme preference
+  chrome.storage.local.set({ theme });
+}
+
+/**
+ * Initializes theme detection and sets up theme change listener.
+ */
+function initializeThemeDetection(): void {
+  // Detect initial theme
+  const detectedTheme = detectBrowserTheme();
+  updateTheme(detectedTheme);
+  
+  // Listen for theme changes
+  if (window.matchMedia) {
+    const darkModeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    
+    // Modern browsers support addEventListener
+    if (darkModeMediaQuery.addEventListener) {
+      darkModeMediaQuery.addEventListener('change', (e) => {
+        const newTheme = e.matches ? 'dark' : 'light';
+        updateTheme(newTheme);
+      });
+    } else if (darkModeMediaQuery.addListener) {
+      // Fallback for older browsers
+      darkModeMediaQuery.addListener((e) => {
+        const newTheme = e.matches ? 'dark' : 'light';
+        updateTheme(newTheme);
+      });
+    }
+  }
+  
+  // Also check for stored theme preference
+  chrome.storage.local.get(['theme'], (result) => {
+    if (result.theme && (result.theme === 'light' || result.theme === 'dark')) {
+      updateTheme(result.theme);
+    }
+  });
+}
+
 const uiManager = new UIManager();
 const stateManager = new StateManager(); // Instantiate StateManager
+
+// Initialize theme detection
+initializeThemeDetection();
 
 
 /**
@@ -340,6 +408,7 @@ async function processContentInsertion(
  */
 function createSearchResultItemElement(result: SharedSearchResult, omitWorkspaceName: boolean): HTMLDivElement {
   const itemDiv = uiManager.createDiv({ classNames: ['search-result-item'] });
+  itemDiv.setAttribute('tabindex', '0'); // Make focusable for keyboard navigation
 
   const iconSpan = uiManager.createSpan({ classNames: [`${LOCAL_CSS_PREFIX}type-icon`], textContent: result.type === 'file' ? '📄' : '📁' });
   itemDiv.appendChild(iconSpan);
@@ -372,6 +441,14 @@ function createSearchResultItemElement(result: SharedSearchResult, omitWorkspace
   if (result.workspaceFolderUri) {
     itemDiv.dataset.workspaceFolderUri = result.workspaceFolderUri;
   }
+  
+  // Add keyboard support
+  itemDiv.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      itemDiv.click();
+    }
+  });
 
   itemDiv.onclick = async () => {
     const itemType = result.type; // 'file' or 'folder'
@@ -392,69 +469,16 @@ function createSearchResultItemElement(result: SharedSearchResult, omitWorkspace
       }, itemDiv);
     } else if (itemType === 'folder') {
       console.log(LOG_PREFIX_CS, 'Folder clicked:', itemName);
-      uiManager.updateTitle(`Folder: ${itemName}`);
-      const folderUiContent = document.createDocumentFragment();
-
-      const buttonRow = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}button-row`] });
-
-      const insertAllButton = uiManager.createButton('➕ Insert All', {
-        id: `${LOCAL_CSS_PREFIX}btn-insert-all-${itemContentSourceId.replace(/[^a-zA-Z0-9]/g, '_')}`,
-        onClick: async () => {
-          insertAllButton.disabled = true;
-          insertAllButton.textContent = '➕ Loading...';
-          browseButton.disabled = true;
-
-          await processContentInsertion({
-            name: itemName,
-            contentSourceId: itemContentSourceId, // Use folder's content_source_id for duplicate check
-            type: 'folder',
-            uri: itemUri,
-            workspaceFolderUri: itemWorkspaceFolderUri
-          });
-
-          // Re-enable buttons if UI is still visible (e.g., if processContentInsertion showed an error)
-          if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible')) {
-            insertAllButton.disabled = false;
-            insertAllButton.textContent = '➕ Insert All';
-            browseButton.disabled = false;
-          }
-        }
-      });
-      buttonRow.appendChild(insertAllButton);
-
-      const browseButton = uiManager.createButton('🔍 Browse', {
-        id: `${LOCAL_CSS_PREFIX}btn-browse-folder-${itemContentSourceId.replace(/[^a-zA-Z0-9]/g, '_')}`.replace(/[^a-zA-Z0-9]/g, '_'),
-        onClick: async () => {
-          console.log(LOG_PREFIX_CS, 'Browse folder clicked:', itemName);
-          uiManager.showLoading(`Browsing: ${itemName}`, 'Loading folder contents...');
-          try {
-            const browseResponse = await swClient.listFolderContents(itemUri, itemWorkspaceFolderUri || null);
-            renderBrowseView(browseResponse, itemUri, itemName, itemWorkspaceFolderUri || null);
-          } catch (error: any) {
-            console.error(LOG_PREFIX_CS, 'Error getting folder contents:', error);
-            uiManager.showToast(`Error Browsing ${itemName}: ${error.message || 'Failed to get folder contents.'}`, 'error');
-          } finally {
-            uiManager.hideLoading(); // Ensure loading indicator is hidden
-          }
-        }
-      });
-      buttonRow.appendChild(browseButton);
-      folderUiContent.appendChild(buttonRow);
-
-      const backButton = uiManager.createButton('Back to Search Results', {
-        classNames: ['button-subtle'],
-        onClick: () => {
-          const currentSearchResponse = stateManager.getSearchResponse();
-          const currentSearchQuery = stateManager.getSearchQuery();
-          if (currentSearchResponse && currentSearchQuery) {
-            renderSearchResults(currentSearchResponse, currentSearchQuery);
-          } else {
-            uiManager.showError('Navigation Error', 'Could not restore previous search results.');
-          }
-        }
-      });
-      folderUiContent.appendChild(backButton);
-      uiManager.updateContent(folderUiContent);
+      uiManager.showLoading(`Browsing: ${itemName}`, 'Loading folder contents...');
+      try {
+        const browseResponse = await swClient.listFolderContents(itemUri, itemWorkspaceFolderUri || null);
+        renderBrowseView(browseResponse, itemUri, itemName, itemWorkspaceFolderUri || null);
+      } catch (error: any) {
+        console.error(LOG_PREFIX_CS, 'Error getting folder contents:', error);
+        uiManager.showToast(`Error Browsing ${itemName}: ${error.message || 'Failed to get folder contents.'}`, 'error');
+      } finally {
+        uiManager.hideLoading(); // Ensure loading indicator is hidden
+      }
     }
   };
   return itemDiv;
@@ -480,12 +504,101 @@ function renderSearchResults(response: SearchWorkspaceResponsePayload, query: st
 
   if (!response.data?.results || response.data.results.length === 0) {
     uiManager.updateTitle(titleText);
-    uiManager.updateContent(uiManager.createParagraph({ textContent: `No results found for '@${query}'` }));
+    // Create empty state with icon and descriptive text
+    const emptyStateContainer = uiManager.createDiv({ 
+      style: { 
+        display: 'flex', 
+        flexDirection: 'column', 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        padding: '40px 20px',
+        textAlign: 'center'
+      } 
+    });
+    
+    const iconSpan = uiManager.createSpan({ 
+      textContent: '🔍', 
+      style: { fontSize: '48px', marginBottom: '16px' } 
+    });
+    emptyStateContainer.appendChild(iconSpan);
+    
+    const messageP = uiManager.createParagraph({ 
+      textContent: `No results found for '@${query}'`,
+      style: { color: '#ccc', marginBottom: '16px' }
+    });
+    emptyStateContainer.appendChild(messageP);
+    
+    uiManager.updateContent(emptyStateContainer);
     return;
   }
 
   const contentFragment = document.createDocumentFragment();
   const results = response.data.results as SharedSearchResult[];
+  
+  // Check if we need virtual scrolling
+  if (results.length > 50) {
+    // Implement virtual scrolling for large result sets
+    const ITEM_HEIGHT = 40; // Approximate height of each item
+    const VISIBLE_ITEMS = 10; // Number of items visible at once
+    const containerHeight = ITEM_HEIGHT * VISIBLE_ITEMS;
+    
+    const scrollContainer = uiManager.createDiv({ 
+      style: { 
+        height: `${containerHeight}px`, 
+        overflowY: 'auto',
+        position: 'relative'
+      } 
+    });
+    
+    const virtualHeight = uiManager.createDiv({ 
+      style: { 
+        height: `${results.length * ITEM_HEIGHT}px`,
+        position: 'relative'
+      } 
+    });
+    
+    const itemContainer = uiManager.createDiv({
+      style: {
+        position: 'absolute',
+        top: '0',
+        left: '0',
+        right: '0'
+      }
+    });
+    
+    virtualHeight.appendChild(itemContainer);
+    scrollContainer.appendChild(virtualHeight);
+    
+    let lastScrollTop = 0;
+    const renderVisibleItems = () => {
+      const scrollTop = scrollContainer.scrollTop;
+      const startIndex = Math.floor(scrollTop / ITEM_HEIGHT);
+      const endIndex = Math.min(startIndex + VISIBLE_ITEMS + 2, results.length);
+      
+      // Clear and re-render visible items
+      itemContainer.innerHTML = '';
+      itemContainer.style.transform = `translateY(${startIndex * ITEM_HEIGHT}px)`;
+      
+      for (let i = startIndex; i < endIndex; i++) {
+        const itemDiv = createSearchResultItemElement(results[i], false);
+        itemContainer.appendChild(itemDiv);
+      }
+      
+      lastScrollTop = scrollTop;
+    };
+    
+    scrollContainer.addEventListener('scroll', () => {
+      window.requestAnimationFrame(renderVisibleItems);
+    });
+    
+    // Initial render
+    renderVisibleItems();
+    
+    contentFragment.appendChild(scrollContainer);
+    uiManager.updateTitle(titleText);
+    uiManager.updateContent(contentFragment);
+    return;
+  }
 
   // First group by window
   const groupedByWindow = groupItemsByWindow(results);
@@ -545,6 +658,31 @@ function renderSearchResults(response: SearchWorkspaceResponsePayload, query: st
 
   uiManager.updateTitle(titleText);
   uiManager.updateContent(contentFragment);
+  
+  // Add arrow key navigation after content is rendered
+  setTimeout(() => {
+    const panel = document.getElementById(uiManager.getConstant('UI_PANEL_ID'));
+    if (panel) {
+      const focusableItems = panel.querySelectorAll('[tabindex="0"]');
+      if (focusableItems.length > 0) {
+        panel.addEventListener('keydown', (e) => {
+          const currentFocus = document.activeElement;
+          const itemsArray = Array.from(focusableItems);
+          const currentIndex = itemsArray.indexOf(currentFocus as Element);
+          
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            const nextIndex = currentIndex + 1 < itemsArray.length ? currentIndex + 1 : 0;
+            (itemsArray[nextIndex] as HTMLElement).focus();
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            const prevIndex = currentIndex - 1 >= 0 ? currentIndex - 1 : itemsArray.length - 1;
+            (itemsArray[prevIndex] as HTMLElement).focus();
+          }
+        });
+      }
+    }
+  }, 0);
 }
 
 
@@ -1419,6 +1557,7 @@ function renderWorkspaceFolders(workspaceFolders: any[], targetContentArea: Docu
  */
 function createBrowseItemElement(entry: CWDirectoryEntry): HTMLDivElement { // Use aliased type
   const itemDiv = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}browse-item`] });
+  itemDiv.setAttribute('tabindex', '0'); // Make focusable for keyboard navigation
 
   const checkbox = uiManager.createCheckbox({
     checked: true,
@@ -1443,6 +1582,15 @@ function createBrowseItemElement(entry: CWDirectoryEntry): HTMLDivElement { // U
   itemDiv.appendChild(checkbox);
   itemDiv.appendChild(iconSpan);
   itemDiv.appendChild(nameSpan);
+  
+  // Add keyboard support
+  itemDiv.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      checkbox.checked = !checkbox.checked;
+    }
+  });
+  
   return itemDiv;
 }
 
@@ -1607,6 +1755,31 @@ function renderBrowseView(browseResponse: ListFolderContentsResponsePayload, par
   const buttonContainer = createBrowseViewButtons(listContainer, parentFolderUri, parentFolderName, workspaceFolderUri);
   contentFragment.appendChild(buttonContainer);
   uiManager.updateContent(contentFragment);
+  
+  // Add arrow key navigation after content is rendered
+  setTimeout(() => {
+    const panel = document.getElementById(uiManager.getConstant('UI_PANEL_ID'));
+    if (panel) {
+      const focusableItems = panel.querySelectorAll('[tabindex="0"]');
+      if (focusableItems.length > 0) {
+        panel.addEventListener('keydown', (e) => {
+          const currentFocus = document.activeElement;
+          const itemsArray = Array.from(focusableItems);
+          const currentIndex = itemsArray.indexOf(currentFocus as Element);
+          
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            const nextIndex = currentIndex + 1 < itemsArray.length ? currentIndex + 1 : 0;
+            (itemsArray[nextIndex] as HTMLElement).focus();
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            const prevIndex = currentIndex - 1 >= 0 ? currentIndex - 1 : itemsArray.length - 1;
+            (itemsArray[prevIndex] as HTMLElement).focus();
+          }
+        });
+      }
+    }
+  }, 0);
 }
 
 // Helper for individual open file list item
@@ -1618,6 +1791,8 @@ function renderBrowseView(browseResponse: ListFolderContentsResponsePayload, par
  */
 function createOpenFilesListItem(file: { path: string; name: string; workspaceFolderUri: string | null; workspaceFolderName: string | null }, groupedOpenFilesMapSize: number): HTMLDivElement {
   const listItem = uiManager.createDiv({ style: { marginBottom: '5px', padding: '3px', borderBottom: '1px solid #3a3a3a' } });
+  listItem.setAttribute('tabindex', '0'); // Make focusable for keyboard navigation
+  
   const checkboxId = `${LOCAL_CSS_PREFIX}openfile-${file.path.replace(/[^a-zA-Z0-9]/g, '_')}`;
   const checkbox = uiManager.createCheckbox({ id: checkboxId, checked: true, dataset: { value: file.path } });
 
@@ -1637,6 +1812,15 @@ function createOpenFilesListItem(file: { path: string; name: string; workspaceFo
   }
   listItem.appendChild(checkbox);
   listItem.appendChild(label);
+  
+  // Add keyboard support
+  listItem.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      checkbox.checked = !checkbox.checked;
+    }
+  });
+  
   return listItem;
 }
 
@@ -1793,6 +1977,155 @@ function displayOpenFilesSelectorUI(
     uiManager.updateContent(selectorWrapper);
     return;
   }
+  
+  // Check if we need virtual scrolling for large file lists
+  if (openFilesList.length > 50) {
+    const ITEM_HEIGHT = 32; // Approximate height of each file item
+    const VISIBLE_ITEMS = 12; // Number of items visible at once
+    const containerHeight = ITEM_HEIGHT * VISIBLE_ITEMS;
+    
+    const scrollContainer = uiManager.createDiv({ 
+      style: { 
+        height: `${containerHeight}px`, 
+        overflowY: 'auto',
+        position: 'relative',
+        border: '1px solid #444',
+        borderRadius: '4px',
+        marginBottom: '10px'
+      } 
+    });
+    
+    const virtualHeight = uiManager.createDiv({ 
+      style: { 
+        height: `${openFilesList.length * ITEM_HEIGHT}px`,
+        position: 'relative'
+      } 
+    });
+    
+    const itemContainer = uiManager.createDiv({
+      style: {
+        position: 'absolute',
+        top: '0',
+        left: '0',
+        right: '0'
+      }
+    });
+    
+    virtualHeight.appendChild(itemContainer);
+    scrollContainer.appendChild(virtualHeight);
+    
+    const renderVisibleItems = () => {
+      const scrollTop = scrollContainer.scrollTop;
+      const startIndex = Math.floor(scrollTop / ITEM_HEIGHT);
+      const endIndex = Math.min(startIndex + VISIBLE_ITEMS + 2, openFilesList.length);
+      
+      // Clear and re-render visible items
+      itemContainer.innerHTML = '';
+      itemContainer.style.transform = `translateY(${startIndex * ITEM_HEIGHT}px)`;
+      
+      for (let i = startIndex; i < endIndex; i++) {
+        const file = openFilesList[i];
+        const listItem = createOpenFilesListItem(file, 1);
+        
+        // Update checkbox state from selection map
+        const checkbox = listItem.querySelector('input[type="checkbox"]') as HTMLInputElement;
+        if (checkbox && !checkbox.disabled) {
+          checkbox.checked = fileSelectionState.get(file.path) || false;
+          
+          // Add change listener to update selection state
+          checkbox.addEventListener('change', () => {
+            fileSelectionState.set(file.path, checkbox.checked);
+          });
+        }
+        
+        itemContainer.appendChild(listItem);
+      }
+    };
+    
+    scrollContainer.addEventListener('scroll', () => {
+      window.requestAnimationFrame(renderVisibleItems);
+    });
+    
+    // Initial render
+    renderVisibleItems();
+    
+    // Create form with virtual scroll container
+    const form = document.createElement('form');
+    form.appendChild(scrollContainer);
+    
+    // Track selection state for virtual scrolling
+    const fileSelectionState = new Map<string, boolean>();
+    openFilesList.forEach(file => {
+      fileSelectionState.set(file.path, !stateManager.isDuplicateContentSource(file.path));
+    });
+    
+    const insertButton = uiManager.createButton('Insert Selected Files', {
+      onClick: async () => {
+        // Collect all selected files from the selection state map
+        const selectedFiles: string[] = [];
+        fileSelectionState.forEach((isSelected, filePath) => {
+          if (isSelected) {
+            selectedFiles.push(filePath);
+          }
+        });
+        
+        if (selectedFiles.length === 0) {
+          uiManager.showToast('No files selected.', 'info');
+          return;
+        }
+        
+        // Rest of insert logic remains the same...
+        insertButton.textContent = 'Loading Content...';
+        insertButton.disabled = true;
+
+        try {
+          const response = await swClient.getContentsForSelectedOpenFiles(selectedFiles);
+
+          if (response.success && response.data) {
+            const successfulFiles = response.data;
+            let allContentToInsert = '';
+            successfulFiles.forEach(item => {
+              const rawContent = formatFileContentsForLLM([item.fileData]);
+              const uniqueBlockId = item.metadata.unique_block_id || `cw-block-${Date.now()}`;
+              const contentTag = 'FileContents';
+              const finalBlock = `<${contentTag} id="${uniqueBlockId}">\n${rawContent}\n</${contentTag}>`;
+              allContentToInsert += finalBlock + '\n\n';
+              stateManager.addActiveContextBlock({ ...item.metadata, unique_block_id: uniqueBlockId });
+            });
+
+            if (allContentToInsert.trim()) {
+              insertTextIntoLLMInput(allContentToInsert.trim(), stateManager.getCurrentTargetElementForPanel());
+              renderContextIndicators(stateManager.getCurrentTargetElementForPanel());
+            }
+            uiManager.hide();
+            if (response.errors && response.errors.length > 0) {
+              console.warn('ContextWeaver: Some files failed to load:', response.errors);
+            }
+          } else {
+            uiManager.showToast(`File Content Error: ${response.error || 'Unknown error fetching content.'} (Code: ${response.errorCode || 'N/A'})`, 'error');
+          }
+        } catch (e: any) {
+          console.error('ContextWeaver: Error requesting selected files content:', e);
+          uiManager.showToast(`File Content Error: ${e.message || 'Failed to process request.'}`, 'error');
+        } finally {
+          uiManager.hideLoading();
+        }
+      }
+    });
+    form.appendChild(insertButton);
+
+    const backButton = uiManager.createButton('Back', {
+      style: { marginLeft: '10px' },
+      onClick: () => {
+        populateFloatingUiContent({ mode: 'general' });
+      }
+    });
+    form.appendChild(backButton);
+    
+    selectorWrapper.appendChild(form);
+    uiManager.updateContent(selectorWrapper);
+    return;
+  }
 
   // First group by window, then by workspace
   const groupedByWindow = groupItemsByWindow(openFilesList);
@@ -1800,4 +2133,29 @@ function displayOpenFilesSelectorUI(
 
   selectorWrapper.appendChild(form);
   uiManager.updateContent(selectorWrapper);
+  
+  // Add arrow key navigation after content is rendered
+  setTimeout(() => {
+    const panel = document.getElementById(uiManager.getConstant('UI_PANEL_ID'));
+    if (panel) {
+      const focusableItems = panel.querySelectorAll('[tabindex="0"]');
+      if (focusableItems.length > 0) {
+        panel.addEventListener('keydown', (e) => {
+          const currentFocus = document.activeElement;
+          const itemsArray = Array.from(focusableItems);
+          const currentIndex = itemsArray.indexOf(currentFocus as Element);
+          
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            const nextIndex = currentIndex + 1 < itemsArray.length ? currentIndex + 1 : 0;
+            (itemsArray[nextIndex] as HTMLElement).focus();
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            const prevIndex = currentIndex - 1 >= 0 ? currentIndex - 1 : itemsArray.length - 1;
+            (itemsArray[prevIndex] as HTMLElement).focus();
+          }
+        });
+      }
+    }
+  }, 0);
 }
