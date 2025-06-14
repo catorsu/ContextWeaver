@@ -29,6 +29,19 @@
       "run_at": "document_idle"
     }
   ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "assets/fonts/MaterialSymbols-Variable.woff2"
+      ],
+      "matches": [
+        "*://gemini.google.com/*",
+        "*://chatgpt.com/*",
+        "*://claude.ai/*",
+        "*://chat.deepseek.com/*"
+      ]
+    }
+  ],
   "background": {
     "service_worker": "dist/serviceWorker.js"
   },

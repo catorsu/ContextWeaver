@@ -3,26 +3,29 @@
   "version": "0.0.1",
   "description": "Chrome Extension for ContextWeaver",
   "scripts": {
-    "build": "npm run bundle",
+    "build": "npm run clean && npm run copy-assets && npm run bundle",
+    "copy-assets": "cpx \"assets/**/*\" dist/assets",
     "lint": "eslint src --ext ts",
-    "bundle": "esbuild src/contentScript.ts --bundle --outfile=dist/contentScript.js --format=iife --platform=browser --sourcemap && esbuild src/serviceWorker.ts --bundle --outfile=dist/serviceWorker.js --format=esm --platform=browser --sourcemap && esbuild src/popup.ts --bundle --outfile=dist/popup.js --format=iife --platform=browser --sourcemap",
+    "bundle": "esbuild src/contentScript.ts src/serviceWorker.ts src/popup.ts --bundle --sourcemap --outdir=dist",
+    "clean": "rm -rf dist",
     "watch": "npm run bundle -- --watch",
     "test": "jest",
     "test:watch": "jest --watch"
   },
   "devDependencies": {
+    "@jest/globals": "^29.7.0",
     "@types/chrome": "^0.0.268",
-    "typescript": "^5.3.3",
-    "eslint": "^8.56.0",
+    "@types/jest": "^29.5.14",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
+    "cpx": "^1.5.0",
     "esbuild": "^0.20.0",
-    "@jest/globals": "^29.7.0",
-    "@types/jest": "^29.5.14",
+    "eslint": "^8.56.0",
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0",
     "jsdom": "^25.0.1",
-    "ts-jest": "^29.3.4"
+    "ts-jest": "^29.3.4",
+    "typescript": "^5.3.3"
   },
   "dependencies": {
     "@contextweaver/shared": "file:../shared"

@@ -52,10 +52,10 @@ function detectBrowserTheme(): Theme {
 function updateTheme(theme: Theme): void {
   currentTheme = theme;
   console.log(`${LOG_PREFIX_CS} Theme updated to: ${theme}`);
-  
+
   // Update UIManager with the new theme
   uiManager.setTheme(theme);
-  
+
   // Store theme preference
   chrome.storage.local.set({ theme });
 }
@@ -67,11 +67,11 @@ function initializeThemeDetection(): void {
   // Detect initial theme
   const detectedTheme = detectBrowserTheme();
   updateTheme(detectedTheme);
-  
+
   // Listen for theme changes
   if (window.matchMedia) {
     const darkModeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    
+
     // Modern browsers support addEventListener
     if (darkModeMediaQuery.addEventListener) {
       darkModeMediaQuery.addEventListener('change', (e) => {
@@ -86,7 +86,7 @@ function initializeThemeDetection(): void {
       });
     }
   }
-  
+
   // Also check for stored theme preference
   chrome.storage.local.get(['theme'], (result) => {
     if (result.theme && (result.theme === 'light' || result.theme === 'dark')) {
@@ -410,8 +410,11 @@ function createSearchResultItemElement(result: SharedSearchResult, omitWorkspace
   const itemDiv = uiManager.createDiv({ classNames: ['search-result-item'] });
   itemDiv.setAttribute('tabindex', '0'); // Make focusable for keyboard navigation
 
-  const iconSpan = uiManager.createSpan({ classNames: [`${LOCAL_CSS_PREFIX}type-icon`], textContent: result.type === 'file' ? '📄' : '📁' });
-  itemDiv.appendChild(iconSpan);
+  const iconName = result.type === 'file' ? 'description' : 'folder';
+  const iconElement = uiManager.createIcon(iconName, {
+    classNames: [`${LOCAL_CSS_PREFIX}type-icon`]
+  });
+  itemDiv.appendChild(iconElement);
 
   const nameSpan = uiManager.createSpan({ textContent: result.name });
   itemDiv.appendChild(nameSpan);
@@ -441,7 +444,7 @@ function createSearchResultItemElement(result: SharedSearchResult, omitWorkspace
   if (result.workspaceFolderUri) {
     itemDiv.dataset.workspaceFolderUri = result.workspaceFolderUri;
   }
-  
+
   // Add keyboard support
   itemDiv.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
@@ -505,58 +508,57 @@ function renderSearchResults(response: SearchWorkspaceResponsePayload, query: st
   if (!response.data?.results || response.data.results.length === 0) {
     uiManager.updateTitle(titleText);
     // Create empty state with icon and descriptive text
-    const emptyStateContainer = uiManager.createDiv({ 
-      style: { 
-        display: 'flex', 
-        flexDirection: 'column', 
-        alignItems: 'center', 
+    const emptyStateContainer = uiManager.createDiv({
+      style: {
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
         justifyContent: 'center',
         padding: '40px 20px',
         textAlign: 'center'
-      } 
+      }
     });
-    
-    const iconSpan = uiManager.createSpan({ 
-      textContent: '🔍', 
-      style: { fontSize: '48px', marginBottom: '16px' } 
+
+    const iconElement = uiManager.createIcon('search', {
+      style: { fontSize: '48px', marginBottom: '16px', marginRight: '0' } // Override default margin
     });
-    emptyStateContainer.appendChild(iconSpan);
-    
-    const messageP = uiManager.createParagraph({ 
+    emptyStateContainer.appendChild(iconElement);
+
+    const messageP = uiManager.createParagraph({
       textContent: `No results found for '@${query}'`,
       style: { color: '#ccc', marginBottom: '16px' }
     });
     emptyStateContainer.appendChild(messageP);
-    
+
     uiManager.updateContent(emptyStateContainer);
     return;
   }
 
   const contentFragment = document.createDocumentFragment();
   const results = response.data.results as SharedSearchResult[];
-  
+
   // Check if we need virtual scrolling
   if (results.length > 50) {
     // Implement virtual scrolling for large result sets
     const ITEM_HEIGHT = 40; // Approximate height of each item
     const VISIBLE_ITEMS = 10; // Number of items visible at once
     const containerHeight = ITEM_HEIGHT * VISIBLE_ITEMS;
-    
-    const scrollContainer = uiManager.createDiv({ 
-      style: { 
-        height: `${containerHeight}px`, 
+
+    const scrollContainer = uiManager.createDiv({
+      style: {
+        height: `${containerHeight}px`,
         overflowY: 'auto',
         position: 'relative'
-      } 
+      }
     });
-    
-    const virtualHeight = uiManager.createDiv({ 
-      style: { 
+
+    const virtualHeight = uiManager.createDiv({
+      style: {
         height: `${results.length * ITEM_HEIGHT}px`,
         position: 'relative'
-      } 
+      }
     });
-    
+
     const itemContainer = uiManager.createDiv({
       style: {
         position: 'absolute',
@@ -565,35 +567,35 @@ function renderSearchResults(response: SearchWorkspaceResponsePayload, query: st
         right: '0'
       }
     });
-    
+
     virtualHeight.appendChild(itemContainer);
     scrollContainer.appendChild(virtualHeight);
-    
+
     let lastScrollTop = 0;
     const renderVisibleItems = () => {
       const scrollTop = scrollContainer.scrollTop;
       const startIndex = Math.floor(scrollTop / ITEM_HEIGHT);
       const endIndex = Math.min(startIndex + VISIBLE_ITEMS + 2, results.length);
-      
+
       // Clear and re-render visible items
       itemContainer.innerHTML = '';
       itemContainer.style.transform = `translateY(${startIndex * ITEM_HEIGHT}px)`;
-      
+
       for (let i = startIndex; i < endIndex; i++) {
         const itemDiv = createSearchResultItemElement(results[i], false);
         itemContainer.appendChild(itemDiv);
       }
-      
+
       lastScrollTop = scrollTop;
     };
-    
+
     scrollContainer.addEventListener('scroll', () => {
       window.requestAnimationFrame(renderVisibleItems);
     });
-    
+
     // Initial render
     renderVisibleItems();
-    
+
     contentFragment.appendChild(scrollContainer);
     uiManager.updateTitle(titleText);
     uiManager.updateContent(contentFragment);
@@ -658,7 +660,7 @@ function renderSearchResults(response: SearchWorkspaceResponsePayload, query: st
 
   uiManager.updateTitle(titleText);
   uiManager.updateContent(contentFragment);
-  
+
   // Add arrow key navigation after content is rendered
   setTimeout(() => {
     const panel = document.getElementById(uiManager.getConstant('UI_PANEL_ID'));
@@ -669,7 +671,7 @@ function renderSearchResults(response: SearchWorkspaceResponsePayload, query: st
           const currentFocus = document.activeElement;
           const itemsArray = Array.from(focusableItems);
           const currentIndex = itemsArray.indexOf(currentFocus as Element);
-          
+
           if (e.key === 'ArrowDown') {
             e.preventDefault();
             const nextIndex = currentIndex + 1 < itemsArray.length ? currentIndex + 1 : 0;
@@ -732,6 +734,45 @@ function formatFileContentsForLLM(filesData: { fullPath: string; content: string
 }
 
 /**
+ * Creates an HTMLDivElement representing a general option item, styled similarly to a search result.
+ * @param label The text label for the option.
+ * @param iconName The name of the Material Symbol icon to display.
+ * @param options An object containing optional id and the onClick handler.
+ * @returns {HTMLDivElement} The created div element for the option item.
+ */
+function createOptionItem(
+  label: string,
+  iconName: string,
+  options: {
+    id?: string;
+    onClick: (event: MouseEvent) => void;
+  }
+): HTMLDivElement {
+  const itemDiv = uiManager.createDiv({ classNames: ['search-result-item'] });
+  itemDiv.setAttribute('tabindex', '0'); // Make focusable
+
+  if (options.id) {
+    itemDiv.id = options.id;
+  }
+
+  const iconElement = uiManager.createIcon(iconName, {
+    classNames: [`${LOCAL_CSS_PREFIX}type-icon`]
+  });
+  itemDiv.appendChild(iconElement);
+
+  const nameSpan = uiManager.createSpan({ textContent: label });
+  itemDiv.appendChild(nameSpan);
+
+  itemDiv.onclick = options.onClick;
+
+  itemDiv.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); itemDiv.click(); }
+  });
+
+  return itemDiv;
+}
+
+/**
  * Creates a DocumentFragment containing general options for content insertion, such as active file, open files, and workspace folders.
  * @param workspaceDetails Details about the current VS Code workspace.
  * @returns {DocumentFragment} A document fragment containing the general options UI elements.
@@ -739,13 +780,13 @@ function formatFileContentsForLLM(filesData: { fullPath: string; content: string
 function createGeneralOptionsSection(workspaceDetails: WorkspaceDetailsResponsePayload['data']): DocumentFragment {
   const contentFragment = document.createDocumentFragment();
 
-  const activeFileButton = uiManager.createButton('📄 Active File', {
+  const activeFileItem = createOptionItem('Active File', 'description', {
     id: `${LOCAL_CSS_PREFIX}btn-active-file`,
-    classNames: ['vertical-button'],
-    onClick: async () => {
+    onClick: async (e) => {
+      const itemDiv = e.currentTarget as HTMLElement;
       console.log('ContextWeaver: "📄 Active File" clicked');
-      activeFileButton.textContent = '📄 Loading...';
-      activeFileButton.disabled = true;
+
+      // The processContentInsertion function will handle loading state and feedback
       try {
         const activeFileInfoResponse = await swClient.getActiveFileInfo();
         console.log('ContextWeaver: Active file info response:', activeFileInfoResponse);
@@ -759,33 +800,30 @@ function createGeneralOptionsSection(workspaceDetails: WorkspaceDetailsResponseP
             contentSourceId: activeFileContentSourceId,
             type: 'file',
             uri: activeFilePath
-          }, activeFileButton); // Pass button for feedback
+          }, itemDiv); // Pass itemDiv for feedback
 
         } else {
           const errorMsg = activeFileInfoResponse.error || 'Could not get active file information from VS Code. Is a file editor active?';
           console.error('ContextWeaver: Error getting active file info:', errorMsg);
           uiManager.showToast(`Active File Error: ${errorMsg} (Code: ${activeFileInfoResponse.errorCode || 'N/A'})`, 'error');
         }
-      } catch (e: any) {
-        console.error('ContextWeaver: Error in active file workflow:', e);
-        uiManager.showToast(`Active File Error: ${e.message || 'Failed to process active file request.'}`, 'error');
-      } finally {
-        if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible')) {
-          activeFileButton.textContent = '📄 Active File';
-          activeFileButton.disabled = false;
-        }
+      } catch (err: any) {
+        console.error('ContextWeaver: Error in active file workflow:', err);
+        uiManager.showToast(`Active File Error: ${err.message || 'Failed to process active file request.'}`, 'error');
       }
     }
   });
-  contentFragment.appendChild(activeFileButton);
+  contentFragment.appendChild(activeFileItem);
 
-  const openFilesButton = uiManager.createButton('📂 Open Files', {
+  const openFilesItem = createOptionItem('Open Files', 'folder_open', {
     id: `${LOCAL_CSS_PREFIX}btn-open-files`,
-    classNames: ['vertical-button'],
-    onClick: async () => {
+    onClick: async (e) => {
+      const itemDiv = e.currentTarget as HTMLElement;
       console.log('ContextWeaver: "📂 Open Files" clicked');
-      openFilesButton.textContent = '📂 Loading...';
-      openFilesButton.disabled = true;
+
+      itemDiv.style.opacity = '0.5';
+      itemDiv.style.pointerEvents = 'none';
+      uiManager.showLoading('Loading Open Files', 'Fetching list of open files...');
       try {
         const openFilesResponse = await swClient.getOpenFiles();
         console.log('ContextWeaver: Open files response:', openFilesResponse);
@@ -796,19 +834,20 @@ function createGeneralOptionsSection(workspaceDetails: WorkspaceDetailsResponseP
           const errorMsg = openFilesResponse.error || 'Failed to get open files list.';
           console.error('ContextWeaver: Error getting open files list:', errorMsg);
           uiManager.showToast(`Open Files Error: ${errorMsg} (Code: ${openFilesResponse.errorCode || 'N/A'})`, 'error');
+          itemDiv.style.opacity = '';
+          itemDiv.style.pointerEvents = '';
         }
-      } catch (e: any) {
-        console.error('ContextWeaver: Error in open files workflow:', e);
-        uiManager.showToast(`Open Files Error: ${e.message || 'Failed to process open files request.'}`, 'error');
+      } catch (err: any) {
+        console.error('ContextWeaver: Error in open files workflow:', err);
+        uiManager.showToast(`Open Files Error: ${err.message || 'Failed to process open files request.'}`, 'error');
+        itemDiv.style.opacity = '';
+        itemDiv.style.pointerEvents = '';
       } finally {
-        if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible') && !document.querySelector(`.${LOCAL_CSS_PREFIX}open-files-selector`)) {
-          openFilesButton.textContent = '📂 Open Files';
-          openFilesButton.disabled = false;
-        }
+        uiManager.hideLoading();
       }
     }
   });
-  contentFragment.appendChild(openFilesButton);
+  contentFragment.appendChild(openFilesItem);
 
   if (workspaceDetails?.workspaceFolders && workspaceDetails.workspaceFolders.length > 0) {
     const separator = document.createElement('hr');
@@ -1505,47 +1544,44 @@ function renderWorkspaceFolders(workspaceFolders: any[], targetContentArea: Docu
       sectionContainer = folderSectionDiv;
     }
 
-    const fileTreeButton = uiManager.createButton('🌲 File Tree', {
+    const fileTreeItem = createOptionItem('File Tree', 'account_tree', {
       id: `${LOCAL_CSS_PREFIX}btn-file-tree-${folder.uri.replace(/[^a-zA-Z0-9]/g, '_')}`,
-      classNames: ['vertical-button'],
-      onClick: async () => {
+      onClick: async (e) => {
         await processContentInsertion({
           name: `🌲 File Tree - ${folder.name}`,
           contentSourceId: `${folder.uri}::FileTree`,
           type: 'FileTree',
           workspaceFolderUri: folder.uri
-        });
+        }, e.currentTarget as HTMLElement);
       }
     });
-    sectionContainer.appendChild(fileTreeButton);
+    sectionContainer.appendChild(fileTreeItem);
 
-    const fullCodebaseButton = uiManager.createButton('📚 Codebase', {
+    const fullCodebaseItem = createOptionItem('Codebase', 'menu_book', {
       id: `${LOCAL_CSS_PREFIX}btn-full-codebase-${folder.uri.replace(/[^a-zA-Z0-9]/g, '_')}`,
-      classNames: ['vertical-button'],
-      onClick: async () => {
+      onClick: async (e) => {
         await processContentInsertion({
           name: `📚 Codebase - ${folder.name}`,
           contentSourceId: `${folder.uri}::codebase`,
           type: 'codebase_content',
           workspaceFolderUri: folder.uri
-        });
+        }, e.currentTarget as HTMLElement);
       }
     });
-    sectionContainer.appendChild(fullCodebaseButton);
+    sectionContainer.appendChild(fullCodebaseItem);
 
-    const problemsButton = uiManager.createButton('❗ Problems', {
+    const problemsItem = createOptionItem('Problems', 'error', {
       id: `${LOCAL_CSS_PREFIX}btn-problems-${folder.uri.replace(/[^a-zA-Z0-9]/g, '_')}`,
-      classNames: ['vertical-button'],
-      onClick: async () => {
+      onClick: async (e) => {
         await processContentInsertion({
           name: `❗ Problems - ${folder.name}`,
           contentSourceId: `${folder.uri}::Problems`,
           type: 'WorkspaceProblems',
           workspaceFolderUri: folder.uri
-        });
+        }, e.currentTarget as HTMLElement);
       }
     });
-    sectionContainer.appendChild(problemsButton);
+    sectionContainer.appendChild(problemsItem);
   });
 }
 
@@ -1576,13 +1612,13 @@ function createBrowseItemElement(entry: CWDirectoryEntry): HTMLDivElement { // U
     itemDiv.title = 'Already added to context';
   }
 
-  const iconSpan = uiManager.createSpan({ textContent: entry.type === 'file' ? '📄' : '📁', style: { marginRight: '8px' } });
+  const iconElement = uiManager.createIcon(entry.type === 'file' ? 'description' : 'folder');
   const nameSpan = uiManager.createSpan({ textContent: entry.name });
 
   itemDiv.appendChild(checkbox);
-  itemDiv.appendChild(iconSpan);
+  itemDiv.appendChild(iconElement);
   itemDiv.appendChild(nameSpan);
-  
+
   // Add keyboard support
   itemDiv.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
@@ -1592,7 +1628,7 @@ function createBrowseItemElement(entry: CWDirectoryEntry): HTMLDivElement { // U
       checkbox.dispatchEvent(new Event('change', { bubbles: true }));
     }
   });
-  
+
   return itemDiv;
 }
 
@@ -1675,7 +1711,7 @@ function buildTreeStructure(entries: CWDirectoryEntry[]): TreeNode[] {
 function createTreeNodeElement(node: TreeNode, level: number = 0): HTMLDivElement {
   // Create container for this node and its children
   const nodeContainer = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}tree-node`] });
-  
+
   // Create the item element for the current node with indentation
   const itemDiv = createBrowseItemElement(node.entry);
   itemDiv.style.paddingLeft = `${level * 20 + 8}px`;
@@ -1684,15 +1720,15 @@ function createTreeNodeElement(node: TreeNode, level: number = 0): HTMLDivElemen
   // If this node has children, create a container for them
   if (node.children.length > 0) {
     const childrenContainer = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}tree-children`] });
-    
+
     // Render children recursively
     node.children.forEach(childNode => {
       const childElement = createTreeNodeElement(childNode, level + 1);
       childrenContainer.appendChild(childElement);
     });
-    
+
     nodeContainer.appendChild(childrenContainer);
-    
+
     // Add cascading selection for folders
     if (node.entry.type === 'folder') {
       const checkbox = itemDiv.querySelector('input[type="checkbox"]') as HTMLInputElement;
@@ -1727,7 +1763,7 @@ function createBrowseViewButtons(
   workspaceFolderUri: string | null
 ): HTMLDivElement {
   const buttonContainer = uiManager.createDiv({ style: { marginTop: '10px' } });
-  const insertButton = uiManager.createButton('✅', {
+  const insertButton = uiManager.createButton('', {
     style: {
       fontSize: '16px',
       padding: '6px 12px'
@@ -1757,7 +1793,8 @@ function createBrowseViewButtons(
       }
 
       insertButton.disabled = true;
-      insertButton.textContent = '⏳';
+      insertButton.innerHTML = '';
+      insertButton.appendChild(uiManager.createIcon('progress_activity', { classNames: [`${LOCAL_CSS_PREFIX}spinning`] }));
       const progressDiv = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}progress`], style: { marginTop: '10px' } });
       buttonContainer.appendChild(progressDiv);
       uiManager.updateContent(uiManager.createDiv({ children: [listContainer, buttonContainer, progressDiv] })); // Re-render with progress
@@ -1818,16 +1855,18 @@ function createBrowseViewButtons(
         uiManager.hideLoading(); // Hide loading for this operation
         if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible')) {
           insertButton.disabled = false;
-          insertButton.textContent = '✅';
+          insertButton.innerHTML = '';
+          insertButton.appendChild(uiManager.createIcon('check_circle'));
           if (progressDiv.parentNode) progressDiv.parentNode.removeChild(progressDiv);
         }
       }
     }
   });
+  insertButton.appendChild(uiManager.createIcon('check_circle'));
   buttonContainer.appendChild(insertButton);
   insertButton.title = 'Insert Selected Items';
 
-  const backButton = uiManager.createButton('↩️', {
+  const backButton = uiManager.createButton('', {
     style: {
       marginLeft: '10px',
       fontSize: '16px',
@@ -1843,6 +1882,7 @@ function createBrowseViewButtons(
       }
     }
   });
+  backButton.appendChild(uiManager.createIcon('arrow_back'));
   buttonContainer.appendChild(backButton);
   backButton.title = 'Back to search results';
   return buttonContainer;
@@ -1886,7 +1926,7 @@ function renderBrowseView(browseResponse: ListFolderContentsResponsePayload, par
   const buttonContainer = createBrowseViewButtons(listContainer, parentFolderUri, parentFolderName, workspaceFolderUri);
   contentFragment.appendChild(buttonContainer);
   uiManager.updateContent(contentFragment);
-  
+
   // Add arrow key navigation after content is rendered
   setTimeout(() => {
     const panel = document.getElementById(uiManager.getConstant('UI_PANEL_ID'));
@@ -1897,7 +1937,7 @@ function renderBrowseView(browseResponse: ListFolderContentsResponsePayload, par
           const currentFocus = document.activeElement;
           const itemsArray = Array.from(focusableItems);
           const currentIndex = itemsArray.indexOf(currentFocus as Element);
-          
+
           if (e.key === 'ArrowDown') {
             e.preventDefault();
             const nextIndex = currentIndex + 1 < itemsArray.length ? currentIndex + 1 : 0;
@@ -1921,11 +1961,16 @@ function renderBrowseView(browseResponse: ListFolderContentsResponsePayload, par
  * @returns {HTMLDivElement} The created div element for the open file list item.
  */
 function createOpenFilesListItem(file: { path: string; name: string; workspaceFolderUri: string | null; workspaceFolderName: string | null }, groupedOpenFilesMapSize: number): HTMLDivElement {
-  const listItem = uiManager.createDiv({ style: { marginBottom: '5px', padding: '3px', borderBottom: '1px solid #3a3a3a' } });
+  const listItem = uiManager.createDiv({ style: { display: 'flex', alignItems: 'center', marginBottom: '5px', padding: '3px', borderBottom: '1px solid #3a3a3a' } });
   listItem.setAttribute('tabindex', '0'); // Make focusable for keyboard navigation
-  
+
   const checkboxId = `${LOCAL_CSS_PREFIX}openfile-${file.path.replace(/[^a-zA-Z0-9]/g, '_')}`;
   const checkbox = uiManager.createCheckbox({ id: checkboxId, checked: true, dataset: { value: file.path } });
+
+  // Create and add the file icon
+  const iconElement = uiManager.createIcon('description', {
+    classNames: [`${LOCAL_CSS_PREFIX}type-icon`]
+  });
 
   let labelText = file.name;
   // Check if there's only one workspace or if it's an 'unknown_workspace' group
@@ -1942,8 +1987,9 @@ function createOpenFilesListItem(file: { path: string; name: string; workspaceFo
     label.appendChild(alreadyAddedSpan);
   }
   listItem.appendChild(checkbox);
+  listItem.appendChild(iconElement);
   listItem.appendChild(label);
-  
+
   // Add keyboard support
   listItem.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
@@ -1951,7 +1997,7 @@ function createOpenFilesListItem(file: { path: string; name: string; workspaceFo
       checkbox.checked = !checkbox.checked;
     }
   });
-  
+
   return listItem;
 }
 
@@ -2026,7 +2072,13 @@ function createOpenFilesFormElements(
   }
   form.appendChild(listContainer);
 
-  const insertButton = uiManager.createButton('Insert Selected Files', {
+  const buttonContainer = uiManager.createDiv({ style: { marginTop: '10px', display: 'flex', gap: '10px' } });
+
+  const insertButton = uiManager.createButton('', {
+    style: {
+      fontSize: '16px',
+      padding: '6px 12px'
+    },
     onClick: async () => {
       const selectedFiles = Array.from(form.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:checked:not(:disabled)'))
         .map(cb => cb.dataset.value!);
@@ -2038,8 +2090,9 @@ function createOpenFilesFormElements(
         return;
       }
 
-      insertButton.textContent = 'Loading Content...';
       insertButton.disabled = true;
+      insertButton.innerHTML = '';
+      insertButton.appendChild(uiManager.createIcon('progress_activity', { classNames: [`${LOCAL_CSS_PREFIX}spinning`] }));
 
       try {
         const response = await swClient.getContentsForSelectedOpenFiles(selectedFiles);
@@ -2072,18 +2125,29 @@ function createOpenFilesFormElements(
         uiManager.showToast(`File Content Error: ${e.message || 'Failed to process request.'}`, 'error');
       } finally {
         uiManager.hideLoading(); // Hide loading for this operation
+        if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible')) {
+          insertButton.disabled = false;
+          insertButton.innerHTML = '';
+          insertButton.appendChild(uiManager.createIcon('check_circle'));
+        }
       }
     }
   });
-  form.appendChild(insertButton);
+  insertButton.appendChild(uiManager.createIcon('check_circle'));
+  insertButton.title = 'Insert Selected Files';
+  buttonContainer.appendChild(insertButton);
 
-  const backButton = uiManager.createButton('Back', {
-    style: { marginLeft: '10px' },
+  const backButton = uiManager.createButton('', {
+    style: { fontSize: '16px', padding: '6px 12px' },
     onClick: () => {
       populateFloatingUiContent({ mode: 'general' });
     }
   });
-  form.appendChild(backButton);
+  backButton.appendChild(uiManager.createIcon('arrow_back'));
+  backButton.title = 'Back';
+  buttonContainer.appendChild(backButton);
+
+  form.appendChild(buttonContainer);
 
   return form;
 }
@@ -2108,31 +2172,31 @@ function displayOpenFilesSelectorUI(
     uiManager.updateContent(selectorWrapper);
     return;
   }
-  
+
   // Check if we need virtual scrolling for large file lists
   if (openFilesList.length > 50) {
     const ITEM_HEIGHT = 32; // Approximate height of each file item
     const VISIBLE_ITEMS = 12; // Number of items visible at once
     const containerHeight = ITEM_HEIGHT * VISIBLE_ITEMS;
-    
-    const scrollContainer = uiManager.createDiv({ 
-      style: { 
-        height: `${containerHeight}px`, 
+
+    const scrollContainer = uiManager.createDiv({
+      style: {
+        height: `${containerHeight}px`,
         overflowY: 'auto',
         position: 'relative',
         border: '1px solid #444',
         borderRadius: '4px',
         marginBottom: '10px'
-      } 
+      }
     });
-    
-    const virtualHeight = uiManager.createDiv({ 
-      style: { 
+
+    const virtualHeight = uiManager.createDiv({
+      style: {
         height: `${openFilesList.length * ITEM_HEIGHT}px`,
         position: 'relative'
-      } 
+      }
     });
-    
+
     const itemContainer = uiManager.createDiv({
       style: {
         position: 'absolute',
@@ -2141,55 +2205,55 @@ function displayOpenFilesSelectorUI(
         right: '0'
       }
     });
-    
+
     virtualHeight.appendChild(itemContainer);
     scrollContainer.appendChild(virtualHeight);
-    
+
     const renderVisibleItems = () => {
       const scrollTop = scrollContainer.scrollTop;
       const startIndex = Math.floor(scrollTop / ITEM_HEIGHT);
       const endIndex = Math.min(startIndex + VISIBLE_ITEMS + 2, openFilesList.length);
-      
+
       // Clear and re-render visible items
       itemContainer.innerHTML = '';
       itemContainer.style.transform = `translateY(${startIndex * ITEM_HEIGHT}px)`;
-      
+
       for (let i = startIndex; i < endIndex; i++) {
         const file = openFilesList[i];
         const listItem = createOpenFilesListItem(file, 1);
-        
+
         // Update checkbox state from selection map
         const checkbox = listItem.querySelector('input[type="checkbox"]') as HTMLInputElement;
         if (checkbox && !checkbox.disabled) {
           checkbox.checked = fileSelectionState.get(file.path) || false;
-          
+
           // Add change listener to update selection state
           checkbox.addEventListener('change', () => {
             fileSelectionState.set(file.path, checkbox.checked);
           });
         }
-        
+
         itemContainer.appendChild(listItem);
       }
     };
-    
+
     scrollContainer.addEventListener('scroll', () => {
       window.requestAnimationFrame(renderVisibleItems);
     });
-    
+
     // Initial render
     renderVisibleItems();
-    
+
     // Create form with virtual scroll container
     const form = document.createElement('form');
     form.appendChild(scrollContainer);
-    
+
     // Track selection state for virtual scrolling
     const fileSelectionState = new Map<string, boolean>();
     openFilesList.forEach(file => {
       fileSelectionState.set(file.path, !stateManager.isDuplicateContentSource(file.path));
     });
-    
+
     const insertButton = uiManager.createButton('Insert Selected Files', {
       onClick: async () => {
         // Collect all selected files from the selection state map
@@ -2199,12 +2263,12 @@ function displayOpenFilesSelectorUI(
             selectedFiles.push(filePath);
           }
         });
-        
+
         if (selectedFiles.length === 0) {
           uiManager.showToast('No files selected.', 'info');
           return;
         }
-        
+
         // Rest of insert logic remains the same...
         insertButton.textContent = 'Loading Content...';
         insertButton.disabled = true;
@@ -2252,7 +2316,7 @@ function displayOpenFilesSelectorUI(
       }
     });
     form.appendChild(backButton);
-    
+
     selectorWrapper.appendChild(form);
     uiManager.updateContent(selectorWrapper);
     return;
@@ -2264,7 +2328,7 @@ function displayOpenFilesSelectorUI(
 
   selectorWrapper.appendChild(form);
   uiManager.updateContent(selectorWrapper);
-  
+
   // Add arrow key navigation after content is rendered
   setTimeout(() => {
     const panel = document.getElementById(uiManager.getConstant('UI_PANEL_ID'));
@@ -2275,7 +2339,7 @@ function displayOpenFilesSelectorUI(
           const currentFocus = document.activeElement;
           const itemsArray = Array.from(focusableItems);
           const currentIndex = itemsArray.indexOf(currentFocus as Element);
-          
+
           if (e.key === 'ArrowDown') {
             e.preventDefault();
             const nextIndex = currentIndex + 1 < itemsArray.length ? currentIndex + 1 : 0;
