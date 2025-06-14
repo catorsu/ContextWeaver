@@ -294,15 +294,8 @@ class IPCClient {
                     console.log(LOG_PREFIX_SW, `handleServerMessage: Broadcasting 'push_snippet' to all LLM tabs.`);
 
                     // Query for all tabs matching supported LLM host permissions
-                    chrome.tabs.query({
-                        url: [
-                            '*://gemini.google.com/*',
-                            '*://chatgpt.com/*',
-                            '*://claude.ai/*',
-                            '*://aistudio.google.com/*',
-                            '*://chat.deepseek.com/*'
-                        ]
-                    }).then(tabs => {
+                    const urlsToQuery = SUPPORTED_LLM_HOST_SUFFIXES.map(suffix => `*://${suffix}/*`);
+                    chrome.tabs.query({ url: urlsToQuery }).then(tabs => {
                         console.log(LOG_PREFIX_SW, `Found ${tabs.length} LLM tabs to send snippet to`);
 
                         // Send the snippet message to each tab
@@ -931,12 +924,7 @@ if (!ipcClient.isConnected()) {
     ipcClient.connectWithRetry();
 }
 
-const SUPPORTED_LLM_HOST_SUFFIXES = [
-    'gemini.google.com',
-    'chatgpt.com',
-    'claude.ai',
-    'chat.deepseek.com'
-];
+const SUPPORTED_LLM_HOST_SUFFIXES = ['chat.deepseek.com'];
 
 /**
  * Checks if a given tab is a supported LLM host and registers it with the VSCE IPC server

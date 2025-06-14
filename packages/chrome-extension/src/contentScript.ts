@@ -209,22 +209,18 @@ function groupItemsByWindow<T extends WindowGroupable>(
 interface LLMInputConfig {
   hostSuffix: string;
   selector: string;
-  isContentEditable: boolean;
   isAttached?: boolean;
   attachedElement?: HTMLElement | null;
 }
 
 /**
  * Configuration for detecting and interacting with LLM input fields on various hostnames.
- * Each object defines a host suffix, a CSS selector for the input field, and whether it's content editable.
+ * Each object defines a host suffix and a CSS selector for the input field.
  * @constant
  * @type {LLMInputConfig[]}
  */
 const llmInputsConfig: LLMInputConfig[] = [
-  { hostSuffix: 'gemini.google.com', selector: 'div.ql-editor[contenteditable="true"][role="textbox"]', isContentEditable: true },
-  { hostSuffix: 'chatgpt.com', selector: 'div#prompt-textarea[contenteditable="true"]', isContentEditable: true },
-  { hostSuffix: 'claude.ai', selector: 'div.ProseMirror[contenteditable="true"]', isContentEditable: true },
-  { hostSuffix: 'chat.deepseek.com', selector: 'textarea#chat-input', isContentEditable: false }
+  { hostSuffix: 'chat.deepseek.com', selector: 'textarea#chat-input' }
 ];
 
 const eventHandlers = new Map<HTMLElement, (event: Event) => void>();
@@ -929,9 +925,6 @@ function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string):
   if (!uniqueBlockId || typeof uniqueBlockId !== 'string') {
     console.error(LOG_PREFIX_CS, 'Cannot remove block: uniqueId is invalid.', uniqueBlockId);
     stateManager.removeActiveContextBlock(uniqueBlockId);
-    // When the target element is uncertain, passing null to renderContextIndicators might be safer,
-    // or always try to get the latest target element from stateManager.
-    // To maintain consistency with existing logic, if we exit early, we might not be able to determine currentTargetElement.
     renderContextIndicators(stateManager.getCurrentTargetElementForPanel());
     return;
   }
@@ -954,13 +947,7 @@ function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string):
 
   const escapedUniqueId = uniqueBlockId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-  // Unified and more robust regex for block removal:
-  // - (${tagNameForRegex}) captures the tag name (e.g., "FileContents") into capture group 1.
-  // - \\b ensures tagNameForRegex is a whole word (e.g., prevents matching "FileContents-extra").
-  // - [^>]* matches any characters inside the opening tag before '>', including other attributes.
-  // - \\bid=["']${escapedUniqueId}["'] matches the id attribute (ensuring "id" is a whole word).
-  // - ([\\s\\S]*?) non-greedily captures all content between the tags (including newlines) into capture group 2.
-  // - </\\1> uses a back-reference \\1 to ensure the closing tag matches the captured opening tag name.
+  // Unified regex for block removal
   const blockRegex = new RegExp(
     `<(${tagNameForRegex})\\b[^>]*\\bid=["']${escapedUniqueId}["'][^>]*>([\\s\\S]*?)</\\1>`,
     'g'
@@ -969,62 +956,43 @@ function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string):
   const currentTargetElement = stateManager.getCurrentTargetElementForPanel();
   if (currentTargetElement) {
     if ('value' in currentTargetElement && typeof (currentTargetElement as HTMLTextAreaElement).selectionStart === 'number') {
+      // TEXTAREA handling (unchanged)
       const textArea = currentTargetElement as HTMLTextAreaElement;
       const originalValue = textArea.value;
 
-      // --- Detailed Debugging Logs Start ---
-      console.groupCollapsed(`${LOG_PREFIX_CS} Block Removal Debug - ID: ${uniqueBlockId}`);
-      console.log('Block Type:', blockType, 'Tag Name:', tagNameForRegex);
-      console.log('Regex Used:', blockRegex.toString());
-      console.log('Attempting to operate on originalValue (length ' + originalValue.length + '):');
-      // To prevent console freezing, only print partial content or markers
-      // console.log("'''\n" + originalValue.substring(0, 2000) + "\n''' (first 2000 chars)");
-      // console.log("'''\n" + originalValue.substring(Math.max(0, originalValue.length - 2000)) + "\n''' (last 2000 chars)");
-
-      // Use exec to check match details
-      const execRegex = new RegExp(blockRegex.source, 'g'); // Create new RegExp instance for exec to reset lastIndex
-      let match;
-      let matchFound = false;
-      while ((match = execRegex.exec(originalValue)) !== null) {
-        matchFound = true;
-        console.log('Regex exec match found at index:', match.index);
-        console.log('Full matched string (match[0]) (length ' + match[0].length + '):');
-        console.log('\'\'\'\n' + match[0] + '\n\'\'\'');
-        console.log('Captured tag name (match[1]):', match[1]);
-        console.log('Captured content (match[2]) (length ' + match[2].length + '):');
-        console.log('\'\'\'\n' + match[2] + '\n\'\'\'');
-
-        // Print content immediately following the match in the original string
-        const afterMatchIndex = match.index + match[0].length;
-        const textAfterMatch = originalValue.substring(afterMatchIndex, afterMatchIndex + 100);
-        console.log(`Text in originalValue immediately AFTER the matched block (from index ${afterMatchIndex}, next 100 chars):`);
-        console.log('\'\'\'\n' + textAfterMatch + '\n\'\'\'');
-      }
-      if (!matchFound) {
-        console.log('No matches found by regex.exec().');
-      }
-      console.groupEnd();
-      // --- Detailed Debugging Logs End ---
-
       textArea.value = originalValue.replace(blockRegex, '');
-
-      // Debug log: value after replacement
-      // console.log(`${LOG_PREFIX_CS} Textarea value after replace (length ${textArea.value.length}):\n`, textArea.value);
 
       if (originalValue.length !== textArea.value.length) {
         console.log(LOG_PREFIX_CS, `Removed text block ${uniqueBlockId} (type: ${blockType}, tag: ${tagNameForRegex}) from TEXTAREA value.`);
         textArea.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
       } else {
-        console.warn(LOG_PREFIX_CS, `Could not find/remove text block ${uniqueBlockId} (type: ${blockType}, tag: ${tagNameForRegex}) in TEXTAREA value using regex. Regex used: ${blockRegex.toString()}`);
+        console.warn(LOG_PREFIX_CS, `Could not find/remove text block ${uniqueBlockId} (type: ${blockType}, tag: ${tagNameForRegex}) in TEXTAREA value using regex.`);
       }
     } else if (currentTargetElement.isContentEditable) {
-      const blockInEditor = currentTargetElement.querySelector(`[id="${uniqueBlockId}"]`);
-      if (blockInEditor && blockInEditor.tagName.toLowerCase() === tagNameForRegex.toLowerCase()) {
-        blockInEditor.remove();
-        console.log(LOG_PREFIX_CS, `Removed text block ${uniqueBlockId} (type: ${blockType}, tag: ${tagNameForRegex}) from ContentEditable via querySelector by ID.`);
+      // CONTENTEDITABLE handling - use text-based approach
+      const originalText = currentTargetElement.textContent || '';
+      const newText = originalText.replace(blockRegex, '');
+
+      if (originalText.length !== newText.length) {
+        // Clear and set new text content
+        currentTargetElement.textContent = '';
+        const textNode = document.createTextNode(newText);
+        currentTargetElement.appendChild(textNode);
+
+        console.log(LOG_PREFIX_CS, `Removed text block ${uniqueBlockId} (type: ${blockType}, tag: ${tagNameForRegex}) from ContentEditable via text replacement.`);
         currentTargetElement.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+
+        // Restore cursor position to the end
+        const selection = window.getSelection();
+        if (selection) {
+          selection.removeAllRanges();
+          const range = document.createRange();
+          range.selectNodeContents(currentTargetElement);
+          range.collapse(false);
+          selection.addRange(range);
+        }
       } else {
-        console.warn(LOG_PREFIX_CS, `Could not find text block ${uniqueBlockId} (type: ${blockType}, tag: ${tagNameForRegex}) in ContentEditable via querySelector by ID, or tag name mismatch. Block found:`, blockInEditor);
+        console.warn(LOG_PREFIX_CS, `Could not find text block ${uniqueBlockId} (type: ${blockType}, tag: ${tagNameForRegex}) in ContentEditable text content.`);
       }
     }
   } else {
@@ -1072,12 +1040,10 @@ function insertTextIntoLLMInput(
   const fullTriggerTextToReplace = triggerQuery ? `@${triggerQuery}` : '@'; // The text we aim to replace
 
   if (targetInput instanceof HTMLTextAreaElement) {
-    handleTextAreaInsertion(targetInput, textToInsert, fullTriggerTextToReplace);
-  } else if (targetInput.isContentEditable) {
-    handleContentEditableInsertion(targetInput, textToInsert, fullTriggerTextToReplace);
+    handleTextAreaInsertion(targetInput, textToInsert, fullTriggerTextToReplace); // Only textareas are supported now
   } else {
-    console.warn(LOG_PREFIX_CS, 'Target input field is neither a textarea nor contenteditable.');
-    return;
+    console.warn(LOG_PREFIX_CS, 'Target input field is not a textarea.');
+    // If other types were supported, the logic would go here.
   }
   console.log(LOG_PREFIX_CS, 'Text insertion attempt completed.');
 }
@@ -1149,101 +1115,6 @@ function handleTextAreaInsertion(
 
 // Helper to get text before cursor in a textarea
 
-/**
- * Handles the insertion of text into a contenteditable HTML element.
- * The new content is prepended to the top of the input field, and the original text (minus the trigger) remains below.
- * The input field is then scrolled to the bottom, and the cursor is moved to the end of the input.
- * @param targetInput The contenteditable HTML element to insert text into.
- * @param textToInsert The text content (can be HTML) to be inserted.
- * @param fullTriggerToReplace The full trigger string (e.g., "@" or "@query") to be replaced.
- * @param isSearchTrigger Boolean indicating if the insertion was triggered by a search query.
- */
-function handleContentEditableInsertion(
-  targetInput: HTMLElement,
-  textToInsert: string,
-  fullTriggerToReplace: string
-): void {
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0) {
-    console.warn(LOG_PREFIX_CS, 'Cannot insert into contentEditable: No selection or range.');
-    return;
-  }
-
-  let range = selection.getRangeAt(0);
-
-  // --- Best-effort trigger replacement (Unchanged) ---
-  if (fullTriggerToReplace.length > 0 && range.collapsed) {
-    const container = range.startContainer;
-    const offset = range.startOffset;
-
-    if (container.nodeType === Node.TEXT_NODE && container.textContent) {
-      const textContentBeforeCursor = container.textContent.substring(0, offset);
-      const lastAtIndex = textContentBeforeCursor.lastIndexOf(fullTriggerToReplace);
-
-      if (lastAtIndex !== -1 && (offset - (lastAtIndex + fullTriggerToReplace.length) < 5)) {
-        const triggerRange = document.createRange();
-        triggerRange.setStart(container, lastAtIndex);
-        triggerRange.setEnd(container, lastAtIndex + fullTriggerToReplace.length);
-        selection.removeAllRanges();
-        selection.addRange(triggerRange);
-        range = triggerRange;
-        console.log(LOG_PREFIX_CS, `Identified trigger "${fullTriggerToReplace}" in contentEditable for replacement.`);
-      }
-    }
-  }
-  // --- End of trigger replacement ---
-
-  // Delete contents of the range (removes trigger text)
-  range.deleteContents();
-
-  // --- NEW INSERTION LOGIC ---
-  // 1. Find the last existing CW block element
-  const wrapperTags = ['FileContents', 'FileTree', 'CodeSnippet'];
-  const allWrappers = Array.from(targetInput.querySelectorAll(wrapperTags.join(',')));
-  const lastWrapperElement = allWrappers.length > 0 ? allWrappers[allWrappers.length - 1] : null;
-
-  // 2. Create the fragment to insert
-  const tempDoc = document.implementation.createHTMLDocument();
-  const tempContainer = tempDoc.createElement('div');
-  tempContainer.innerHTML = textToInsert;
-  const fragment = document.createDocumentFragment();
-  while (tempContainer.firstChild) {
-    fragment.appendChild(tempContainer.firstChild);
-  }
-
-  // 3. Insert the new fragment at the correct position
-  if (lastWrapperElement) {
-    // There are existing blocks. Insert after the last one, with separators.
-    const br1 = document.createElement('br');
-    const br2 = document.createElement('br');
-    lastWrapperElement.after(br1, br2, fragment); // .after() inserts nodes in order
-    console.log(LOG_PREFIX_CS, 'Appended new content block after existing blocks in contentEditable.');
-  } else {
-    // This is the first block. Prepend it.
-    // Add separators before the new content if user text already exists.
-    if (targetInput.innerHTML.trim().length > 0) {
-      const br1 = document.createElement('br');
-      const br2 = document.createElement('br');
-      targetInput.insertBefore(br2, targetInput.firstChild);
-      targetInput.insertBefore(br1, targetInput.firstChild);
-    }
-    targetInput.insertBefore(fragment, targetInput.firstChild);
-    console.log(LOG_PREFIX_CS, 'Prepended first content block to contentEditable.');
-  }
-
-  // --- Move cursor to the end and scroll to bottom (Unchanged) ---
-  selection.removeAllRanges();
-  const newRange = document.createRange();
-  newRange.selectNodeContents(targetInput);
-  newRange.collapse(false); // false collapses to the end
-  selection.addRange(newRange);
-
-  targetInput.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
-
-  setTimeout(() => {
-    targetInput.scrollTop = targetInput.scrollHeight;
-  }, 0);
-}
 
 
 // --- Event Listener Attachment ---
@@ -1269,21 +1140,8 @@ function attachListenerToInputField(inputField: HTMLElement, config: LLMInputCon
 
   const handleSpecificEvent = () => {
     const fieldToRead = inputField as HTMLTextAreaElement | HTMLElement;
-    let rawValue = '';
-    let cursorPos = 0;
-
-    if (config.isContentEditable) {
-      rawValue = fieldToRead.innerText || '';
-      const selection = window.getSelection();
-      if (selection && selection.rangeCount > 0) {
-        cursorPos = selection.getRangeAt(0).startOffset;
-      } else {
-        cursorPos = rawValue.length;
-      }
-    } else {
-      rawValue = (fieldToRead as HTMLTextAreaElement).value || '';
-      cursorPos = (fieldToRead as HTMLTextAreaElement).selectionStart || 0;
-    }
+    const rawValue = (fieldToRead as HTMLTextAreaElement).value || '';
+    const cursorPos = (fieldToRead as HTMLTextAreaElement).selectionStart || 0;
 
     // --- Step 1: Detect Trigger ---
     // Regex looks for '@' followed by zero or more non-whitespace characters, AT THE END of the substring up to the cursor.
@@ -1363,9 +1221,7 @@ function attachListenerToInputField(inputField: HTMLElement, config: LLMInputCon
     // --- Step 3: Sync Indicators with Input Content ---
     // After any input, check if any context blocks were manually deleted by the user.
     if (stateManager.getActiveContextBlocks().length > 0) {
-      const currentContent = config.isContentEditable
-        ? (fieldToRead as HTMLElement).innerHTML
-        : (fieldToRead as HTMLTextAreaElement).value;
+      const currentContent = (fieldToRead as HTMLTextAreaElement).value;
 
       const blocksToRemove: string[] = [];
       for (const block of stateManager.getActiveContextBlocks()) {

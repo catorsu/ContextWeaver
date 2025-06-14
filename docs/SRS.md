@@ -30,7 +30,7 @@
 ### 1. Introduction
 
 #### 1.1. Purpose
-This document specifies the requirements for the "ContextWeaver," a system comprising a VS Code extension and a Chrome browser extension. The system aims to provide users with a convenient and efficient way to add content and context from their VS Code projects directly into Large Language Model (LLM) chat interfaces (e.g., Google AI Studio's Gemini interface).
+This document specifies the requirements for the "ContextWeaver," a system comprising a VS Code extension and a Chrome browser extension. The system aims to provide users with a convenient and efficient way to add content and context from their VS Code projects directly into Large Language Model (LLM) chat interfaces (e.g., chat.deepseek.com).
 
 #### 1.2. Scope
 The system will:
@@ -107,7 +107,7 @@ The target users are software developers and other technical users who:
 ##### 3.1.1. Chrome Extension (CE)
 
 *   **FR-CE-001: Trigger Activation:**
-    *   The CE shall detect when the user types `@` in the chat input field of supported LLM web interfaces (e.g., Google AI Studio).
+    *   The CE shall detect when the user types `@` in the chat input field of supported LLM web interfaces (e.g., chat.deepseek.com).
     *   Upon detection, a floating UI shall be displayed near the chat input.
 
 *   FR-CE-002: Floating UI - Basic Options (No Search Query):

@@ -10,17 +10,11 @@
     "tabs"
   ],
   "host_permissions": [
-    "*://gemini.google.com/*",
-    "*://chatgpt.com/*",
-    "*://claude.ai/*",
     "*://chat.deepseek.com/*"
   ],
   "content_scripts": [
     {
       "matches": [
-        "*://gemini.google.com/*",
-        "*://chatgpt.com/*",
-        "*://claude.ai/*",
         "*://chat.deepseek.com/*"
       ],
       "js": [
@@ -35,9 +29,6 @@
         "assets/fonts/MaterialSymbols-Variable.woff2"
       ],
       "matches": [
-        "*://gemini.google.com/*",
-        "*://chatgpt.com/*",
-        "*://claude.ai/*",
         "*://chat.deepseek.com/*"
       ]
     }

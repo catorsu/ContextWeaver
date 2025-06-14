@@ -40,7 +40,7 @@ describe('groupItemsByWindow', () => {
   beforeEach(() => {
     // Create a new JSDOM instance for each test
     dom = new JSDOM('<!DOCTYPE html><html><body></body></html>', {
-      url: 'https://chatgpt.com',
+      url: 'https://chat.deepseek.com',
       runScripts: 'dangerously'
     });
     window = dom.window;
@@ -189,7 +189,7 @@ describe('renderSearchResults', () => {
   beforeEach(() => {
     // Create a new JSDOM instance
     dom = new JSDOM('<!DOCTYPE html><html><body><div id="content"></div></body></html>', {
-      url: 'https://chatgpt.com',
+      url: 'https://chat.deepseek.com',
       runScripts: 'dangerously'
     });
     window = dom.window;
