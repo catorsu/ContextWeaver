@@ -53,6 +53,9 @@ function updateTheme(theme: Theme): void {
   currentTheme = theme;
   console.log(`${LOG_PREFIX_CS} Theme updated to: ${theme}`);
 
+  // Apply theme to body for global components like modals
+  document.body.setAttribute('data-theme', theme);
+
   // Update UIManager with the new theme
   uiManager.setTheme(theme);
 
@@ -220,7 +223,8 @@ interface LLMInputConfig {
  * @type {LLMInputConfig[]}
  */
 const llmInputsConfig: LLMInputConfig[] = [
-  { hostSuffix: 'chat.deepseek.com', selector: 'textarea#chat-input' }
+  { hostSuffix: 'chat.deepseek.com', selector: 'textarea#chat-input' },
+  { hostSuffix: 'aistudio.google.com', selector: 'ms-chunk-input textarea' }
 ];
 
 const eventHandlers = new Map<HTMLElement, (event: Event) => void>();
@@ -1003,7 +1007,7 @@ function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string):
   renderContextIndicators(currentTargetElement);
 }
 
-uiManager.setIndicatorCallbacks(handleRemoveContextIndicator);
+uiManager.setIndicatorCallbacks(handleRemoveContextIndicator, handleIndicatorClick);
 
 /**
  * Renders or updates the context indicators displayed in the LLM input field.
@@ -1017,6 +1021,57 @@ function renderContextIndicators(explicitTarget: HTMLElement | null): void {
   );
 }
 
+/**
+ * Handles a click on a context indicator, retrieving the corresponding content
+ * from the LLM input field and displaying it in a modal.
+ * @param uniqueBlockId The unique identifier of the block to display.
+ * @param label The user-friendly label of the block, used as the modal title.
+ */
+function handleIndicatorClick(uniqueBlockId: string, label: string): void {
+  console.log(LOG_PREFIX_CS, `Request to view content for block ID: ${uniqueBlockId}`);
+  const targetElement = stateManager.getCurrentTargetElementForPanel();
+  if (!targetElement) {
+    console.warn(LOG_PREFIX_CS, 'No target element found to retrieve content from.');
+    uiManager.showToast('Could not find the source input to show content.', 'error');
+    return;
+  }
+
+  const allContent = (targetElement as HTMLTextAreaElement).value || targetElement.innerHTML;
+
+  const block = stateManager.getActiveContextBlocks().find(b => b.unique_block_id === uniqueBlockId);
+  if (!block) {
+    console.error(LOG_PREFIX_CS, `Could not find metadata for block ID ${uniqueBlockId}.`);
+    uiManager.showToast('Internal error: Could not find block metadata.', 'error');
+    return;
+  }
+
+  let tagNameForRegex = '';
+  switch (block.type) {
+    case 'file_content':
+    case 'folder_content':
+    case 'codebase_content':
+      tagNameForRegex = 'FileContents';
+      break;
+    case 'CodeSnippet': tagNameForRegex = 'CodeSnippet'; break;
+    case 'FileTree': tagNameForRegex = 'FileTree'; break;
+    case 'WorkspaceProblems': tagNameForRegex = 'WorkspaceProblems'; break;
+    default:
+      uiManager.showToast(`Cannot display content for type: ${block.type}.`, 'info');
+      return;
+  }
+
+  const escapedUniqueId = uniqueBlockId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const blockRegex = new RegExp(`<${tagNameForRegex}\\b[^>]*\\bid=["']${escapedUniqueId}["'][^>]*>([\\s\\S]*?)</${tagNameForRegex}>`);
+
+  const match = blockRegex.exec(allContent);
+  if (match && match[1]) {
+    const extractedContent = match[1].trim();
+    uiManager.showContentModal(`${label}`, extractedContent);
+  } else {
+    console.warn(LOG_PREFIX_CS, `Could not extract content for block ID ${uniqueBlockId}.`);
+    uiManager.showToast('Could not find the content in the input field.', 'error');
+  }
+}
 
 // --- Text Insertion ---
 /**

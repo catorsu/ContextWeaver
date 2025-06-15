@@ -10,12 +10,14 @@
     "tabs"
   ],
   "host_permissions": [
-    "*://chat.deepseek.com/*"
+    "*://chat.deepseek.com/*",
+    "*://aistudio.google.com/*"
   ],
   "content_scripts": [
     {
       "matches": [
-        "*://chat.deepseek.com/*"
+        "*://chat.deepseek.com/*",
+        "*://aistudio.google.com/*"
       ],
       "js": [
         "dist/contentScript.js"
@@ -26,10 +28,11 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "assets/fonts/MaterialSymbols-Variable.woff2"
+        "assets/icons/*.svg"
       ],
       "matches": [
-        "*://chat.deepseek.com/*"
+        "*://chat.deepseek.com/*",
+        "*://aistudio.google.com/*"
       ]
     }
   ],

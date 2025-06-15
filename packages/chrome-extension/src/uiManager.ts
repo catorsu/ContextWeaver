@@ -28,6 +28,7 @@ export class UIManager {
   // Callback types for event handlers
   private onHideCallback: (() => void) | null = null;
   private onIndicatorRemoveCallback: ((uniqueBlockId: string, blockType: string) => void) | null = null;
+  private onIndicatorClickCallback: ((uniqueBlockId: string, label: string) => void) | null = null;
 
 
   /**
@@ -69,25 +70,21 @@ export class UIManager {
     if (this.contextIndicatorArea) {
       this.contextIndicatorArea.setAttribute('data-theme', this.currentTheme);
     }
+    // Also update body theme attribute for modals that might be created independently
+    const currentBodyTheme = document.body.getAttribute('data-theme');
+    if (currentBodyTheme !== this.currentTheme) {
+      document.body.setAttribute('data-theme', this.currentTheme);
+    }
   }
 
   private injectFloatingUiCss(): void {
     const styleId = `${CSS_PREFIX}styles`;
     if (document.getElementById(styleId)) return;
 
-    // Use chrome.runtime.getURL for the most reliable path to extension resources.
-    // This requires the font to be listed in web_accessible_resources in manifest.json.
-    const fontUrl = chrome.runtime.getURL('assets/fonts/MaterialSymbols-Variable.woff2');
-    const fontFaceCss = `
-      @font-face {
-        font-family: 'Material Symbols Outlined';
-        font-style: normal;
-        font-weight: 100 700;
-        src: url('${fontUrl}') format('woff2');
-      }
-    `;
+    // No font loading needed for SVG icons
 
     // Theme-aware CSS with light and dark mode support
+    // NOTE: body[data-theme='light'] selectors are added to support modals when the main panel is not visible.
     const css = `
     /* Dark theme (default) */
     #${UI_PANEL_ID} {
@@ -208,21 +205,12 @@ export class UIManager {
       display: flex;
       flex-wrap: nowrap;
       gap: 4px;
-      margin-bottom: 5px;
-      padding: 5px;
-      /* Re-introduce a subtle background and border to define the scrollable area */
-      background-color: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 6px;
+      margin-bottom: 8px;
+      padding: 2px 0;
       width: 100%;
       box-sizing: border-box;
       overflow-x: auto;
       white-space: nowrap;
-    }
-    /* Light theme styles for context indicator area */
-    #${CONTEXT_INDICATOR_AREA_ID}[data-theme="light"] {
-      background-color: rgba(0, 0, 0, 0.03);
-      border-color: rgba(0, 0, 0, 0.08);
     }
     /* Make scrollbar more visible */
     #${CONTEXT_INDICATOR_AREA_ID}::-webkit-scrollbar {
@@ -248,6 +236,7 @@ export class UIManager {
       display: inline-flex;
       align-items: center;
       flex-shrink: 0;
+      cursor: pointer;
     }
     #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}context-indicator {
       background-color: #f0f0f0;
@@ -257,6 +246,9 @@ export class UIManager {
     #${CONTEXT_INDICATOR_AREA_ID}[data-theme="light"] .${CSS_PREFIX}context-indicator {
       background-color: #f0f0f0;
       color: #1a1a1a;
+    }
+    .${CSS_PREFIX}context-indicator:hover {
+      filter: brightness(1.2);
     }
     .${CSS_PREFIX}indicator-close-btn {
       background: none;
@@ -465,6 +457,63 @@ export class UIManager {
     .${CSS_PREFIX}toast-notification.info {
       background-color: #17a2b8; /* Blue for info */
     }
+
+    /* Content Modal */
+    .${CSS_PREFIX}modal-overlay {
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background-color: rgba(0, 0, 0, 0.6);
+      z-index: 2147483647;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity 200ms ease-in-out;
+      pointer-events: none;
+    }
+    .${CSS_PREFIX}modal-overlay.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .${CSS_PREFIX}modal-content {
+      background-color: #282828;
+      color: #f0f0f0;
+      border: 1px solid #444;
+      border-radius: 8px;
+      padding: 16px;
+      width: 80vw;
+      max-width: 900px;
+      height: 70vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+    }
+    body[data-theme="light"] .${CSS_PREFIX}modal-content {
+      background-color: #fff;
+      color: #1a1a1a;
+      border-color: #ddd;
+    }
+    .${CSS_PREFIX}modal-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid #4a4a4a;
+    }
+    body[data-theme="light"] .${CSS_PREFIX}modal-header {
+      border-bottom-color: #e0e0e0;
+    }
+    .${CSS_PREFIX}modal-title { font-size: 18px; font-weight: bold; }
+    .${CSS_PREFIX}modal-close {
+      background: none; border: none; color: #aaa; font-size: 24px;
+      cursor: pointer; padding: 0 8px;
+    }
+    .${CSS_PREFIX}modal-body {
+      flex-grow: 1; overflow-y: auto;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+      font-size: 13px; white-space: pre-wrap;
+      background-color: #1e1e1e; padding: 10px; border-radius: 4px;
+    }
+    body[data-theme="light"] .${CSS_PREFIX}modal-body {
+      background-color: #f5f5f5;
+    }
     
     /* Focus state styling for keyboard navigation */
     .${CSS_PREFIX}button:focus-visible, 
@@ -504,40 +553,35 @@ export class UIManager {
       }
     }
     
-    /* --- NEW ICON STYLING (VARIABLE FONT METHOD) --- */
+    /* --- NEW ICON STYLING (SVG METHOD) --- */
     .${CSS_PREFIX}icon {
-      font-family: 'Material Symbols Outlined';
-      font-weight: normal;
-      font-style: normal;
-      font-size: 20px; /* Default icon size */
-      line-height: 1;
-      letter-spacing: normal;
-      text-transform: none;
+      width: 20px;
+      height: 20px;
       display: inline-block;
-      white-space: nowrap;
-      word-wrap: normal;
-      direction: ltr;
-      -webkit-font-feature-settings: 'liga';
-      -webkit-font-smoothing: antialiased;
       vertical-align: middle;
       margin-right: 8px;
-
-      /* Set default variable font properties */
-      font-variation-settings:
-        'FILL' 0,   /* 0 for outlined, 1 for filled */
-        'wght' 300, /* Weight from 100 to 700 */
-        'GRAD' 0,   /* Grade (emphasis) */
-        'opsz' 20;  /* Optical size */
+      flex-shrink: 0;
+      /* Use background-color with a mask for reliable coloring */
+      -webkit-mask-repeat: no-repeat;
+      mask-repeat: no-repeat;
+      -webkit-mask-position: center;
+      mask-position: center;
+      -webkit-mask-size: contain;
+      mask-size: contain;
+      background-color: #e3e3e3; /* Default: light gray for dark theme, from your screenshot */
     }
     
-    /* The icon color is now inherited from the parent text color,
-       so no special theme rules are needed for the icon itself. */
+    /* Light theme icon override */
+    #${UI_PANEL_ID}[data-theme="light"] .${CSS_PREFIX}icon,
+    #${CONTEXT_INDICATOR_AREA_ID}[data-theme="light"] .${CSS_PREFIX}icon {
+      background-color: #5f6368; /* Dark gray for good contrast on light theme */
+    }
   `;
     const style = document.createElement('style');
     style.id = styleId;
-    style.textContent = fontFaceCss + css;
+    style.textContent = css;
     document.head.appendChild(style);
-    console.log(LOG_PREFIX_UI, 'Floating UI CSS with VARIABLE icon font injected/updated.');
+    console.log(LOG_PREFIX_UI, 'Floating UI CSS with SVG icons injected/updated.');
   }
 
   private createPanel(): void {
@@ -822,6 +866,56 @@ export class UIManager {
   }
 
   /**
+   * Displays a modal window with the provided content.
+   * @param title The title for the modal window.
+   * @param content The text content to display within the modal.
+   */
+  public showContentModal(title: string, content: string): void {
+    // Remove existing modal if any to prevent duplicates
+    const existingModal = document.querySelector(`.${CSS_PREFIX}modal-overlay`);
+    if (existingModal) {
+      existingModal.remove();
+    }
+
+    const modalOverlay = this.createDiv({ classNames: [`${CSS_PREFIX}modal-overlay`] });
+    const modalContent = this.createDiv({ classNames: [`${CSS_PREFIX}modal-content`] });
+
+    const modalHeader = this.createDiv({ classNames: [`${CSS_PREFIX}modal-header`] });
+    const modalTitle = this.createDiv({ classNames: [`${CSS_PREFIX}modal-title`], textContent: title });
+    const modalClose = this.createButton('×', {
+      classNames: [`${CSS_PREFIX}modal-close`],
+      onClick: () => {
+        modalOverlay.classList.remove('visible');
+        modalOverlay.addEventListener('transitionend', () => modalOverlay.remove(), { once: true });
+      }
+    });
+
+    modalHeader.appendChild(modalTitle);
+    modalHeader.appendChild(modalClose);
+
+    const modalBody = this.createDiv({ classNames: [`${CSS_PREFIX}modal-body`] });
+    modalBody.textContent = content; // Use textContent to preserve formatting within the pre-styled div
+
+    modalContent.appendChild(modalHeader);
+    modalContent.appendChild(modalBody);
+    modalOverlay.appendChild(modalContent);
+
+    // Close on overlay click
+    modalOverlay.addEventListener('click', (e) => {
+      if (e.target === modalOverlay) {
+        modalClose.click();
+      }
+    });
+
+    document.body.appendChild(modalOverlay);
+
+    // Trigger transition
+    requestAnimationFrame(() => {
+      modalOverlay.classList.add('visible');
+    });
+  }
+
+  /**
    * Displays a non-blocking toast notification.
    * @param message The message to display in the toast.
    * @param type The type of toast ('success', 'error', or 'info') for styling.
@@ -876,8 +970,12 @@ export class UIManager {
    * Sets the callback function to be invoked when a context indicator's remove button is clicked.
    * @param onRemove The callback function that receives the unique block ID and block type of the indicator to be removed.
    */
-  public setIndicatorCallbacks(onRemove: (uniqueBlockId: string, blockType: string) => void): void {
+  public setIndicatorCallbacks(
+    onRemove: (uniqueBlockId: string, blockType: string) => void,
+    onClick: (uniqueBlockId: string, label: string) => void
+  ): void {
     this.onIndicatorRemoveCallback = onRemove;
+    this.onIndicatorClickCallback = onClick;
   }
 
   /**
@@ -918,6 +1016,18 @@ export class UIManager {
           console.warn(LOG_PREFIX_UI, 'DeepSeek structure not found, using generic placement.');
           this.insertIndicatorAreaGeneric(targetInputElement);
         }
+      } else if (currentHostname.includes('aistudio.google.com')) {
+        // For AI Studio, the best anchor is the <ms-prompt-input-wrapper> custom element.
+        // We traverse up from the textarea to find it.
+        const promptWrapper = targetInputElement.closest('ms-prompt-input-wrapper');
+        if (promptWrapper) {
+          console.log(LOG_PREFIX_UI, 'Applying AI Studio-specific indicator placement.');
+          // Prepend the indicator area as the first child of the wrapper for encapsulation.
+          promptWrapper.prepend(this.contextIndicatorArea);
+        } else {
+          console.warn(LOG_PREFIX_UI, 'AI Studio <ms-prompt-input-wrapper> not found, using generic placement.');
+          this.insertIndicatorAreaGeneric(targetInputElement);
+        }
       } else {
         // Use generic placement for other sites
         this.insertIndicatorAreaGeneric(targetInputElement);
@@ -931,6 +1041,7 @@ export class UIManager {
       indicator.className = `${CSS_PREFIX}context-indicator`;
       indicator.dataset.uniqueBlockId = block.unique_block_id;
       indicator.dataset.contentSourceId = block.content_source_id;
+      indicator.title = 'Click to view content';
 
       let iconName: string;
       switch (block.type) {
@@ -955,13 +1066,21 @@ export class UIManager {
       closeBtn.dataset.uniqueBlockId = block.unique_block_id;
       closeBtn.dataset.blockType = block.type; // Store block type for removal logic
 
-      closeBtn.onclick = () => {
+      closeBtn.onclick = (e) => {
+        e.stopPropagation(); // Prevent the main indicator click handler from firing
         if (this.onIndicatorRemoveCallback && closeBtn.dataset.uniqueBlockId && closeBtn.dataset.blockType) {
           this.onIndicatorRemoveCallback(closeBtn.dataset.uniqueBlockId, closeBtn.dataset.blockType);
         } else {
           console.error(LOG_PREFIX_UI, 'Indicator remove callback not set or button missing data.');
         }
       };
+
+      indicator.onclick = () => {
+        if (this.onIndicatorClickCallback && block.unique_block_id && block.label) {
+          this.onIndicatorClickCallback(block.unique_block_id, block.label);
+        }
+      };
+
       indicator.appendChild(closeBtn);
       this.contextIndicatorArea!.appendChild(indicator);
     });
@@ -1173,25 +1292,30 @@ export class UIManager {
   }
 
   /**
-   * Creates an HTML span element for a Material Symbols icon.
-   * @param iconName The ligature for the Material Symbol (e.g., 'description' for a file).
+   * Creates an HTML img element for a Material Symbols SVG icon.
+   * @param iconName The name of the SVG icon file (without .svg extension).
    * @param options Optional. An object containing classNames and inline styles.
-   * @returns The created HTMLSpanElement.
+   * @returns The created HTMLDivElement, styled as an icon using an SVG mask.
    */
-  public createIcon(iconName: string, options?: { classNames?: string[]; style?: Partial<CSSStyleDeclaration> }): HTMLSpanElement {
-    const span = document.createElement('span');
-    span.className = `${CSS_PREFIX}icon`; // General class for all icons
+  public createIcon(iconName: string, options?: { classNames?: string[]; style?: Partial<CSSStyleDeclaration> }): HTMLDivElement {
+    const iconDiv = document.createElement('div');
+    iconDiv.className = `${CSS_PREFIX}icon`; // General class for all icons
     if (options?.classNames) {
-      options.classNames.forEach(cn => span.classList.add(cn));
+      options.classNames.forEach(cn => iconDiv.classList.add(cn));
     }
 
-    // The icon name is set as the text content
-    span.textContent = iconName;
+    // Set the mask to the SVG file. The background-color will provide the color.
+    const iconUrl = chrome.runtime.getURL(`assets/icons/${iconName}.svg`);
+    iconDiv.style.webkitMaskImage = `url(${iconUrl})`;
+    iconDiv.style.maskImage = `url(${iconUrl})`;
+
+    iconDiv.setAttribute('role', 'img');
+    iconDiv.setAttribute('aria-label', iconName);
 
     if (options?.style) {
-      Object.assign(span.style, options.style);
+      Object.assign(iconDiv.style, options.style);
     }
-    return span;
+    return iconDiv;
   }
 
   /**
