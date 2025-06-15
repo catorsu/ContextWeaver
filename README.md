@@ -27,6 +27,7 @@ The primary goal of ContextWeaver is to streamline the process of providing rele
 *   **FR-CE-002 (Floating UI - Basic Options):** Shall present options like "Insert Active File's Content" and "Insert Content of Currently Open Files".
 *   **FR-CE-003 (Floating UI - Search Functionality):** Shall interpret `@<query>` for real-time search, sending queries to VSCE and displaying results.
 *   **FR-CE-004 to FR-CE-009 (Content Actions):** Shall allow insertion of various content types (file tree, entire codebase, active file, open files, searched file/folder content, browsed folder content), including duplicate checks and context indicator creation. (Refer to SRS for detailed breakdown of FR-CE-004 through FR-CE-009).
+    *   **Insert Searched Folder Content:** When clicking a folder in search results, opens an interactive, hierarchical "browse" view that allows for fine-grained selection of files and subfolders for insertion.
 *   **FR-CE-010 (Content Insertion):** Shall insert content into LLM input, replacing trigger text, with identifiable blocks.
 *   **FR-CE-011 (UI Dismissal):** Floating UI shall be dismissible.
 *   **FR-CE-012 (Handling Multiple VS Code Projects):** UI shall group options/results by workspace if multiple are present.
@@ -34,6 +35,8 @@ The primary goal of ContextWeaver is to streamline the process of providing rele
 *   **FR-CE-014 & FR-CE-015 (Context Block Indicators):** Shall display and manage visual indicators for inserted content, allowing removal.
 *   **FR-CE-016 (Duplicate Content Prevention):** Shall prevent re-insertion of identical content sources (except snippets).
 *   **FR-CE-017 (Manual IPC Reconnection):** Shall provide a UI option for manual reconnection.
+*   **Multi-window support:** Aggregates context from multiple open VS Code windows.
+*   **Workspace Problems:** Insert a list of all current workspace problems (errors/warnings).
 *   *(Related IPC Requirement FR-IPC-001): Acts as an IPC client to the VSCE.*
 
 ### Inter-Plugin Communication (IPC)

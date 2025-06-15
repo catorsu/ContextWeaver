@@ -115,11 +115,12 @@ Accurate and current structural documentation is mandatory for project integrity
     *   **Snippet Handling:** Capturing selected code snippets and pushing them to the CE.
     *   **Workspace Management:** Handling multi-root workspaces and respecting VS Code's Workspace Trust feature.
 *   **Key Modules (Planned/Conceptual):**
-    *   `ipcServer.ts`: Manages the WebSocket server, connection handling (client registration), and message deserialization/serialization. (Note: Token-based authentication has been removed).
+    *   `ipcServer.ts`: Manages the WebSocket server, connection handling (client registration), and message deserialization/serialization. Implements the primary/secondary architecture for multi-window support, including leader election, secondary VSCE registration, request forwarding to secondary instances, and response aggregation. (Note: Token-based authentication has been removed).
     *   `fileSystemService.ts`: Handles all interactions with the file system (reading files, listing directories, traversing structures). It also includes logic for `.gitignore` parsing and applying default/gitignore-based filtering rules.
     *   `searchService.ts`: Provides file/folder search capabilities within the workspace.
     *   `workspaceService.ts`: Centralizes logic for interacting with the VS Code workspace. It provides information about open workspace folders (including multi-root scenarios), their URIs, names, and the overall workspace trust state. It's used by other services to ensure operations are performed on trusted and valid workspaces.
     *   `snippetService.ts`: Responsible for preparing snippet data (selected text, file path, line numbers, language ID, and associated metadata) when triggered by the user. It does not directly handle IPC sending but provides the data to `extension.ts` for dispatch.
+    *   `diagnosticsService.ts`: Responsible for fetching and formatting workspace diagnostics (problems). Retrieves all diagnostics from VS Code's language services, filters them by workspace folder, and formats them into a human-readable list with severity levels, file paths, line numbers, and diagnostic messages.
     *   `extension.ts`: The main entry point for the VSCE, responsible for activating and coordinating modules.
 *   **Technology Stack:**
     *   TypeScript
@@ -192,6 +193,12 @@ Refer to these TypeScript files for the authoritative definitions of these struc
     *   **Rationale:** To improve the stability and predictability of the WebSocket connection and retry mechanisms. Using shared types ensures robust, type-safe communication between the browser and VS Code components.
 *   **[June 05, 2025] Decision:** Aligned the return types of core VS Code Extension services (`fileSystemService.ts`, `searchService.ts`) with the shared types.
     *   **Rationale:** To reduce the need for data transformation or casting within `ipcServer.ts`, making the data flow from services to IPC responses more direct and type-safe.
+*   **[2025-06-XX] Decision:** Implemented Primary/Secondary architecture for multi-window VS Code support.
+    *   **Rationale:** To enable the Chrome Extension to aggregate data (search results, open files, etc.) from multiple VS Code windows simultaneously. The primary/secondary model provides a scalable solution where one VSCE instance acts as a coordinator, forwarding requests to other VS Code windows and aggregating their responses. This approach avoids the complexity of the Chrome Extension managing multiple direct connections while ensuring all open VS Code windows can contribute data to the LLM context. The leader election mechanism ensures automatic failover if the primary window is closed.
+*   **Decision:** Use client-side logic to build hierarchical tree views from a flat list of file entries provided by the VSCE.
+    *   **Rationale:** Simplifies the backend (VSCE) logic by having it provide a simple, flat list of all recursive descendants. This offloads the view-specific task of rendering a tree to the client (CE), making the API more generic and reducing the complexity of the data sent over IPC. (Reflected in `contentScript.ts`'s `buildTreeStructure` function).
+*   **Decision:** Implement UI icons using SVG files with CSS masking for coloring.
+    *   **Rationale:** Provides high-quality, scalable icons without relying on external font libraries. Using CSS `mask-image` and `background-color` allows for easy, dynamic theme-aware coloring (light/dark mode) with a single set of SVG assets. (Reflected in `uiManager.ts`'s `createIcon` method).
 
 ## 7. Security Considerations
 

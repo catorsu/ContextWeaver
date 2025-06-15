@@ -1,7 +1,7 @@
 # ContextWeaver: Inter-Plugin Communication (IPC) Protocol Design
 
-**Version:** 1.0.1
-**Date:** June 02, 2025
+**Version:** 1.1.0
+**Date:** June XX, 2025
 
 **Important Note:** This document provides a human-readable overview of the IPC protocol. For the definitive and normative specification of all message structures, request/response payloads, and shared data models, please refer to the TypeScript interfaces defined in the `packages/shared/src/` directory, primarily within `ipc-types.ts` and `data-models.ts`. In case of any discrepancy, the TypeScript definitions are authoritative.
 
@@ -204,6 +204,58 @@ Requests a listing of immediate files and subdirectories within a specified fold
 
 ---
 
+#### 3.1.13. `register_secondary`
+Registers a secondary VSCE instance with the primary VSCE for multi-window support.
+
+*   **`type`**: `"request"`
+*   **`command`**: `"register_secondary"`
+*   **`payload`**:
+    ```json
+    {
+      "windowId": "string", // Unique identifier for the secondary VS Code window instance
+      "port": "number" // Port number (typically 0 when using the same WebSocket connection)
+    }
+    ```
+*   **VSCE Response**: `response_generic_ack` (see 3.2.1)
+
+---
+
+#### 3.1.14. `forward_request_to_secondaries`
+Used by the primary VSCE to forward requests from the Chrome Extension to secondary VSCE instances.
+
+*   **`type`**: `"request"`
+*   **`command`**: `"forward_request_to_secondaries"`
+*   **`payload`**:
+    ```json
+    {
+      "originalRequest": { // The original IPCMessageRequest from the Chrome Extension
+        "protocol_version": "1.0",
+        "message_id": "string",
+        "type": "request",
+        "command": "string", // Original command (e.g., "search_workspace", "get_open_files")
+        "payload": {} // Original request payload
+      }
+    }
+    ```
+*   **Secondary VSCE Response**: Processes the original request and sends response via `forward_response_to_primary` push
+
+---
+
+#### 3.1.15. `get_workspace_problems`
+Requests all diagnostics (errors, warnings, information, and hints) for a specified workspace folder.
+
+*   **`type`**: `"request"`
+*   **`command`**: `"get_workspace_problems"`
+*   **`payload`**:
+    ```json
+    {
+      "workspaceFolderUri": "string" // URI of the workspace folder to get problems for
+    }
+    ```
+*   **VSCE Response**: `response_workspace_problems` (see 3.2.14)
+
+---
+
 ### 3.2. VSCE -> CE (Responses)
 
 These messages are sent by the VS Code Extension in response to requests from the Chrome Extension. The `message_id` will match the `message_id` of the original request.
@@ -242,12 +294,13 @@ Response to `get_FileTree`.
           "type": "FileTree",
           "label": "File Tree",
           "workspaceFolderUri": "string | null",
-          "workspaceFolderName": "string | null"
-        }
+          "workspaceFolderName": "string | null",
+          "windowId": "string" // Unique identifier for the VS Code window instance
+        },
+        "windowId": "string" // Unique identifier for the VS Code window instance
       } | null,
       "error": "string | null", // Present if success is false
-  "errorCode": "string | null", // Optional error code
-  "errorCode": "string | null", // Optional error code
+      "errorCode": "string | null", // Optional error code
       "workspaceFolderUri": "string | null", // URI of the workspace folder this tree is for
       "filterType": "'gitignore' | 'default' | 'none' | 'not_applicable'" // Indicates which filter was applied or if none (e.g. untrusted workspace)
     }
@@ -276,8 +329,10 @@ Response to `get_file_content`.
           "type": "file_content",
           "label": "string", // filename.ext
           "workspaceFolderUri": "string | null",
-          "workspaceFolderName": "string | null"
-        }
+          "workspaceFolderName": "string | null",
+          "windowId": "string" // Unique identifier for the VS Code window instance
+        },
+        "windowId": "string" // Unique identifier for the VS Code window instance
       } | null,
       "error": "string | null", // Present if success is false
       "filePath": "string", // Original requested file path (echoed back)
@@ -311,8 +366,10 @@ Response to `get_folder_content`.
           "type": "folder_content",
           "label": "string", // foldername
           "workspaceFolderUri": "string | null",
-          "workspaceFolderName": "string | null"
-        }
+          "workspaceFolderName": "string | null",
+          "windowId": "string" // Unique identifier for the VS Code window instance
+        },
+        "windowId": "string" // Unique identifier for the VS Code window instance
       } | null,
   "error": "string | null", // Present if success is false
   "errorCode": "string | null", // Optional error code
@@ -348,10 +405,12 @@ Response to `get_entire_codebase`.
           "content_source_id": "string", // e.g., "uri_of_specified_workspace_folder::codebase"
           "type": "codebase_content",
           "label": "string", // e.g., "Entire Codebase - [folder_name]"
-      "workspaceFolderUri": "string | null", // URI of the processed workspace folder
-      "workspaceFolderName": "string | null" // Name of the processed workspace folder
-    }
-  } | null,
+          "workspaceFolderUri": "string | null", // URI of the processed workspace folder
+          "workspaceFolderName": "string | null", // Name of the processed workspace folder
+          "windowId": "string" // Unique identifier for the VS Code window instance
+        },
+        "windowId": "string" // Unique identifier for the VS Code window instance
+      } | null,
   "error": "string | null", // Present if success is false
   "errorCode": "string | null", // Optional error code
   "workspaceFolderUri": "string | null",
@@ -376,7 +435,8 @@ Response to `get_active_file_info`.
         "activeFilePath": "string",
         "activeFileLabel": "string", 
         "workspaceFolderUri": "string | null",
-        "workspaceFolderName": "string | null"
+        "workspaceFolderName": "string | null",
+        "windowId": "string" // Unique identifier for the VS Code window instance
       } | null,
   "error": "string | null", // e.g., "No active text editor found."
   "errorCode": "string | null" // Optional error code
@@ -400,7 +460,8 @@ Response to `get_open_files`.
             "path": "string", // Normalized path
             "name": "string", // Filename for display
             "workspaceFolderUri": "string | null",
-            "workspaceFolderName": "string | null"
+            "workspaceFolderName": "string | null",
+            "windowId": "string" // Unique identifier for the VS Code window instance
           }
           // ... more files
         ]
@@ -432,10 +493,12 @@ Response to `search_workspace`.
             "content_source_id": "string", // Canonical ID, typically same as URI string
             "workspaceFolderUri": "string", // URI of the workspace folder (non-nullable as per shared type)
             "workspaceFolderName": "string", // Name of the workspace folder (non-nullable as per shared type)
-            "filterTypeApplied": "'gitignore' | 'default' | 'none' | 'not_applicable' | null" // Optional, type FilterType
+            "filterTypeApplied": "'gitignore' | 'default' | 'none' | 'not_applicable' | null", // Optional, type FilterType
+            "windowId": "string" // Unique identifier for the VS Code window instance that provided this result
           }
           // ... more results
-        ]
+        ],
+        "windowId": "string" // Unique identifier for the VS Code window instance
       } | null,
       "error": "string | null", // Present if success is false
       "errorCode": "string | null", // Optional error code
@@ -540,6 +603,8 @@ A generic error response if a more specific one isn't suitable, or for unhandled
 #### 3.2.13. `response_list_folder_contents`
 Response to `list_folder_contents`.
 
+The `entries` array contains a **flat list of all recursive descendants** (all files and folders within the target folder and all its subfolders) that are not ignored by filters. The client-side (`contentScript.ts`) is responsible for building the hierarchical tree view from this flat list.
+
 *   **`type`**: `"response"`
 *   **`command`**: `"response_list_folder_contents"`
 *   **`payload`**:
@@ -552,15 +617,47 @@ Response to `list_folder_contents`.
             "name": "string", // Name of the file or folder
             "type": "'file' | 'folder'",
             "uri": "string", // Full URI string of the entry
-            "content_source_id": "string" // Canonical ID, typically same as URI string
+            "content_source_id": "string", // Canonical ID, typically same as URI string
+            "windowId": "string" // Unique identifier for the VS Code window instance that provided this entry
           }
           // ... more entries
         ],
         "parentFolderUri": "string", // Echo back the requested folderUri
-    "filterTypeApplied": "'gitignore' | 'default' | 'none' | 'not_applicable'"
-  } | null,
+        "filterTypeApplied": "'gitignore' | 'default' | 'none' | 'not_applicable'",
+        "windowId": "string" // Unique identifier for the VS Code window instance
+      } | null,
       "error": "string | null", // Present if success is false
       "errorCode": "string | null" // Optional error code
+    }
+    ```
+
+---
+
+#### 3.2.14. `response_workspace_problems`
+Response to `get_workspace_problems`.
+
+*   **`type`**: `"response"`
+*   **`command`**: `"response_workspace_problems"`
+*   **`payload`**:
+    ```json
+    {
+      "success": "boolean",
+      "data": { // Present if success is true
+        "problemsString": "string", // Formatted list of all problems in the workspace
+        "problemCount": "number", // Total number of problems found
+        "metadata": { // ContextBlockMetadata object
+          "unique_block_id": "string",
+          "content_source_id": "string", // e.g., "workspace_uri::problems"
+          "type": "workspace_problems",
+          "label": "string", // e.g., "Problems (WorkspaceName)"
+          "workspaceFolderUri": "string | null",
+          "workspaceFolderName": "string | null"
+        },
+        "windowId": "string" // Unique identifier for the VS Code window instance
+      } | null,
+      "error": "string | null", // Present if success is false
+      "errorCode": "string | null", // Optional error code
+      "workspaceFolderUri": "string" // Echo back the requested workspace folder URI
     }
     ```
 
@@ -592,9 +689,50 @@ VSCE pushes a selected code snippet to the CE.
         "type": "CodeSnippet",
         "label": "string", // e.g., "auth.py (10-20)"
         "workspaceFolderUri": "string | null",
-        "workspaceFolderName": "string | null"
+        "workspaceFolderName": "string | null",
+        "windowId": "string" // Unique identifier for the VS Code window instance from which the snippet originated
       },
-      "targetTabId": "number" // The tabId registered by `register_active_target`
+      "targetTabId": "number", // The tabId registered by `register_active_target`
+      "windowId": "string" // Unique identifier for the VS Code window instance that sent this snippet
+    }
+    ```
+
+---
+
+#### 3.3.2. `forward_response_to_primary`
+Used by secondary VSCE instances to send responses back to the primary VSCE for aggregation.
+
+*   **`type`**: `"push"`
+*   **`command`**: `"forward_response_to_primary"`
+*   **`payload`**:
+    ```json
+    {
+      "originalMessageId": "string", // The message_id from the original request that was forwarded
+      "responsePayload": {} // The response payload that would normally be sent directly to the Chrome Extension
+    }
+    ```
+
+---
+
+#### 3.3.3. `forward_push_to_primary`
+Used by secondary VSCE instances to forward push messages (like snippets) to the primary VSCE for delivery to the Chrome Extension.
+
+*   **`type`**: `"push"`
+*   **`command`**: `"forward_push_to_primary"`
+*   **`payload`**:
+    ```json
+    {
+      "originalPushPayload": { // The original push payload (e.g., PushSnippetPayload)
+        "snippet": "string",
+        "language": "string",
+        "filePath": "string",
+        "relativeFilePath": "string",
+        "startLine": "number",
+        "endLine": "number",
+        "metadata": {}, // ContextBlockMetadata object
+        "targetTabId": "number",
+        "windowId": "string"
+      }
     }
     ```
 
@@ -606,10 +744,11 @@ This object is included in VSCE responses when providing data that will be inser
 {
   "unique_block_id": "string", // UUID, e.g., "a1b2c3d4-e5f6-7890-1234-567890abcdef". Generated by VSCE for each distinct content block sent. Used by CE to identify and remove specific blocks from LLM input.
   "content_source_id": "string", // Canonical identifier for the source content itself. Used by CE for duplicate checking (except for snippets). Examples: "workspace_uri::FileTree", "normalized_file_uri", etc.
-  "type": "'FileTree' | 'file_content' | 'folder_content' | 'codebase_content' | 'CodeSnippet'", // Type of content.
+  "type": "'FileTree' | 'file_content' | 'folder_content' | 'codebase_content' | 'CodeSnippet' | 'WorkspaceProblems'", // Type of content.
   "label": "string",         // User-friendly label for the indicator in CE. Examples: "File Tree", "auth.py", "src/components/", "Entire Codebase", "utils.js (10-25)"
   "workspaceFolderUri": "string | null", // URI of the workspace folder this content belongs to. Null if not applicable or single root.
-  "workspaceFolderName": "string | null" // Name of the workspace folder. Null if not applicable or single root.
+  "workspaceFolderName": "string | null", // Name of the workspace folder. Null if not applicable or single root.
+  "windowId": "string" // Unique identifier for the VS Code window instance that provided this content.
 }
 ```
 
@@ -621,6 +760,8 @@ This object is included in VSCE responses when providing data that will be inser
 *   The VSCE can also use `status_update` pushes with `statusType: 'error'` for asynchronous error reporting.
 
 **Common Error Codes (sent in `errorCode` field of `error_response` or specific responses):**
+*   `INVALID_MESSAGE_FORMAT`: Request message could not be parsed or has invalid JSON format.
+*   `INVALID_MESSAGE_TYPE`: Request message has an unexpected message type.
 *   `INVALID_PAYLOAD`: Request payload was missing required fields or had invalid values.
 *   `UNSUPPORTED_PROTOCOL_VERSION`: Client's protocol version is not supported.
 *   `UNKNOWN_COMMAND`: The requested command is not recognized.
@@ -629,19 +770,30 @@ This object is included in VSCE responses when providing data that will be inser
 *   `NO_WORKSPACE_OPEN`: No workspace folder is currently open in VS Code.
 *   `WORKSPACE_FOLDER_NOT_FOUND`: A specified `workspaceFolderUri` does not match any open workspace folder.
 *   `AMBIGUOUS_WORKSPACE`: An operation requires a single workspace folder context (e.g., via `workspaceFolderUri` in payload), but multiple folders are open and no specific one was provided.
-*   `FileTree_GENERATION_FAILED`: Error during file tree generation.
-*   `FILE_CONTENT_ERROR`: General error reading specific file content.
+*   `FileTree_ERROR`: Error during file tree generation.
+*   `FILE_NOT_FOUND`: The requested file could not be found.
+*   `FILE_READ_ERROR`: General error reading specific file content.
 *   `FILE_BINARY_OR_READ_ERROR`: File is binary or could not be read (specific file content error).
-*   `FOLDER_CONTENT_ERROR`: General error reading content of a folder.
+*   `DIRECTORY_NOT_FOUND`: The requested directory could not be found.
+*   `DIRECTORY_READ_ERROR`: Error during directory listing operation (e.g., for `list_folder_contents`).
+*   `FOLDER_READ_ERROR`: General error reading content of a folder.
 *   `FOLDER_CONTENT_UNEXPECTED_ERROR`: Unexpected error during folder content retrieval.
-*   `CODEBASE_CONTENT_ERROR`: General error reading content for the entire codebase.
+*   `CODEBASE_READ_ERROR`: General error reading content for the entire codebase.
 *   `CODEBASE_CONTENT_UNEXPECTED_ERROR`: Unexpected error during entire codebase retrieval.
 *   `INVALID_URI`: A provided string could not be parsed as a valid URI.
 *   `SEARCH_ERROR`: Error during a workspace search operation.
 *   `INVALID_PATH`: A provided path (e.g. folder path for `get_folder_content`) is invalid or not within the specified workspace.
-*   `FOLDER_LISTING_ERROR`: Error during directory listing operation (e.g., for `list_folder_contents`).
+*   `PROBLEMS_ERROR`: Error during workspace problems/diagnostics retrieval.
+*   `NO_ACTIVE_FILE`: No file is currently active/focused in VS Code.
 
 ## 6. Version History
 
 *   **1.0 (2025-05-26):** Initial design.
 *   **1.0.1 (2025-06-02):** Added `list_folder_contents` command and `response_list_folder_contents` for browsing folder contents.
+*   **1.1.0 (2025-06-XX):** Added multi-window support via Primary/Secondary architecture:
+    *   Added `windowId` field to `ContextBlockMetadata`, `SearchResult`, and `DirectoryEntry` data models.
+    *   Added new IPC commands: `register_secondary`, `forward_request_to_secondaries`.
+    *   Added new push commands: `forward_response_to_primary`, `forward_push_to_primary`.
+    *   Added `get_workspace_problems` command and `response_workspace_problems` for fetching workspace diagnostics.
+    *   Added `workspace_problems` type to `ContextBlockMetadata`.
+    *   Updated `push_snippet` payload to include `windowId` field.
