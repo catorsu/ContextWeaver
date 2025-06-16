@@ -35,7 +35,7 @@ class MockWebSocketServer extends EventEmitter {
 // Store WebSocket instances created during tests
 let createdWebSockets: MockWebSocket[] = [];
 
-// Mock the ws module before any imports
+// Mock the 'ws' module to simulate WebSocket clients and servers without actual network connections.
 jest.mock('ws', () => {
     // Add static properties to MockWebSocket class
     (MockWebSocket as any).OPEN = 1;
@@ -102,6 +102,8 @@ import {
 } from '@contextweaver/shared';
 import { v4 as uuidv4 } from 'uuid';
 
+let mockDiagnosticsService: any; // Declare at the top level
+
 // Mock VS Code extension context
 const mockContext: vscode.ExtensionContext = {
     subscriptions: [],
@@ -153,6 +155,9 @@ describe('IPCServer - Leader Election', () => {
             isWorkspaceTrusted: jest.fn().mockReturnValue(true),
             getWorkspaceFolder: jest.fn()
         } as any;
+        mockDiagnosticsService = { // Initialize in beforeEach
+            getProblemsForWorkspace: jest.fn().mockReturnValue({ problemsString: '', problemCount: 0 })
+        };
     });
 
     afterEach(() => {
@@ -166,16 +171,14 @@ describe('IPCServer - Leader Election', () => {
             mockContext,
             mockOutputChannel as any,
             mockSearchService as any,
-            mockWorkspaceService as any
+            mockWorkspaceService as any,
+            mockDiagnosticsService as any
         );
 
-        // Start the server
         server.start();
 
-        // Wait for WebSocket to be created
         await new Promise(resolve => setTimeout(resolve, 10));
 
-        // Simulate connection failure
         const testClient = createdWebSockets[0];
         expect(testClient).toBeDefined();
 
@@ -183,7 +186,6 @@ describe('IPCServer - Leader Election', () => {
         (error as any).code = 'ECONNREFUSED';
         testClient.emit('error', error);
 
-        // Wait for async operations
         await new Promise(resolve => setTimeout(resolve, 50));
 
         expect((server as any).isPrimary).toBe(true);
@@ -196,21 +198,18 @@ describe('IPCServer - Leader Election', () => {
             mockContext,
             mockOutputChannel as any,
             mockSearchService as any,
-            mockWorkspaceService as any
+            mockWorkspaceService as any,
+            mockDiagnosticsService as any
         );
 
-        // Start the server
         server.start();
 
-        // Wait for WebSocket to be created
         await new Promise(resolve => setTimeout(resolve, 10));
 
-        // Simulate successful connection
         const testClient = createdWebSockets[0];
         expect(testClient).toBeDefined();
         testClient.emit('open');
 
-        // Wait for async operations
         await new Promise(resolve => setTimeout(resolve, 50));
 
         expect((server as any).isPrimary).toBe(false);
@@ -242,6 +241,9 @@ describe('IPCServer - Primary Role', () => {
             getWorkspaceFolder: jest.fn(),
             ensureWorkspaceTrustedAndOpen: jest.fn().mockResolvedValue(undefined)  // Add this mock!
         } as any;
+        mockDiagnosticsService = { // Initialize in beforeEach
+            getProblemsForWorkspace: jest.fn().mockReturnValue({ problemsString: '', problemCount: 0 })
+        };
 
         // Create server instance
         server = new IPCServer(
@@ -250,7 +252,8 @@ describe('IPCServer - Primary Role', () => {
             mockContext,
             mockOutputChannel as any,
             mockSearchService as any,
-            mockWorkspaceService as any
+            mockWorkspaceService as any,
+            mockDiagnosticsService as any
         );
 
         // Manually set as primary
@@ -276,17 +279,13 @@ describe('IPCServer - Primary Role', () => {
             ip: '127.0.0.1'
         };
 
-        // Add client to server's clients map
         (server as any).clients.set(mockSecondaryWs, client);
 
-        // Call handleMessage
         await (server as any).handleMessage(client, Buffer.from(JSON.stringify(message)));
 
-        // Verify secondary was registered
         expect((server as any).secondaryClients.has('secondary-window-id')).toBe(true);
         expect((server as any).secondaryClients.get('secondary-window-id')).toBe(mockSecondaryWs);
 
-        // Verify acknowledgment was sent
         expect(mockSecondaryWs.send).toHaveBeenCalled();
         const response = JSON.parse(mockSecondaryWs.send.mock.calls[0][0]);
         expect(response.type).toBe('response');
@@ -332,10 +331,8 @@ describe('IPCServer - Primary Role', () => {
             relativePath: 'test.js'
         }]);
 
-        // Call handleMessage
         await (server as any).handleMessage(ceClient, Buffer.from(JSON.stringify(searchRequest)));
 
-        // Wait for async operations
         await new Promise(resolve => setTimeout(resolve, 50));
 
         // Verify forward_request_to_secondaries was sent
@@ -445,6 +442,9 @@ describe('IPCServer - Secondary Role', () => {
             getWorkspaceFolder: jest.fn(),
             ensureWorkspaceTrustedAndOpen: jest.fn().mockResolvedValue(undefined)  // Add this mock!
         } as any;
+        mockDiagnosticsService = { // Initialize in beforeEach
+            getProblemsForWorkspace: jest.fn().mockReturnValue({ problemsString: '', problemCount: 0 })
+        };
 
         // Create server instance
         server = new IPCServer(
@@ -453,7 +453,8 @@ describe('IPCServer - Secondary Role', () => {
             mockContext,
             mockOutputChannel as any,
             mockSearchService as any,
-            mockWorkspaceService as any
+            mockWorkspaceService as any,
+            mockDiagnosticsService as any
         );
 
         // Manually set as secondary
@@ -527,20 +528,16 @@ describe('IPCServer - Secondary Role', () => {
         // Ensure the mock primary WebSocket is in OPEN state
         mockPrimaryWs.readyState = MockWebSocket.OPEN;
 
-        // Call handleSecondaryMessage
         await (server as any).handleSecondaryMessage(Buffer.from(JSON.stringify(forwardedMessage)));
 
-        // Wait for async processing
         await new Promise(resolve => setTimeout(resolve, 50));
 
-        // Verify response was sent back to primary
         expect(mockPrimaryWs.send).toHaveBeenCalled();
         const response = JSON.parse(mockPrimaryWs.send.mock.calls[0][0]);
         expect(response.type).toBe('push');
         expect(response.command).toBe('forward_response_to_primary');
         expect(response.payload.originalMessageId).toBe(originalRequest.message_id);
 
-        // Check the response payload structure
         expect(response.payload.originalMessageId).toBe(originalRequest.message_id);
         expect(response.payload.responsePayload).toBeTruthy();
         expect(response.payload.responsePayload.data.results.length).toBe(1);

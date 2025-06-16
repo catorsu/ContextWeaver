@@ -13,6 +13,7 @@ import { SnippetService } from './snippetService';
 import { WorkspaceService } from './workspaceService'; // Added import
 import { DiagnosticsService } from './diagnosticsService';
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const EXTENSION_ID = 'contextweaver'; // For settings and prefixing
 const LOG_PREFIX = '[ContextWeaver] ';
 let outputChannel: vscode.OutputChannel;
@@ -33,11 +34,12 @@ interface VSCodeWindowSubset {
 }
 
 /**
- * Handles the logic for the 'sendSnippet' command.
- * This function is exported for testing purposes.
- * @param services An object containing the IPC server and snippet service instances.
- * @param vsCodeWindow A subset of the vscode.window API for showing messages.
- * @param outputChannelRef The VS Code output channel for logging.
+ * Handles the core logic for the 'sendSnippet' command. Exported for testing purposes.
+ * @param services - An object containing the active service instances.
+ * @param services.ipcServer - The active IPCServer instance.
+ * @param services.snippetService - The active SnippetService instance.
+ * @param vsCodeWindow - A subset of the `vscode.window` API for displaying messages.
+ * @param outputChannelRef - The VS Code output channel for logging.
  */
 export async function _handleSendSnippetCommandLogic(
     services: { ipcServer: IPCServer | null; snippetService: SnippetService | null },
@@ -92,17 +94,7 @@ export function activate(context: vscode.ExtensionContext) {
     // Rationale: Port is now determined automatically by the server. Pass a placeholder.
     ipcServer = new IPCServer(0, windowId, context, outputChannel, searchService, workspaceService, diagnosticsService); // Pass windowId, workspaceService and diagnosticsService
 
-    // --- ADDED LOGGING ---
-    console.log(LOG_PREFIX + 'IPCServer instance created. Attempting to start...');
-    outputChannel.appendLine(LOG_PREFIX + 'IPCServer instance created. Attempting to start...');
-    // --- END ADDED LOGGING ---
-
     ipcServer.start();
-
-    // --- ADDED LOGGING ---
-    console.log(LOG_PREFIX + 'ipcServer.start() called.');
-    outputChannel.appendLine(LOG_PREFIX + 'ipcServer.start() called.');
-    // --- END ADDED LOGGING ---
 
     snippetService = new SnippetService(outputChannel);
 

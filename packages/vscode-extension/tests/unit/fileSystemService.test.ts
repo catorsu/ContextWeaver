@@ -1,3 +1,9 @@
+/**
+ * @file fileSystemService.test.ts
+ * @description Unit tests for the file system service functions.
+ * @module ContextWeaver/VSCE/Tests
+ */
+
 // Mock vscode module before importing
 const mockReadDirectory = jest.fn();
 const mockReadFile = jest.fn();
@@ -11,6 +17,7 @@ class MockFileSystemError extends Error {
   readonly code = 'FileNotFound';
 }
 
+// Mock the 'vscode' module to isolate file system functions for testing.
 jest.mock('vscode', () => ({
   Uri: {
     joinPath: (uri: any, ...pathSegments: string[]) => ({

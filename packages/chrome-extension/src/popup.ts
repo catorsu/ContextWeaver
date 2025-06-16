@@ -18,10 +18,10 @@ type Theme = 'light' | 'dark';
  * @returns The detected theme ('light' or 'dark').
  */
 function detectBrowserTheme(): Theme {
-  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-    return 'dark';
-  }
-  return 'light';
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        return 'dark';
+    }
+    return 'light';
 }
 
 /**
@@ -29,50 +29,56 @@ function detectBrowserTheme(): Theme {
  * @param theme The theme to apply ('light' or 'dark').
  */
 function applyTheme(theme: Theme): void {
-  document.body.setAttribute('data-theme', theme);
-  console.log(`${LOG_PREFIX_POPUP} Theme applied: ${theme}`);
+    document.body.setAttribute('data-theme', theme);
+    console.log(`${LOG_PREFIX_POPUP} Theme applied: ${theme}`);
 }
 
 /**
  * Initializes theme detection and sets up theme change listener.
  */
 function initializeThemeDetection(): void {
-  // Detect initial theme
-  const detectedTheme = detectBrowserTheme();
-  applyTheme(detectedTheme);
-  
-  // Listen for theme changes
-  if (window.matchMedia) {
-    const darkModeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    
-    // Modern browsers support addEventListener
-    if (darkModeMediaQuery.addEventListener) {
-      darkModeMediaQuery.addEventListener('change', (e) => {
-        const newTheme = e.matches ? 'dark' : 'light';
-        applyTheme(newTheme);
-      });
-    } else if (darkModeMediaQuery.addListener) {
-      // Fallback for older browsers
-      darkModeMediaQuery.addListener((e) => {
-        const newTheme = e.matches ? 'dark' : 'light';
-        applyTheme(newTheme);
-      });
+    // Detect initial theme
+    const detectedTheme = detectBrowserTheme();
+    applyTheme(detectedTheme);
+
+    // Listen for theme changes
+    if (window.matchMedia) {
+        const darkModeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+        // Modern browsers support addEventListener
+        if (darkModeMediaQuery.addEventListener) {
+            darkModeMediaQuery.addEventListener('change', (e) => {
+                const newTheme = e.matches ? 'dark' : 'light';
+                applyTheme(newTheme);
+            });
+        } else if (darkModeMediaQuery.addListener) {
+            // Fallback for older browsers
+            darkModeMediaQuery.addListener((e) => {
+                const newTheme = e.matches ? 'dark' : 'light';
+                applyTheme(newTheme);
+            });
+        }
     }
-  }
-  
-  // Also check for stored theme preference
-  chrome.storage.local.get(['theme'], (result) => {
-    if (result.theme && (result.theme === 'light' || result.theme === 'dark')) {
-      applyTheme(result.theme);
-    }
-  });
+
+    // Also check for stored theme preference
+    chrome.storage.local.get(['theme'], (result) => {
+        if (result.theme && (result.theme === 'light' || result.theme === 'dark')) {
+            applyTheme(result.theme);
+        }
+    });
 }
 
 // Rationale: Use reliable, inline SVGs instead of Unicode characters to prevent rendering issues.
+/**
+ * Defines inline SVG icons for different connection statuses.
+ * Using inline SVGs instead of character-based icons (e.g., emojis) ensures
+ * consistent rendering across all platforms and avoids potential font/encoding issues.
+ * @constant
+ */
 const STATUS_ICONS = {
-    connected: `<svg viewBox="0 0 24 24" width="32" height="32"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"></path></svg>`,
-    connecting: `<svg viewBox="0 0 24 24" width="32" height="32"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"></path></svg>`,
-    failed: `<svg viewBox="0 0 24 24" width="32" height="32"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"></path></svg>`
+    connected: '<svg viewBox="0 0 24 24" width="32" height="32"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"></path></svg>',
+    connecting: '<svg viewBox="0 0 24 24" width="32" height="32"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"></path></svg>',
+    failed: '<svg viewBox="0 0 24 24" width="32" height="32"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"></path></svg>'
 };
 
 /**
@@ -193,9 +199,9 @@ if (statusContainer) {
 document.addEventListener('DOMContentLoaded', () => {
     // Initialize theme detection
     initializeThemeDetection();
-    
+
     requestInitialConnectionStatus();
-    
+
     // Also ensure badge is updated when popup opens
     chrome.runtime.sendMessage({ action: 'updateBadge' })
         .catch(err => console.log(LOG_PREFIX_POPUP, 'Badge update request error:', err));

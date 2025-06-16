@@ -27,9 +27,9 @@ const IGNORE_PATTERNS_DEFAULT = [
 ];
 
 /**
- * @description Parses the .gitignore file from the root of the given workspace folder.
- * @param {vscode.WorkspaceFolder} workspaceFolder - The workspace folder to parse .gitignore for.
- * @returns {Promise<Ignore | null>} An Ignore instance if .gitignore is found and parsed, otherwise null.
+ * Parses the .gitignore file from the root of the given workspace folder.
+ * @param workspaceFolder - The workspace folder to parse .gitignore for.
+ * @returns A Promise that resolves to an `Ignore` instance if .gitignore is found and parsed, otherwise null.
  * @sideeffect Reads .gitignore from the file system.
  */
 export async function parseGitignore(workspaceFolder: vscode.WorkspaceFolder): Promise<Ignore | null> {
@@ -113,10 +113,10 @@ function getPathIgnoreInfo(
 
 
 /**
- * @description Generates a textual representation of the file and folder hierarchy for a given workspace folder.
- * Assumes workspaceFolder is valid and trusted.
- * @param {vscode.WorkspaceFolder} workspaceFolder - The workspace folder to generate the tree for.
- * @returns {Promise<{ tree: string, filterTypeApplied: 'gitignore' | 'default' } | string>} Object with tree string and filter type, or an error string.
+ * Generates a textual representation of the file and folder hierarchy for a given workspace folder.
+ * Assumes `workspaceFolder` is valid and trusted.
+ * @param workspaceFolder - The workspace folder to generate the tree for.
+ * @returns A Promise resolving to an object with the tree string and filter type, or an error string on failure.
  */
 export async function getFileTree(workspaceFolder: vscode.WorkspaceFolder): Promise<{ tree: string, filterTypeApplied: 'gitignore' | 'default' } | string> {
   const gitignoreFilter = await parseGitignore(workspaceFolder);
@@ -218,9 +218,10 @@ async function getLanguageId(fileUri: vscode.Uri): Promise<string> {
 
 
 /**
- * @description Reads the content and determines language ID of a file.
- * @param {vscode.Uri} fileUri - The URI of the file to read.
- * @returns {Promise<CWFileData | null>} Object with fullPath, content, and languageId, or null if binary/error.
+ * Reads the content of a file and determines its language ID.
+ * Returns null if the file is binary or a read error occurs.
+ * @param fileUri - The URI of the file to read.
+ * @returns A Promise resolving to an object with file data, or null.
  * @sideeffect Reads from the file system.
  */
 export async function getFileContentWithLanguageId(fileUri: vscode.Uri): Promise<CWFileData | null> {
@@ -265,11 +266,11 @@ export async function getFileContentWithLanguageId(fileUri: vscode.Uri): Promise
 
 
 /**
- * @description Retrieves structured data for all text files within a specified folder (and its subfolders)
- *              for IPC, to be formatted by the CE according to SRS 3.3.2.
- * @param {vscode.Uri} folderUri - The URI of the folder whose contents are to be read. This is the base for fullPath.
- * @param {vscode.WorkspaceFolder} workspaceFolder - The workspace folder (used for .gitignore parsing from workspace root).
- * @returns {Promise<{ filesData: CWFileData[], filterTypeApplied: 'gitignore' | 'default' } | string>} Object with filesData array or error string.
+ * Retrieves structured data for all text files within a specified folder and its subfolders.
+ * The data is prepared for IPC to be formatted by the Chrome Extension.
+ * @param folderUri - The URI of the folder whose contents are to be read.
+ * @param workspaceFolder - The workspace folder context for applying ignore rules.
+ * @returns A Promise resolving to an object with an array of file data, or an error string on failure.
  */
 export async function getFolderContentsForIPC(
   folderUri: vscode.Uri,
@@ -380,10 +381,10 @@ async function getDirectoryListingRecursive(
 }
 
 /**
- * @description Lists files and folders in a directory, applying workspace filters.
- * @param {vscode.Uri} folderToScanUri - The URI of the folder to list.
- * @param {vscode.WorkspaceFolder} containingWorkspaceFolder - Workspace folder for filter context.
- * @returns {Promise<{ entries: CWDirectoryEntry[]; filterTypeApplied: FilterType }>}
+ * Lists all non-ignored files and folders recursively within a directory.
+ * @param folderToScanUri - The URI of the folder to list.
+ * @param containingWorkspaceFolder - The workspace folder for filter context.
+ * @returns A Promise resolving to an object containing the directory entries and the filter type applied.
  * @sideeffect Reads from the file system.
  */
 export async function getDirectoryListing(
@@ -393,7 +394,7 @@ export async function getDirectoryListing(
   const gitignoreFilter = await parseGitignore(containingWorkspaceFolder);
   const filterTypeApplied: FilterType = gitignoreFilter !== null ? 'gitignore' : 'default';
   const entries: CWDirectoryEntry[] = [];
-  
+
   try {
     // Call the recursive function to get all descendants
     const recursiveEntries = await getDirectoryListingRecursive(

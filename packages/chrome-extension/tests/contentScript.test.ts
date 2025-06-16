@@ -19,7 +19,7 @@ interface GroupedWindowItems<T extends WindowGroupable> {
   items: T[];
 }
 
-// Mock Chrome API
+// Mock the parts of the Chrome API that the content script interacts with.
 const mockChrome = {
   runtime: {
     onMessage: {
@@ -44,7 +44,7 @@ describe('groupItemsByWindow', () => {
       runScripts: 'dangerously'
     });
     window = dom.window;
-    
+
     // Define the groupItemsByWindow function (copied from contentScript)
     const groupItemsByWindowCode = `
       function groupItemsByWindow(items) {
@@ -66,7 +66,7 @@ describe('groupItemsByWindow', () => {
       }
       window.groupItemsByWindow = groupItemsByWindow;
     `;
-    
+
     // Execute the code in the JSDOM context
     window.eval(groupItemsByWindowCode);
     groupItemsByWindow = window.groupItemsByWindow;
@@ -117,7 +117,7 @@ describe('groupItemsByWindow', () => {
 
     // Assert correct structure
     expect(grouped.size).toBe(2);
-    
+
     // Check first window group
     const window1Group = grouped.get('12345678-1234-1234-1234-123456789012');
     expect(window1Group).toBeDefined();
@@ -125,7 +125,7 @@ describe('groupItemsByWindow', () => {
     expect(window1Group!.items.length).toBe(2);
     expect(window1Group!.items[0].name).toBe('file1.js');
     expect(window1Group!.items[1].name).toBe('file2.js');
-    
+
     // Check second window group
     const window2Group = grouped.get('87654321-4321-4321-4321-210987654321');
     expect(window2Group).toBeDefined();
@@ -151,12 +151,12 @@ describe('groupItemsByWindow', () => {
     const grouped = groupItemsByWindow(mockItems);
 
     expect(grouped.size).toBe(2);
-    
+
     // Check window group
     const windowGroup = grouped.get('12345678-1234-1234-1234-123456789012');
     expect(windowGroup).toBeDefined();
     expect(windowGroup!.items.length).toBe(1);
-    
+
     // Check unknown window group
     const unknownGroup = grouped.get('unknown_window');
     expect(unknownGroup).toBeDefined();
@@ -173,7 +173,7 @@ describe('groupItemsByWindow', () => {
   test('should handle null/undefined input', () => {
     const grouped1 = groupItemsByWindow(null as any);
     expect(grouped1.size).toBe(0);
-    
+
     const grouped2 = groupItemsByWindow(undefined as any);
     expect(grouped2.size).toBe(0);
   });
@@ -194,7 +194,7 @@ describe('renderSearchResults', () => {
     });
     window = dom.window;
     document = window.document;
-    
+
     // Mock UI Manager
     mockUiManager = {
       updateContent: jest.fn(),
@@ -213,7 +213,7 @@ describe('renderSearchResults', () => {
         return div;
       })
     };
-    
+
     // Set up globals in window context
     window.eval(`
       window.LOCAL_CSS_PREFIX = 'cw-';
@@ -255,10 +255,10 @@ describe('renderSearchResults', () => {
         return div;
       };
     `);
-    
+
     // Replace the mock uiManager methods
     window.uiManager = mockUiManager;
-    
+
     // Define renderSearchResults function (simplified from contentScript)
     const renderSearchResultsCode = `
       window.renderSearchResults = function(response, query) {
@@ -332,7 +332,7 @@ describe('renderSearchResults', () => {
         window.uiManager.updateContent(contentFragment);
       };
     `;
-    
+
     window.eval(renderSearchResultsCode);
     renderSearchResults = window.renderSearchResults;
   });
@@ -380,18 +380,18 @@ describe('renderSearchResults', () => {
     // Check that updateContent was called
     expect(mockUiManager.updateContent).toHaveBeenCalledTimes(1);
     const contentFragment = mockUiManager.updateContent.mock.calls[0][0];
-    
+
     // Convert fragment to array of elements for easier testing
     const elements = Array.from(contentFragment.childNodes) as HTMLElement[];
-    
+
     // Should have window headers
-    const windowHeaders = elements.filter(el => 
+    const windowHeaders = elements.filter(el =>
       el.className && el.className.includes('cw-window-header')
     );
     expect(windowHeaders.length).toBe(2);
     expect(windowHeaders[0].textContent).toBe('Window: 11111111');
     expect(windowHeaders[1].textContent).toBe('Window: 22222222');
-    
+
     // Check that updateTitle was called
     expect(mockUiManager.updateTitle).toHaveBeenCalledWith('Search results for: test');
   });
@@ -435,18 +435,18 @@ describe('renderSearchResults', () => {
     // Check that updateContent was called
     expect(mockUiManager.updateContent).toHaveBeenCalledTimes(1);
     const contentFragment = mockUiManager.updateContent.mock.calls[0][0];
-    
+
     // Convert fragment to array of elements
     const elements = Array.from(contentFragment.childNodes) as HTMLElement[];
-    
+
     // Should NOT have window headers
-    const windowHeaders = elements.filter(el => 
+    const windowHeaders = elements.filter(el =>
       el.className && el.className.includes('cw-window-header')
     );
     expect(windowHeaders.length).toBe(0);
-    
+
     // Should have search result items
-    const resultItems = elements.filter(el => 
+    const resultItems = elements.filter(el =>
       el.className && el.className.includes('search-result-item')
     );
     expect(resultItems.length).toBe(2);
@@ -501,21 +501,21 @@ describe('renderSearchResults', () => {
 
     const contentFragment = mockUiManager.updateContent.mock.calls[0][0];
     const elements = Array.from(contentFragment.childNodes) as HTMLElement[];
-    
+
     // Should have 2 window headers
-    const windowHeaders = elements.filter(el => 
+    const windowHeaders = elements.filter(el =>
       el.className && el.className.includes('cw-window-header')
     );
     expect(windowHeaders.length).toBe(2);
-    
+
     // Should have workspace headers within first window
-    const workspaceHeaders = elements.filter(el => 
+    const workspaceHeaders = elements.filter(el =>
       el.className && el.className.includes('cw-group-header')
     );
     expect(workspaceHeaders.length).toBeGreaterThan(0);
-    
+
     // Check indentation styles
-    const searchItems = elements.filter(el => 
+    const searchItems = elements.filter(el =>
       el.className && el.className.includes('search-result-item')
     );
     expect(searchItems.some(item => item.style.marginLeft === '30px')).toBe(true);

@@ -118,11 +118,11 @@ export class SearchService {
 
 
   /**
-   * @description Searches for files and folders within trusted workspace folders, applying .gitignore rules.
-   * Assumes workspace trust and existence of folders are pre-checked by the caller (IPCServer).
-   * @param {string} query - The search query string.
-   * @param {vscode.Uri} [specificWorkspaceFolderUri] - Optional. If provided, search only within this workspace folder. Otherwise, search all trusted workspace folders.
-   * @returns {Promise<CWSearchResult[]>} A promise that resolves to an array of search results.
+   * Searches for files and folders within trusted workspace folders, applying ignore rules.
+   * Assumes workspace trust and folder existence are pre-checked by the caller (IPCServer).
+   * @param query - The search query string.
+   * @param specificWorkspaceFolderUri - Optional. If provided, search only within this workspace folder.
+   * @returns A promise that resolves to an array of search results.
    * @sideeffect Reads from the file system, including .gitignore files.
    */
   public async search(query: string, specificWorkspaceFolderUri?: vscode.Uri): Promise<LocalSearchResult[]> {

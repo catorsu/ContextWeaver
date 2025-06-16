@@ -32,6 +32,7 @@ console.log(`${LOG_PREFIX_CS} Content script loaded.`);
 
 // Theme detection
 type Theme = 'light' | 'dark';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 let currentTheme: Theme = 'dark'; // Default theme
 
 /**
@@ -50,6 +51,7 @@ function detectBrowserTheme(): Theme {
  * @param theme The theme to apply ('light' or 'dark').
  */
 function updateTheme(theme: Theme): void {
+  // Update theme variable (unused but kept for future use)
   currentTheme = theme;
   console.log(`${LOG_PREFIX_CS} Theme updated to: ${theme}`);
 
@@ -164,6 +166,7 @@ function groupItemsByWorkspace<T extends WorkspaceGroupable>(
   return grouped;
 }
 
+// TODO: Avoid attaching to window. This is for debugging and should be removed in production builds.
 (window as any).groupItemsByWorkspace = groupItemsByWorkspace;
 
 /**
@@ -207,6 +210,7 @@ function groupItemsByWindow<T extends WindowGroupable>(
   return grouped;
 }
 
+// TODO: Avoid attaching to window. This is for debugging and should be removed in production builds.
 (window as any).groupItemsByWindow = groupItemsByWindow;
 
 interface LLMInputConfig {
@@ -281,6 +285,10 @@ async function processContentInsertion(
   itemDivForFeedback?: HTMLElement | null // Optional: for UI feedback like opacity
 ): Promise<void> {
   // CAPTURE TARGET ELEMENT EARLY
+  // Capture the target element at the beginning of the operation. This is crucial because
+  // asynchronous actions (like fetching content) could occur, during which the user might
+  // interact with the page, causing the UI to hide and the state manager's target to be cleared.
+  // Using this captured reference ensures the content is inserted into the correct original input.
   const targetElementForThisOperation = stateManager.getCurrentTargetElementForPanel();
 
   if (!targetElementForThisOperation) {
@@ -336,6 +344,8 @@ async function processContentInsertion(
         return;
       }
 
+      // TODO: Replace 'any' with a discriminated union type for response data from @contextweaver/shared.
+      // This will provide type safety for accessing properties like 'fileTreeString', 'problemsString', etc.
       const actualData = responsePayload.data as any; // Cast to any to access specific data properties
       let contentToInsert: string;
       let metadataFromResponse: ContextBlockMetadata;
@@ -571,7 +581,6 @@ function renderSearchResults(response: SearchWorkspaceResponsePayload, query: st
     virtualHeight.appendChild(itemContainer);
     scrollContainer.appendChild(virtualHeight);
 
-    let lastScrollTop = 0;
     const renderVisibleItems = () => {
       const scrollTop = scrollContainer.scrollTop;
       const startIndex = Math.floor(scrollTop / ITEM_HEIGHT);
@@ -586,7 +595,7 @@ function renderSearchResults(response: SearchWorkspaceResponsePayload, query: st
         itemContainer.appendChild(itemDiv);
       }
 
-      lastScrollTop = scrollTop;
+      // Update last scroll position (unused but kept for future use)
     };
 
     scrollContainer.addEventListener('scroll', () => {
@@ -700,7 +709,7 @@ function formatFileContentsForLLM(filesData: { fullPath: string; content: string
     return '';
   }
   const formattedBlocks = [];
-  const tagsToNeutralize = ['FileContents', 'FileTree', 'CodeSnippet']; // Contains all wrapper tags we use
+  const tagsToNeutralize = ['FileContents', 'FileTree', 'CodeSnippet', 'WorkspaceProblems']; // Contains all wrapper tags we use
 
   for (const file of filesData) {
     if (file && typeof file.fullPath === 'string' && typeof file.content === 'string') {
@@ -1669,8 +1678,8 @@ function createTreeNodeElement(node: TreeNode, level: number = 0): HTMLDivElemen
  */
 function createBrowseViewButtons(
   listContainer: HTMLElement,
-  parentFolderUri: string,
-  parentFolderName: string,
+  _parentFolderUri: string,
+  _parentFolderName: string,
   workspaceFolderUri: string | null
 ): HTMLDivElement {
   const buttonContainer = uiManager.createDiv({ style: { marginTop: '10px' } });

@@ -31,14 +31,20 @@ const PORT_RANGE_END = 30005;
  * Manages the WebSocket client connection to the VS Code Extension (VSCE) IPC server.
  * Handles sending requests, receiving responses, and managing connection state.
  */
+/**
+ * Manages the WebSocket client connection to the VS Code Extension (VSCE) IPC server.
+ * Handles connection retries, message serialization, and request/response tracking.
+ */
 class IPCClient {
-    private ws: WebSocket | null = null;    
+    private ws: WebSocket | null = null;
     public port: number = PORT_RANGE_START; // Current port being used
     private connectionPromise: Promise<void> | null = null;
     private resolveConnectionPromise: (() => void) | null = null;
     private rejectConnectionPromise: ((reason?: any) => void) | null = null;
     public isIntentionalDisconnect: boolean = false;
     // Correctly type the pendingRequests map
+    // TODO: Replace 'any' with generic types in the sendRequest method to ensure type-safe resolution.
+    // This will allow the Promise returned by sendRequest to be strongly typed.
     private pendingRequests: Map<string, { resolve: (value: any) => void, reject: (reason?: any) => void }> = new Map();
 
 
@@ -137,14 +143,15 @@ class IPCClient {
                         status: 'disconnected_unexpectedly',
                         payload: { message: `Unexpectedly disconnected from VS Code. Code: ${event.code}, Reason: ${event.reason}. Will attempt to reconnect.` }
                     }).catch(err => console.warn(LOG_PREFIX_SW, 'Error sending IPC_CONNECTION_STATUS (disconnected_unexpectedly) message:', err));
-                    
+
                     // Update badge to show failed status
                     this.updateBadge('failed');
-                    
+
                     this.connectWithRetry(); // Rationale: Automatically try to reconnect if connection is lost.
                 }
 
-                const currentReject = this.rejectConnectionPromise;
+                // Clear the reject promise handler (unused but kept for future use)
+                // const currentReject = this.rejectConnectionPromise;
                 this.ws = null; // Clear WebSocket instance
             };
 
@@ -171,7 +178,7 @@ class IPCClient {
                     status: 'connected',
                     payload: { message: `Connected to VS Code on port ${this.port}.`, port: this.port }
                 }).catch(err => console.warn(LOG_PREFIX_SW, 'Error sending IPC_CONNECTION_STATUS (connected) message:', err));
-                
+
                 // Update badge to show connected status
                 this.updateBadge('connected');
 
@@ -220,10 +227,10 @@ class IPCClient {
             // Rationale: Call the new port scanning logic instead of a single connect.
             attempt++;
             console.log(LOG_PREFIX_SW, `Connection attempt ${attempt}`);
-            
+
             // Update badge to show connecting status
             this.updateBadge('connecting');
-            
+
             // Send connecting status to popup
             chrome.runtime.sendMessage({
                 action: 'ipcConnectionStatus',
@@ -263,6 +270,7 @@ class IPCClient {
         tryConnect();
     }
 
+    // TODO: Replace 'any' with 'string | Buffer | ArrayBuffer' once the WebSocket library's types are fully integrated.
     private handleServerMessage(messageData: any): void {
         console.log(LOG_PREFIX_SW, 'handleServerMessage: Raw data received from server:', messageData);
 
@@ -291,7 +299,7 @@ class IPCClient {
                 console.log(LOG_PREFIX_SW, `handleServerMessage: Detected 'push' message type. Command: ${pushMessage.command}`);
 
                 if (pushMessage.command === 'push_snippet') {
-                    console.log(LOG_PREFIX_SW, `handleServerMessage: Broadcasting 'push_snippet' to all LLM tabs.`);
+                    console.log(LOG_PREFIX_SW, 'handleServerMessage: Broadcasting \'push_snippet\' to all LLM tabs.');
 
                     // Query for all tabs matching supported LLM host permissions
                     const urlsToQuery = SUPPORTED_LLM_HOST_SUFFIXES.map(suffix => `*://${suffix}/*`);
@@ -336,8 +344,14 @@ class IPCClient {
      * @param command The command to send to the VSCE.
      * @param payload The payload for the command.
      * @returns A Promise that resolves with the response payload from the VSCE.
+     * Sends a request to the VSCE IPC server and returns a promise that resolves with the response.
+     * This method ensures the client is connected before sending and manages request timeouts.
      * @template TReqPayload The type of the request payload.
      * @template TResPayload The type of the expected response payload.
+     * @param command The IPC command to send.
+     * @param payload The data payload for the command.
+     * @returns A Promise that resolves with the typed response payload from the server.
+     * @throws An error if the connection fails or the request times out.
      */
     public async sendRequest<TReqPayload, TResPayload>(
         command: IPCMessageRequest['command'], // Use the command union type
@@ -870,6 +884,9 @@ chrome.runtime.onMessage.addListener((message: IncomingRuntimeMessage, sender, s
 // --- Keep Alive for Service Worker ---
 let keepAliveIntervalId: number | undefined;
 
+// Service workers become idle after 30 seconds of inactivity. This interval
+// calls a trivial, non-impacting Chrome API every 20 seconds to reset the
+// idle timer and keep the service worker alive to maintain the WebSocket connection.
 function startKeepAlive() {
     if (keepAliveIntervalId !== undefined) return;
     keepAliveIntervalId = setInterval(() => {

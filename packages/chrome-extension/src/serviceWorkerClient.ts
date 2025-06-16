@@ -27,6 +27,7 @@ const LOG_PREFIX_SW_CLIENT = '[ContextWeaver SWClient]';
  */
 interface SWApiRequestMessage {
     type: string; // e.g., 'SEARCH_WORKSPACE', 'GET_FILE_CONTENT'
+    // TODO: This could be typed more strictly using a discriminated union of all possible request payloads.
     payload?: any;
 }
 
@@ -36,6 +37,14 @@ interface SWApiRequestMessage {
  * @param message The message object to send to the service worker.
  * @returns A Promise that resolves with the response payload from the service worker.
  * @template TResponsePayload The expected type of the response payload.
+ */
+/**
+ * Sends a message to the Chrome Extension's service worker and waits for a response.
+ * This is the central communication function for this module, handling errors and response validation.
+ * @template TResponsePayload The expected type of the response payload.
+ * @param message The message object to send to the service worker.
+ * @returns A Promise that resolves with the typed response payload from the service worker.
+ * @throws An error if the service worker communication fails or the operation itself returns an error.
  */
 async function sendMessageToSW<TResponsePayload>(message: SWApiRequestMessage): Promise<TResponsePayload> {
     console.log(LOG_PREFIX_SW_CLIENT, 'Sending message to SW:', message);

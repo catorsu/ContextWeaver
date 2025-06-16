@@ -80,6 +80,7 @@ export class IPCServer {
     private secondaryClients: Map<string, WebSocket> = new Map();
     private pendingAggregatedResponses: Map<string, {
         originalRequester: WebSocket,
+        // TODO: Replace 'any' with a discriminated union of response payloads for type safety.
         responses: any[],
         expectedResponses: number,
         timeout: NodeJS.Timeout,
@@ -123,6 +124,10 @@ export class IPCServer {
      * Starts the IPC server with leader election for Primary/Secondary architecture.
      * Attempts to connect to a primary server across a range of ports. If connection fails, becomes primary.
      * If connection succeeds, becomes secondary and registers with the primary.
+     */
+    /**
+     * Starts the IPC server. It performs leader election to determine if this instance
+     * should become a Primary (listening for connections) or a Secondary (connecting to a Primary).
      */
     public start(): void {
         console.log(LOG_PREFIX_SERVER + 'start() method called.');
@@ -306,6 +311,7 @@ export class IPCServer {
      * Handles messages when running as secondary VSCE.
      */
     private async handleSecondaryMessage(data: WebSocket.RawData): Promise<void> {
+        // TODO: Replace 'any' with a discriminated union of possible forwarded messages.
         let parsedMessage: any;
         try {
             parsedMessage = JSON.parse(data.toString());
@@ -391,9 +397,19 @@ export class IPCServer {
                 const pushCommand = command as string;
                 switch (pushCommand) {
                     case 'forward_response_to_primary':
+                        /**
+                         * Handles a response forwarded from a secondary instance, adding it to the pending aggregation.
+                         * @param payload - The forwarded response payload.
+                         * // TODO: Replace 'any' with a discriminated union of response payloads for type safety.
+                         */
                         this.handleForwardedResponse(payload as any);
                         return;
                     case 'forward_push_to_primary':
+                        /**
+                         * Handles a push message (like a snippet) forwarded from a secondary instance, broadcasting it to all connected CEs.
+                         * @param payload - The forwarded push payload.
+                         * // TODO: Review if originalPushPayload needs a more specific type than PushSnippetPayload if other pushes are added.
+                         */
                         this.handleForwardedPush(payload as any);
                         return;
                 }
@@ -605,6 +621,7 @@ export class IPCServer {
         this.pendingAggregatedResponses.delete(aggregationId);
 
         // Aggregate responses based on command type
+        // TODO: Replace 'any' with a specific aggregated payload type based on the command.
         let aggregatedPayload: any;
         const command = aggregation.originalCommand;
 
@@ -801,12 +818,24 @@ export class IPCServer {
         ws.send(JSON.stringify(errorResponseMessage));
     }
 
+    /**
+     * Sends a generic acknowledgment response to a client.
+     * @param client - The client to send the acknowledgment to.
+     * @param message_id - The ID of the request being acknowledged.
+     * @param success - Whether the operation was successful.
+     * @param message - An optional descriptive message.
+     */
     private sendGenericAck(client: Client, message_id: string, success: boolean, message: string | null = null) {
         const payload: GenericAckResponsePayload = { success, message };
         this.sendMessage<GenericAckResponsePayload>(client.ws, 'response', 'response_generic_ack', payload, message_id);
     }
 
-
+    /**
+     * Handles a request to register an active target (LLM tab) for a client.
+     * @param client - The client that sent the request.
+     * @param payload - The request payload containing the tab ID and LLM host.
+     * @param message_id - The message ID for the response.
+     */
     private handleRegisterActiveTarget(client: Client, payload: RegisterActiveTargetRequestPayload, message_id: string): void {
         this.outputChannel.appendLine(LOG_PREFIX_SERVER + `handleRegisterActiveTarget called: TabID ${payload.tabId}, Host ${payload.llmHost} for client ${client.ip}`);
         client.activeLLMTabId = payload.tabId;
@@ -815,6 +844,11 @@ export class IPCServer {
         this.sendGenericAck(client, message_id, true, 'Target registered successfully.');
     }
 
+    /**
+     * Handles a request to get details about the current workspace.
+     * @param client - The client that sent the request.
+     * @param message_id - The message ID for the response.
+     */
     private handleGetWorkspaceDetails(client: Client, message_id: string): void {
         try {
             const details = this.workspaceService.getWorkspaceDetailsForIPC();
@@ -883,7 +917,12 @@ export class IPCServer {
         return targetWorkspaceFolder;
     }
 
-
+    /**
+     * Handles a request to get the file tree for a specific workspace folder.
+     * @param client - The client that sent the request.
+     * @param payload - The request payload containing the workspace folder URI.
+     * @param message_id - The message ID for the response.
+     */
     private async handleGetFileTree(
         client: Client,
         payload: GetFileTreeRequestPayload,
@@ -935,6 +974,12 @@ export class IPCServer {
         }
     }
 
+    /**
+     * Handles a request to get the content of a single file.
+     * @param client - The client that sent the request.
+     * @param payload - The request payload containing the file path.
+     * @param message_id - The message ID for the response.
+     */
     private async handleGetFileContent(
         client: Client,
         payload: GetFileContentRequestPayload,
@@ -1010,6 +1055,12 @@ export class IPCServer {
         }
     }
 
+    /**
+     * Handles a request to get the content of a folder.
+     * @param client - The client that sent the request.
+     * @param payload - The request payload containing the folder path and workspace folder URI.
+     * @param message_id - The message ID for the response.
+     */
     private async handleGetFolderContent(
         client: Client,
         payload: GetFolderContentRequestPayload,
@@ -1073,6 +1124,12 @@ export class IPCServer {
         }
     }
 
+    /**
+     * Handles a request to get the entire codebase for a specific workspace folder.
+     * @param client - The client that sent the request.
+     * @param payload - The request payload containing the workspace folder URI.
+     * @param message_id - The message ID for the response.
+     */
     private async handleGetEntireCodebase(
         client: Client,
         payload: GetEntireCodebaseRequestPayload,
@@ -1129,6 +1186,12 @@ export class IPCServer {
         }
     }
 
+    /**
+     * Handles a request to search the workspace.
+     * @param client - The client that sent the request.
+     * @param payload - The request payload containing the search query and optional workspace folder URI.
+     * @param message_id - The message ID for the response.
+     */
     private async handleSearchWorkspace(
         client: Client,
         payload: SearchWorkspaceRequestPayload,
@@ -1173,6 +1236,11 @@ export class IPCServer {
         }
     }
 
+    /**
+     * Handles a request to get information about the currently active file.
+     * @param client - The client that sent the request.
+     * @param message_id - The message ID for the response.
+     */
     private handleGetActiveFileInfo(client: Client, message_id: string): void {
         try {
             const activeEditor = vscode.window.activeTextEditor;
@@ -1213,6 +1281,11 @@ export class IPCServer {
         }
     }
 
+    /**
+     * Handles a request to get a list of all currently open files.
+     * @param client - The client that sent the request.
+     * @param message_id - The message ID for the response.
+     */
     private handleGetOpenFiles(client: Client, message_id: string): void {
         try {
             const openFiles = vscode.window.tabGroups.all
@@ -1249,6 +1322,12 @@ export class IPCServer {
         }
     }
 
+    /**
+     * Handles a request to get filter information for a workspace folder.
+     * @param client - The client that sent the request.
+     * @param payload - The request payload containing the workspace folder URI.
+     * @param message_id - The message ID for the response.
+     */
     private async handleGetFilterInfo(
         client: Client,
         payload: GetFilterInfoRequestPayload,
@@ -1288,6 +1367,12 @@ export class IPCServer {
         }
     }
 
+    /**
+     * Handles a request to list the contents of a folder.
+     * @param client - The client that sent the request.
+     * @param payload - The request payload containing the folder URI and workspace folder URI.
+     * @param message_id - The message ID for the response.
+     */
     private async handleListFolderContents(
         client: Client,
         payload: ListFolderContentsRequestPayload,
@@ -1411,6 +1496,7 @@ export class IPCServer {
 
     /**
      * Pushes a code snippet to a specific target tab identified by its tab ID.
+     * @deprecated This method uses an older, targeted push mechanism. Use {@link handleSnippetSendRequest} instead, which supports the primary/secondary architecture.
      * @param targetTabId The ID of the browser tab to push the snippet to.
      * @param snippetData The snippet data to be pushed, including content and metadata.
      */
@@ -1465,7 +1551,8 @@ export class IPCServer {
 
 
     /**
-     * Stops the WebSocket server and closes all active client connections.
+     * Stops the WebSocket server, closes all client connections, and cleans up resources.
+     * If the instance is a secondary, it closes its connection to the primary.
      */
     public stop(): void {
         if (this.wss) {

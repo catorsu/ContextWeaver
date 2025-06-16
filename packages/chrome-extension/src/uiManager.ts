@@ -625,6 +625,14 @@ export class UIManager {
    * @param uiInitialContent Optional. The initial content to display in the UI panel. Can be an HTMLElement, DocumentFragment, or HTML string.
    * @param onHide Optional. A callback function to execute when the UI panel is hidden.
    */
+  /**
+   * Displays the floating UI panel, positioning it relative to a target input element.
+   * It handles viewport collision to ensure the panel is always visible.
+   * @param targetInputElement The HTML element to which the UI panel should be anchored.
+   * @param uiInitialTitle The initial title to display in the panel.
+   * @param uiInitialContent Optional initial content for the panel.
+   * @param onHide Optional callback to execute when the UI is hidden.
+   */
   public show(
     targetInputElement: HTMLElement,
     uiInitialTitle: string,
@@ -700,6 +708,9 @@ export class UIManager {
 
   /**
    * Hides the floating UI panel and clears its content.
+   */
+  /**
+   * Hides the floating UI panel, clears its content, and invokes the onHide callback if provided.
    */
   public hide(): void {
     if (this.floatingUIPanel && this.floatingUIPanel.classList.contains(`${CSS_PREFIX}visible`)) {
@@ -983,6 +994,14 @@ export class UIManager {
    * Each indicator represents an active context block (e.g., inserted file content).
    * @param activeContextBlocks A readonly array of ContextBlockMetadata objects representing the currently active context blocks.
    * @param targetInputElement The HTML element (e.g., textarea, contenteditable div) above which the indicators should be rendered.
+   */
+  /**
+   * Renders or updates the context indicators above the target input element.
+   * Each indicator represents an active context block (e.g., an inserted file).
+   * This method handles creating the indicator area and inserting it into the DOM
+   * with site-specific placement logic.
+   * @param activeContextBlocks An array of metadata for the currently active context blocks.
+   * @param targetInputElement The HTML element above which the indicators should be rendered.
    */
   public renderContextIndicators(
     activeContextBlocks: Readonly<ContextBlockMetadata[]>, // Use shared type

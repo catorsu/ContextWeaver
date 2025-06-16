@@ -20,9 +20,9 @@ export class DiagnosticsService {
     }
 
     /**
-     * Retrieves all diagnostics for a specific workspace folder and formats them.
-     * @param workspaceFolder The workspace folder to get diagnostics for.
-     * @returns An object containing the formatted string and the number of problems found.
+     * Retrieves all diagnostics for a specific workspace folder and formats them into a string.
+     * @param workspaceFolder - The workspace folder to get diagnostics for.
+     * @returns An object containing the formatted problems string and the total count of problems.
      */
     public getProblemsForWorkspace(workspaceFolder: vscode.WorkspaceFolder): { problemsString: string, problemCount: number } {
         const allDiagnostics = vscode.languages.getDiagnostics();

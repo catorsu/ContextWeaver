@@ -36,8 +36,8 @@ export class WorkspaceService {
     }
 
     /**
-     * @description Checks if the current workspace is trusted.
-     * @returns {boolean} True if the workspace is trusted, false otherwise.
+     * Checks if the current workspace is trusted.
+     * @returns True if the workspace is trusted, false otherwise.
      */
     public isWorkspaceTrusted(): boolean {
         const trusted = vscode.workspace.isTrusted;
@@ -46,8 +46,8 @@ export class WorkspaceService {
     }
 
     /**
-     * @description Gets all workspace folders.
-     * @returns {readonly vscode.WorkspaceFolder[] | undefined} An array of workspace folders, or undefined if no workspace is open.
+     * Gets all workspace folders.
+     * @returns An array of workspace folders, or undefined if no workspace is open.
      */
     public getWorkspaceFolders(): readonly vscode.WorkspaceFolder[] | undefined {
         const folders = vscode.workspace.workspaceFolders;
@@ -60,9 +60,9 @@ export class WorkspaceService {
     }
 
     /**
-     * @description Gets a specific workspace folder by its URI.
-     * @param {vscode.Uri} uri - The URI of the workspace folder.
-     * @returns {vscode.WorkspaceFolder | undefined} The workspace folder, or undefined if not found.
+     * Gets a specific workspace folder by its URI.
+     * @param uri - The URI of the workspace folder.
+     * @returns The workspace folder, or undefined if not found.
      */
     public getWorkspaceFolder(uri: vscode.Uri): vscode.WorkspaceFolder | undefined {
         const folder = vscode.workspace.getWorkspaceFolder(uri);
@@ -75,9 +75,8 @@ export class WorkspaceService {
     }
 
     /**
-     * @description Gets an array of details for all open and trusted workspace folders.
-     * @returns {{ uri: string, name: string, isTrusted: boolean }[] | null} 
-     *          An array of workspace folder details, or null if no workspace is open or none are trusted.
+     * Gets an array of details for all open and trusted workspace folders.
+     * @returns An array of workspace folder details, or null if no workspace is open or none are trusted.
      *          Each trusted folder will have isTrusted = true. If the overall workspace is not trusted,
      *          this function will still list folders but mark them based on individual trust (which is usually false if workspace isn't trusted).
      *          However, core operations should be blocked if `isWorkspaceTrusted()` is false.
@@ -102,10 +101,10 @@ export class WorkspaceService {
 
 
     /**
-     * @description Ensures that the workspace is trusted and at least one folder is open.
+     * Ensures that the workspace is trusted and at least one folder is open.
      * Throws a WorkspaceServiceError if conditions are not met.
      * @throws {WorkspaceServiceError} If the workspace is not trusted or no folders are open.
-     * @returns {Promise<void>} Resolves if checks pass.
+     * @returns Resolves if checks pass.
      */
     public async ensureWorkspaceTrustedAndOpen(): Promise<void> {
         if (!this.isWorkspaceTrusted()) {

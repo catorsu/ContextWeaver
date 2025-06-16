@@ -12,6 +12,17 @@ import { v4 as uuidv4 } from 'uuid';
  * Defines the structure for a code snippet payload, excluding `targetTabId` and `windowId`
  * which are added by the caller (e.g., `extension.ts`).
  */
+/**
+ * Defines the structure for a code snippet payload.
+ * `targetTabId` and `windowId` are added by the calling context.
+ * @property {string} snippet - The selected code snippet text.
+ * @property {string} language - The VS Code language identifier for the snippet.
+ * @property {string} filePath - The full file system path of the source file.
+ * @property {string} relativeFilePath - The path of the source file relative to its workspace.
+ * @property {number} startLine - The 1-indexed starting line number of the snippet.
+ * @property {number} endLine - The 1-indexed ending line number of the snippet.
+ * @property {object} metadata - Metadata for the context block to be created.
+ */
 export interface SnippetPayload {
     snippet: string;
     language: string;
@@ -48,14 +59,15 @@ export class SnippetService {
     }
 
     /**
-     * @description Prepares the snippet data from the active editor's selection.
-     * @returns {SnippetPayload | null} The prepared snippet payload, or null if no valid selection.
+     * Prepares snippet data from the active editor's selection.
+     * Gathers the selected text, language, file paths, and line numbers.
+     * @returns A populated {@link SnippetPayload} object, or null if there is no active editor,
+     * the document is unsaved, or no text is selected.
      */
     public prepareSnippetData(): SnippetPayload | null {
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
             this.outputChannel.appendLine('[ContextWeaver SnippetService] No active text editor.');
-            // vscode.window.showInformationMessage('ContextWeaver: No active text editor to get snippet from.');
             return null;
         }
 
@@ -68,7 +80,6 @@ export class SnippetService {
         const selection = editor.selection;
         if (selection.isEmpty) {
             this.outputChannel.appendLine('[ContextWeaver SnippetService] No text selected.');
-            // vscode.window.showInformationMessage('ContextWeaver: No text selected to send as snippet.');
             return null;
         }
 
