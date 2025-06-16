@@ -137,7 +137,11 @@ export class IPCServer {
         this.findPrimaryAndInitialize();
     }
 
-    // Rationale: New method to encapsulate leader election with port scanning.
+    /**
+     * Scans a predefined port range to find an existing primary server. If found, this instance
+     * becomes a secondary. If not found, this instance becomes the primary. This method
+     * orchestrates the leader election process.
+     */
     private async findPrimaryAndInitialize(): Promise<void> {
         for (let port = PORT_RANGE_START; port <= PORT_RANGE_END; port++) {
             try {
@@ -172,7 +176,11 @@ export class IPCServer {
         this.becomePrimary();
     }
 
-    // Rationale: New method to encapsulate the logic for starting the server on a specific port.
+    /**
+     * Attempts to start the WebSocket server on a specific port.
+     * @param port The port number to attempt to bind to.
+     * @returns A promise that resolves if the server starts successfully, or rejects if the port is in use or another error occurs.
+     */
     private tryStartServerOnPort(port: number): Promise<void> {
         return new Promise((resolve, reject) => {
             const wss = new WebSocketServer({ port, host: '127.0.0.1' });
@@ -364,6 +372,12 @@ export class IPCServer {
         }
     }
 
+    /**
+     * The central message handler for all incoming requests from connected clients.
+     * It parses, validates, and routes messages to the appropriate command handler.
+     * @param client The client that sent the message.
+     * @param message The raw message data from the WebSocket.
+     */
     private async handleMessage(client: Client, message: WebSocket.RawData): Promise<void> {
         let parsedMessage: IPCMessageRequest | IPCMessagePush;
         try {
@@ -1500,7 +1514,7 @@ export class IPCServer {
      * @param targetTabId The ID of the browser tab to push the snippet to.
      * @param snippetData The snippet data to be pushed, including content and metadata.
      */
-    public pushSnippetToTarget(targetTabId: number, snippetData: any): void { // snippetData is PushSnippetPayload
+    public pushSnippetToTarget(targetTabId: number, snippetData: PushSnippetPayload): void {
         let targetClient: Client | null = null;
         for (const client of this.clients.values()) {
             if (client.isAuthenticated && client.activeLLMTabId === targetTabId) {

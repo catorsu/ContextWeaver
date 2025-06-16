@@ -14,7 +14,7 @@
  * @property {string} label - User-friendly label for the context indicator UI.
  * @property {string | null} workspaceFolderUri - The URI of the VS Code workspace folder this content belongs to.
  * @property {string | null} workspaceFolderName - The name of the VS Code workspace folder.
- * @property {string} windowId - The unique identifier for the VS Code window instance that provided the content.
+ * @property {string} windowId - The unique identifier for the source VS Code window, crucial for multi-window environments.
  */
 export interface ContextBlockMetadata {
     unique_block_id: string;
@@ -58,7 +58,7 @@ export type FilterType = 'gitignore' | 'default' | 'none' | 'not_applicable';
  * @property {string} workspaceFolderName - The name of the VS Code workspace folder.
  * @property {string} relativePath - The path of the entry relative to its workspace root.
  * @property {FilterType} [filterTypeApplied] - The type of filter that was applied to this item during the search.
- * @property {string} windowId - The unique identifier for the VS Code window instance that provided the result.
+ * @property {string} windowId - The unique identifier for the source VS Code window, crucial for multi-window environments.
  */
 export interface SearchResult {
     path: string;
@@ -79,7 +79,7 @@ export interface SearchResult {
  * @property {'file' | 'folder'} type - The type of the directory entry.
  * @property {string} uri - The full URI string of the entry.
  * @property {string} content_source_id - The canonical identifier for the content source, typically the URI.
- * @property {string} windowId - The unique identifier for the VS Code window instance that provided the entry.
+ * @property {string} windowId - The unique identifier for the source VS Code window, crucial for multi-window environments.
  */
 export interface DirectoryEntry {
     name: string;

@@ -120,7 +120,7 @@ export interface GenericAckResponsePayload {
  * The data object within a successful FileTreeResponsePayload.
  * @property {string} fileTreeString - The formatted string representation of the file tree.
  * @property {ContextBlockMetadata} metadata - Metadata for the context block to be created.
- * @property {string} windowId - The unique identifier for the VS Code window instance that provided the data.
+ * @property {string} windowId - The unique identifier for the source VS Code window, crucial for multi-window environments.
  */
 export interface FileTreeResponseData {
     fileTreeString: string;
@@ -149,7 +149,7 @@ export interface FileTreeResponsePayload {
  * The data object within a successful FileContentResponsePayload.
  * @property {FileData} fileData - The content and metadata of the requested file.
  * @property {ContextBlockMetadata} metadata - Metadata for the context block to be created.
- * @property {string} windowId - The unique identifier for the VS Code window instance that provided the data.
+ * @property {string} windowId - The unique identifier for the source VS Code window, crucial for multi-window environments.
  */
 export interface FileContentResponseData {
     fileData: FileData;
@@ -178,7 +178,7 @@ export interface FileContentResponsePayload {
  * The data object within a successful FolderContentResponsePayload.
  * @property {FileData[]} filesData - An array of file data objects for the files within the folder.
  * @property {ContextBlockMetadata} metadata - Metadata for the context block to be created.
- * @property {string} windowId - The unique identifier for the VS Code window instance that provided the data.
+ * @property {string} windowId - The unique identifier for the source VS Code window, crucial for multi-window environments.
  */
 export interface FolderContentResponseData {
     filesData: FileData[];
@@ -209,7 +209,7 @@ export interface FolderContentResponsePayload {
  * The data object within a successful EntireCodebaseResponsePayload.
  * @property {FileData[]} filesData - An array of file data objects for the entire codebase.
  * @property {ContextBlockMetadata} metadata - Metadata for the context block to be created.
- * @property {string} windowId - The unique identifier for the VS Code window instance that provided the data.
+ * @property {string} windowId - The unique identifier for the source VS Code window, crucial for multi-window environments.
  * @property {string} [fileTreeString] - Optional: The formatted string representation of the file tree, if requested.
  */
 export interface EntireCodebaseResponseData {
@@ -245,7 +245,7 @@ export interface EntireCodebaseResponsePayload {
  * @property {string} activeFileLabel - A user-friendly label for the active file.
  * @property {string | null} workspaceFolderUri - The URI of the workspace folder the active file belongs to.
  * @property {string | null} workspaceFolderName - The name of the workspace folder the active file belongs to.
- * @property {string} windowId - The unique identifier for the VS Code window instance that provided the data.
+ * @property {string} windowId - The unique identifier for the source VS Code window, crucial for multi-window environments.
  */
 export interface ActiveFileInfoResponseData {
     activeFilePath: string;
@@ -303,7 +303,7 @@ export interface OpenFilesResponsePayload {
 /**
  * The data object within a successful SearchWorkspaceResponsePayload.
  * @property {SearchResult[]} results - An array of search result items.
- * @property {string} windowId - The unique identifier for the VS Code window instance that provided the data.
+ * @property {string} windowId - The unique identifier for the source VS Code window, crucial for multi-window environments.
  */
 export interface SearchWorkspaceResponseData {
     results: SearchResult[];
@@ -385,7 +385,7 @@ export interface FilterInfoResponsePayload {
  * @property {DirectoryEntry[]} entries - An array of directory entries (files and folders) within the requested folder.
  * @property {string} parentFolderUri - The URI of the parent folder whose contents were listed (echoed back).
  * @property {FilterType} filterTypeApplied - The type of filter that was applied during the listing operation.
- * @property {string} windowId - The unique identifier for the VS Code window instance that provided the data.
+ * @property {string} windowId - The unique identifier for the source VS Code window, crucial for multi-window environments.
  */
 export interface ListFolderContentsResponseData {
     entries: DirectoryEntry[];
@@ -412,7 +412,7 @@ export interface ListFolderContentsResponsePayload {
  * @property {string} problemsString - A formatted string representation of the workspace problems.
  * @property {number} problemCount - The total number of problems found in the workspace.
  * @property {ContextBlockMetadata} metadata - Metadata for the context block to be created.
- * @property {string} windowId - The unique identifier for the VS Code window instance that provided the data.
+ * @property {string} windowId - The unique identifier for the source VS Code window, crucial for multi-window environments.
  */
 export interface WorkspaceProblemsResponseData {
     problemsString: string;
@@ -462,7 +462,7 @@ export interface ErrorResponsePayload {
  * @property {number} endLine - The 1-indexed ending line number of the snippet.
  * @property {ContextBlockMetadata} metadata - Metadata for the context block to be created.
  * @property {number} targetTabId - The ID of the browser tab to push the snippet to.
- * @property {string} windowId - The unique identifier for the VS Code window instance that sent the snippet.
+ * @property {string} windowId - The unique identifier for the source VS Code window, crucial for multi-window environments.
  */
 export interface PushSnippetPayload {
     snippet: string;
@@ -478,7 +478,8 @@ export interface PushSnippetPayload {
 
 
 /**
- * Represents a request message sent from the Chrome Extension to the VS Code Extension.
+ * A discriminated union of all possible request message types sent from the CE to the VSCE.
+ * The `command` property serves as the discriminant.
  */
 export type IPCRequest =
     | { command: "register_active_target"; payload: RegisterActiveTargetRequestPayload }
@@ -498,7 +499,8 @@ export type IPCRequest =
     | { command: "unregister_secondary"; payload: { windowId: string } };
 
 /**
- * Represents a response message sent from the VS Code Extension to the Chrome Extension.
+ * A discriminated union of all possible response message types sent from the VSCE to the CE.
+ * The `command` property serves as the discriminant.
  */
 export type IPCResponse =
     | { command: "response_generic_ack"; payload: GenericAckResponsePayload }
@@ -516,20 +518,27 @@ export type IPCResponse =
     | { command: "response_unregister_secondary_ack"; payload: GenericAckResponsePayload };
 
 /**
- * Represents a push message sent from the VS Code Extension to the Chrome Extension.
+ * A discriminated union of all possible push message types sent from the VSCE to the CE.
+ * These are one-way messages that do not expect a response.
  */
 export type IPCPush =
     | { command: "push_snippet"; payload: PushSnippetPayload }
     | { command: "forward_response_to_primary"; payload: { originalMessageId: string; responsePayload: any } }
     | { command: "forward_push_to_primary"; payload: { originalPushPayload: PushSnippetPayload } };
 
-// Full message types
+/** A complete IPC request message, combining the base structure with a specific request type. */
 export type IPCMessageRequest = IPCBaseMessage & { type: "request" } & IPCRequest;
+/** A complete IPC response message, combining the base structure with a specific response type. */
 export type IPCMessageResponse = IPCBaseMessage & { type: "response" } & IPCResponse;
-export type IPCMessagePush = IPCBaseMessage & { type: "push"; message_id?: string } & IPCPush; // message_id optional for pushes
+/** 
+ * A complete IPC push message, combining the base structure with a specific push type.
+ * The `message_id` is optional for pushes but recommended for tracing.
+ */
+export type IPCMessagePush = IPCBaseMessage & { type: "push"; message_id?: string } & IPCPush;
+/** A complete IPC error response message, sent when a request fails. */
 export type IPCMessageErrorResponse = IPCBaseMessage & { type: "error_response"; command: "error_response" | IPCRequest['command'] } & { payload: ErrorResponsePayload };
 
 /**
- * Represents any possible IPC message type.
+ * A union of all possible IPC message types, useful for generic message handlers.
  */
 export type AnyIPCMessage = IPCMessageRequest | IPCMessageResponse | IPCMessagePush | IPCMessageErrorResponse;

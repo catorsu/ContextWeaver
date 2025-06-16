@@ -10,7 +10,6 @@ const statusIcon = document.getElementById('status-icon');
 const tooltipText = document.getElementById('tooltip-text');
 const reconnectButton = document.getElementById('reconnect-button');
 
-// Theme detection
 type Theme = 'light' | 'dark';
 
 /**
@@ -132,7 +131,6 @@ function triggerReconnect() {
         });
 }
 
-// Listen for status updates from the service worker
 chrome.runtime.onMessage.addListener((message) => {
     if (message.action === 'ipcConnectionStatus') {
         console.log(LOG_PREFIX_POPUP, 'Received ipcConnectionStatus:', message);
@@ -182,7 +180,6 @@ function requestInitialConnectionStatus() {
         });
 }
 
-// Attach event listeners
 if (reconnectButton) {
     reconnectButton.addEventListener('click', triggerReconnect);
 }

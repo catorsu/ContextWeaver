@@ -29,11 +29,7 @@ const PORT_RANGE_END = 30005;
 
 /**
  * Manages the WebSocket client connection to the VS Code Extension (VSCE) IPC server.
- * Handles sending requests, receiving responses, and managing connection state.
- */
-/**
- * Manages the WebSocket client connection to the VS Code Extension (VSCE) IPC server.
- * Handles connection retries, message serialization, and request/response tracking.
+ * Handles connection retries, message serialization, request/response tracking, and connection state.
  */
 class IPCClient {
     private ws: WebSocket | null = null;
@@ -270,8 +266,7 @@ class IPCClient {
         tryConnect();
     }
 
-    // TODO: Replace 'any' with 'string | Buffer | ArrayBuffer' once the WebSocket library's types are fully integrated.
-    private handleServerMessage(messageData: any): void {
+        private handleServerMessage(messageData: any): void {
         console.log(LOG_PREFIX_SW, 'handleServerMessage: Raw data received from server:', messageData);
 
         try {
@@ -339,13 +334,8 @@ class IPCClient {
     }
 
     /**
-     * Sends a request to the VSCE IPC server and waits for a response.
-     * Ensures connection before sending the request.
-     * @param command The command to send to the VSCE.
-     * @param payload The payload for the command.
-     * @returns A Promise that resolves with the response payload from the VSCE.
      * Sends a request to the VSCE IPC server and returns a promise that resolves with the response.
-     * This method ensures the client is connected before sending and manages request timeouts.
+     * Ensures connection before sending and manages request timeouts.
      * @template TReqPayload The type of the request payload.
      * @template TResPayload The type of the expected response payload.
      * @param command The IPC command to send.
@@ -562,7 +552,6 @@ interface OptionsPageMessage {
 
 type IncomingRuntimeMessage = SWApiRequestMessage | OptionsPageMessage | IPCMessagePush; // Added IPCMessagePush for direct pushes from VSCE
 
-// --- Message Handling from Content Scripts / UI ---
 chrome.runtime.onMessage.addListener((message: IncomingRuntimeMessage, sender, sendResponse) => {
     console.log(LOG_PREFIX_SW, 'Message received in service worker:', message, 'from sender:', sender?.tab?.id, sender?.url);
 
@@ -881,7 +870,6 @@ chrome.runtime.onMessage.addListener((message: IncomingRuntimeMessage, sender, s
 });
 
 
-// --- Keep Alive for Service Worker ---
 let keepAliveIntervalId: number | undefined;
 
 // Service workers become idle after 30 seconds of inactivity. This interval

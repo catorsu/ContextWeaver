@@ -620,17 +620,10 @@ export class UIManager {
 
   /**
    * Displays the floating UI panel, positioning it relative to a target input element.
-   * @param targetInputElement The HTML element (e.g., textarea, contenteditable div) to which the UI panel should be anchored.
-   * @param uiInitialTitle The initial title to display in the UI panel.
-   * @param uiInitialContent Optional. The initial content to display in the UI panel. Can be an HTMLElement, DocumentFragment, or HTML string.
-   * @param onHide Optional. A callback function to execute when the UI panel is hidden.
-   */
-  /**
-   * Displays the floating UI panel, positioning it relative to a target input element.
    * It handles viewport collision to ensure the panel is always visible.
-   * @param targetInputElement The HTML element to which the UI panel should be anchored.
+   * @param targetInputElement The HTML element (textarea or contenteditable) to which the UI panel should be anchored.
    * @param uiInitialTitle The initial title to display in the panel.
-   * @param uiInitialContent Optional initial content for the panel.
+   * @param uiInitialContent Optional initial content. Can be an HTMLElement, DocumentFragment, or HTML string.
    * @param onHide Optional callback to execute when the UI is hidden.
    */
   public show(
@@ -706,9 +699,6 @@ export class UIManager {
     console.log(LOG_PREFIX_UI, 'Floating UI shown.');
   }
 
-  /**
-   * Hides the floating UI panel and clears its content.
-   */
   /**
    * Hides the floating UI panel, clears its content, and invokes the onHide callback if provided.
    */
@@ -976,8 +966,7 @@ export class UIManager {
     }, 3000); // Toast disappears after 3 seconds if not manually dismissed
   }
 
-  // --- Context Indicators ---
-  /**
+    /**
    * Sets the callback function to be invoked when a context indicator's remove button is clicked.
    * @param onRemove The callback function that receives the unique block ID and block type of the indicator to be removed.
    */
@@ -991,17 +980,11 @@ export class UIManager {
 
   /**
    * Renders or updates the context indicators above the target input element.
-   * Each indicator represents an active context block (e.g., inserted file content).
-   * @param activeContextBlocks A readonly array of ContextBlockMetadata objects representing the currently active context blocks.
-   * @param targetInputElement The HTML element (e.g., textarea, contenteditable div) above which the indicators should be rendered.
-   */
-  /**
-   * Renders or updates the context indicators above the target input element.
    * Each indicator represents an active context block (e.g., an inserted file).
    * This method handles creating the indicator area and inserting it into the DOM
    * with site-specific placement logic.
-   * @param activeContextBlocks An array of metadata for the currently active context blocks.
-   * @param targetInputElement The HTML element above which the indicators should be rendered.
+   * @param activeContextBlocks A readonly array of ContextBlockMetadata objects for the active context blocks.
+   * @param targetInputElement The HTML element (textarea or contenteditable) above which the indicators should be rendered.
    */
   public renderContextIndicators(
     activeContextBlocks: Readonly<ContextBlockMetadata[]>, // Use shared type
@@ -1055,7 +1038,7 @@ export class UIManager {
 
     this.contextIndicatorArea.innerHTML = ''; // Clear existing indicators
 
-    activeContextBlocks.forEach(block => {
+    activeContextBlocks.forEach((block: { unique_block_id: string; content_source_id: string; type: string; label: string }) => {
       const indicator = document.createElement('div');
       indicator.className = `${CSS_PREFIX}context-indicator`;
       indicator.dataset.uniqueBlockId = block.unique_block_id;
@@ -1136,8 +1119,7 @@ export class UIManager {
     }
   }
 
-  // --- Dismissal Event Handlers ---
-  private boundHandleEscapeKey = this.handleEscapeKey.bind(this);
+    private boundHandleEscapeKey = this.handleEscapeKey.bind(this);
   private boundHandleClickOutside = this.handleClickOutside.bind(this);
 
   private addDismissalEventListeners(): void {
@@ -1165,8 +1147,7 @@ export class UIManager {
     }
   }
 
-  // --- DOM Element Creation Utilities ---
-  /**
+    /**
    * Creates an HTML button element with specified text and options.
    * @param text The text content of the button.
    * @param options Optional. An object containing button properties like id, classNames, onClick handler, disabled state, and inline styles.

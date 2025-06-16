@@ -16,12 +16,7 @@
       "node",
       "jest"
     ],
-    "composite": true,
-    "baseUrl": "./src",
-    "paths": {
-      "@contextweaver/shared": ["../../shared/src"],
-      "@contextweaver/shared/*": ["../../shared/src/*"]
-    }
+    "composite": true
   },
   "include": [
     "src/**/*.ts"

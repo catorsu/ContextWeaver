@@ -7,7 +7,7 @@
     "copy-assets": "cpx \"assets/**/*\" dist/assets",
     "lint": "eslint src --ext ts",
     "bundle": "esbuild src/contentScript.ts src/serviceWorker.ts src/popup.ts --bundle --sourcemap --outdir=dist",
-    "clean": "rm -rf dist",
+    "clean": "rimraf dist",
     "watch": "npm run bundle -- --watch",
     "test": "jest",
     "test:watch": "jest --watch"
@@ -24,6 +24,7 @@
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0",
     "jsdom": "^25.0.1",
+    "rimraf": "^3.0.2",
     "ts-jest": "^29.3.4",
     "typescript": "^5.3.3"
   },

@@ -30,8 +30,7 @@ export class StateManager {
         console.log(LOG_PREFIX_SM, 'StateManager initialized.');
     }
 
-    // --- Active Context Blocks ---
-    /**
+        /**
      * Retrieves a read-only array of currently active context blocks.
      * @returns A read-only array of ContextBlockMetadata objects.
      */
@@ -81,8 +80,7 @@ export class StateManager {
         console.log(LOG_PREFIX_SM, 'Active context blocks cleared.');
     }
 
-    // --- Search State ---
-    /**
+        /**
      * Retrieves the last search response.
      * @returns The last SearchWorkspaceResponsePayload or null if none.
      */
@@ -114,8 +112,7 @@ export class StateManager {
         this._searchQuery = query;
     }
 
-    // --- UI Target State ---
-    /**
+        /**
      * Retrieves the currently targeted HTML element for the UI panel.
      * @returns The HTMLElement currently targeted by the UI panel, or null.
      */
@@ -131,8 +128,7 @@ export class StateManager {
         this._currentTargetElementForPanel = element;
     }
 
-    // --- Original Query Text ---
-    /**
+        /**
      * Retrieves the original query text from the UI that triggered the current state.
      * @returns The original query text string or undefined.
      */
@@ -148,8 +144,7 @@ export class StateManager {
         this._originalQueryTextFromUI = queryText;
     }
 
-    // --- Reset relevant state on UI hide ---
-    /**
+        /**
      * Callback function invoked when the UI is hidden.
      * Currently logs a message, but can be extended to reset state if needed.
      */

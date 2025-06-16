@@ -8,16 +8,11 @@
 import {
     SearchWorkspaceRequestPayload, SearchWorkspaceResponsePayload,
     WorkspaceDetailsResponsePayload,
-    GetFileTreeRequestPayload, FileTreeResponsePayload, // Corrected: GetFileTreeRequestPayload
-    ActiveFileInfoResponsePayload,
-    GetFileContentRequestPayload, FileContentResponsePayload, // Corrected: GetFileContentRequestPayload
-    GetEntireCodebaseRequestPayload, EntireCodebaseResponsePayload, // Corrected: GetEntireCodebaseRequestPayload
-    OpenFilesResponsePayload,
-    GetFolderContentRequestPayload, FolderContentResponsePayload, // Corrected: GetFolderContentRequestPayload
-    ListFolderContentsRequestPayload, ListFolderContentsResponsePayload,
+    GetFileTreeRequestPayload, FileTreeResponsePayload,     ActiveFileInfoResponsePayload,
+    GetFileContentRequestPayload, FileContentResponsePayload,     GetEntireCodebaseRequestPayload, EntireCodebaseResponsePayload,     OpenFilesResponsePayload,
+    GetFolderContentRequestPayload, FolderContentResponsePayload,     ListFolderContentsRequestPayload, ListFolderContentsResponsePayload,
     GetWorkspaceProblemsRequestPayload, WorkspaceProblemsResponsePayload
-    // Add other request/response payload types from @contextweaver/shared as needed
-} from '@contextweaver/shared';
+    } from '@contextweaver/shared';
 
 const LOG_PREFIX_SW_CLIENT = '[ContextWeaver SWClient]';
 
@@ -31,13 +26,6 @@ interface SWApiRequestMessage {
     payload?: any;
 }
 
-/**
- * Sends a message to the Chrome Extension's service worker and waits for a response.
- * Handles potential errors from the service worker or the underlying communication.
- * @param message The message object to send to the service worker.
- * @returns A Promise that resolves with the response payload from the service worker.
- * @template TResponsePayload The expected type of the response payload.
- */
 /**
  * Sends a message to the Chrome Extension's service worker and waits for a response.
  * This is the central communication function for this module, handling errors and response validation.
@@ -68,7 +56,6 @@ async function sendMessageToSW<TResponsePayload>(message: SWApiRequestMessage): 
     }
 }
 
-// --- Exported API Functions ---
 
 /**
  * Initiates a workspace search via the service worker.
@@ -99,8 +86,7 @@ export async function getWorkspaceDetails(): Promise<WorkspaceDetailsResponsePay
 export async function getFileTree(workspaceFolderUri: string | null): Promise<FileTreeResponsePayload> {
     return sendMessageToSW<FileTreeResponsePayload>({
         type: 'GET_FileTree',
-        payload: { workspaceFolderUri } as GetFileTreeRequestPayload // Corrected: GetFileTreeRequestPayload
-    });
+        payload: { workspaceFolderUri } as GetFileTreeRequestPayload     });
 }
 
 /**
@@ -119,8 +105,7 @@ export async function getActiveFileInfo(): Promise<ActiveFileInfoResponsePayload
 export async function getFileContent(filePath: string): Promise<FileContentResponsePayload> {
     return sendMessageToSW<FileContentResponsePayload>({
         type: 'GET_FILE_CONTENT',
-        payload: { filePath } as GetFileContentRequestPayload // Corrected: GetFileContentRequestPayload
-    });
+        payload: { filePath } as GetFileContentRequestPayload     });
 }
 
 /**
@@ -131,8 +116,7 @@ export async function getFileContent(filePath: string): Promise<FileContentRespo
 export async function getEntireCodebase(workspaceFolderUri: string | null): Promise<EntireCodebaseResponsePayload> {
     return sendMessageToSW<EntireCodebaseResponsePayload>({
         type: 'GET_ENTIRE_CODEBASE',
-        payload: { workspaceFolderUri } as GetEntireCodebaseRequestPayload // Corrected: GetEntireCodebaseRequestPayload
-    });
+        payload: { workspaceFolderUri } as GetEntireCodebaseRequestPayload     });
 }
 
 /**
@@ -143,12 +127,9 @@ export async function getOpenFiles(): Promise<OpenFilesResponsePayload> {
     return sendMessageToSW<OpenFilesResponsePayload>({ type: 'GET_OPEN_FILES_FOR_UI' });
 }
 
-// Define these types if they are not already in @contextweaver/shared
-// For now, assuming they are similar to what serviceWorker expects
 interface GetContentsForSelectedOpenFilesRequestPayloadSW {
     fileUris: string[];
 }
-// The response payload from serviceWorker for this specific message
 interface GetContentsForSelectedOpenFilesResponsePayloadSW {
     success: boolean;
     data?: { fileData: any, metadata: any }[]; // From serviceWorker response
@@ -178,8 +159,7 @@ export async function getContentsForSelectedOpenFiles(fileUris: string[]): Promi
 export async function getFolderContent(folderPath: string, workspaceFolderUri: string | null): Promise<FolderContentResponsePayload> {
     return sendMessageToSW<FolderContentResponsePayload>({
         type: 'GET_FOLDER_CONTENT',
-        payload: { folderPath, workspaceFolderUri } as GetFolderContentRequestPayload // Corrected: GetFolderContentRequestPayload
-    });
+        payload: { folderPath, workspaceFolderUri } as GetFolderContentRequestPayload     });
 }
 
 /**

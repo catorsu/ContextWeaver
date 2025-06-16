@@ -6,7 +6,6 @@
  * @module ContextWeaver/CE
  */
 
-// Import UIManager and shared types
 import { UIManager } from './uiManager';
 import {
   ContextBlockMetadata,
@@ -30,7 +29,6 @@ const LOCAL_CSS_PREFIX = 'cw-'; // For classes not managed by UIManager but need
 
 console.log(`${LOG_PREFIX_CS} Content script loaded.`);
 
-// Theme detection
 type Theme = 'light' | 'dark';
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 let currentTheme: Theme = 'dark'; // Default theme
@@ -58,10 +56,8 @@ function updateTheme(theme: Theme): void {
   // Apply theme to body for global components like modals
   document.body.setAttribute('data-theme', theme);
 
-  // Update UIManager with the new theme
   uiManager.setTheme(theme);
 
-  // Store theme preference
   chrome.storage.local.set({ theme });
 }
 
@@ -101,9 +97,7 @@ function initializeThemeDetection(): void {
 }
 
 const uiManager = new UIManager();
-const stateManager = new StateManager(); // Instantiate StateManager
-
-// Initialize theme detection
+const stateManager = new StateManager();
 initializeThemeDetection();
 
 
@@ -266,7 +260,6 @@ async function performSearch(query: string): Promise<void> {
 
 const debouncedPerformSearch = debounce(performSearch, 300);
 
-// Helper to process a generic content insertion (file or entire folder)
 /**
  * Processes the insertion of content (file, folder, file tree, or codebase) into the LLM input field.
  * Fetches the content from the service worker and inserts it, then updates context indicators.
@@ -346,8 +339,7 @@ async function processContentInsertion(
 
       // TODO: Replace 'any' with a discriminated union type for response data from @contextweaver/shared.
       // This will provide type safety for accessing properties like 'fileTreeString', 'problemsString', etc.
-      const actualData = responsePayload.data as any; // Cast to any to access specific data properties
-      let contentToInsert: string;
+      const actualData = responsePayload.data as any; let contentToInsert: string;
       let metadataFromResponse: ContextBlockMetadata;
 
       if (itemMetadata.type === 'FileTree') {
@@ -455,7 +447,6 @@ function createSearchResultItemElement(result: SharedSearchResult, omitWorkspace
     itemDiv.dataset.workspaceFolderUri = result.workspaceFolderUri;
   }
 
-  // Add keyboard support
   itemDiv.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -1047,7 +1038,7 @@ function handleIndicatorClick(uniqueBlockId: string, label: string): void {
 
   const allContent = (targetElement as HTMLTextAreaElement).value || targetElement.innerHTML;
 
-  const block = stateManager.getActiveContextBlocks().find(b => b.unique_block_id === uniqueBlockId);
+  const block = stateManager.getActiveContextBlocks().find((b: { unique_block_id: string }) => b.unique_block_id === uniqueBlockId);
   if (!block) {
     console.error(LOG_PREFIX_CS, `Could not find metadata for block ID ${uniqueBlockId}.`);
     uiManager.showToast('Internal error: Could not find block metadata.', 'error');
@@ -1082,7 +1073,6 @@ function handleIndicatorClick(uniqueBlockId: string, label: string): void {
   }
 }
 
-// --- Text Insertion ---
 /**
  * Inserts text into the target LLM input field, handling both textarea and contenteditable elements.
  * It attempts to replace the original trigger query if present.
@@ -1181,7 +1171,6 @@ function handleTextAreaInsertion(
 
 
 
-// --- Event Listener Attachment ---
 /**
  * Attaches an 'input' event listener to the specified LLM input field to detect trigger characters.
  * @param inputField The HTML element (textarea or contenteditable div) to attach the listener to.
@@ -1310,7 +1299,6 @@ function attachListenerToInputField(inputField: HTMLElement, config: LLMInputCon
   config.isAttached = true;
 }
 
-// --- Initialization and Observation ---
 /**
  * Initializes the trigger detection mechanism by identifying LLM input fields on the current page
  * and attaching event listeners or MutationObservers as needed.
@@ -1539,7 +1527,6 @@ function createBrowseItemElement(entry: CWDirectoryEntry): HTMLDivElement { // U
   itemDiv.appendChild(iconElement);
   itemDiv.appendChild(nameSpan);
 
-  // Add keyboard support
   itemDiv.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -1910,7 +1897,6 @@ function createOpenFilesListItem(file: { path: string; name: string; workspaceFo
   listItem.appendChild(iconElement);
   listItem.appendChild(label);
 
-  // Add keyboard support
   listItem.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
