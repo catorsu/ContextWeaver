@@ -1,7 +1,7 @@
 # ContextWeaver: Inter-Plugin Communication (IPC) Protocol Design
 
 **Version:** 1.1.0
-**Date:** June XX, 2025
+**Date:** June 16, 2025
 
 **Important Note:** This document provides a human-readable overview of the IPC protocol. For the definitive and normative specification of all message structures, request/response payloads, and shared data models, please refer to the TypeScript interfaces defined in the `packages/shared/src/` directory, primarily within `ipc-types.ts` and `data-models.ts`. In case of any discrepancy, the TypeScript definitions are authoritative.
 
@@ -152,18 +152,7 @@ Requests a search for files and folders within the workspace.
 
 ---
 
-#### 3.1.9. `check_workspace_trust`
-**[DEPRECATED]** Use `get_workspace_details` (3.1.11) instead.
-Requests the trust state of the current VS Code workspace(s).
-
-*   **`type`**: `"request"`
-*   **`command`**: `"check_workspace_trust"`
-*   **`payload`**: `{}`
-*   **VSCE Response**: `response_workspace_trust` (see 3.2.9)
-
----
-
-#### 3.1.10. `get_filter_info`
+#### 3.1.9. `get_filter_info`
 Requests information about the active filter type (gitignore or default) for a workspace.
 
 *   **`type`**: `"request"`
@@ -174,21 +163,21 @@ Requests information about the active filter type (gitignore or default) for a w
       "workspaceFolderUri": "string | null" // URI of a specific workspace folder, or null for the (first) active one.
     }
     ```
-*   **VSCE Response**: `response_filter_info` (see 3.2.10)
+*   **VSCE Response**: `response_filter_info` (see 3.2.9)
 
 ---
 
-#### 3.1.11. `get_workspace_details`
-Requests details about the currently open workspace(s), including their trust state. This replaces the need for `check_workspace_trust`.
+#### 3.1.10. `get_workspace_details`
+Requests details about the currently open workspace(s), including their trust state.
 
 *   **`type`**: `"request"`
 *   **`command`**: `"get_workspace_details"`
 *   **`payload`**: `{}`
-*   **VSCE Response**: `response_workspace_details` (see 3.2.12)
+*   **VSCE Response**: `response_workspace_details` (see 3.2.10)
 
 ---
 
-#### 3.1.12. `list_folder_contents`
+#### 3.1.11. `list_folder_contents`
 Requests a listing of immediate files and subdirectories within a specified folder, respecting filters.
 
 *   **`type`**: `"request"`
@@ -200,11 +189,11 @@ Requests a listing of immediate files and subdirectories within a specified fold
       "workspaceFolderUri": "string | null" // URI of the workspace folder this folderUri belongs to (for context, filtering). Null if not applicable or single root.
     }
     ```
-*   **VSCE Response**: `response_list_folder_contents` (see 3.2.13)
+*   **VSCE Response**: `response_list_folder_contents` (see 3.2.12)
 
 ---
 
-#### 3.1.13. `register_secondary`
+#### 3.1.12. `register_secondary`
 Registers a secondary VSCE instance with the primary VSCE for multi-window support.
 
 *   **`type`**: `"request"`
@@ -220,7 +209,7 @@ Registers a secondary VSCE instance with the primary VSCE for multi-window suppo
 
 ---
 
-#### 3.1.14. `forward_request_to_secondaries`
+#### 3.1.13. `forward_request_to_secondaries`
 Used by the primary VSCE to forward requests from the Chrome Extension to secondary VSCE instances.
 
 *   **`type`**: `"request"`
@@ -241,7 +230,7 @@ Used by the primary VSCE to forward requests from the Chrome Extension to second
 
 ---
 
-#### 3.1.15. `get_workspace_problems`
+#### 3.1.14. `get_workspace_problems`
 Requests all diagnostics (errors, warnings, information, and hints) for a specified workspace folder.
 
 *   **`type`**: `"request"`
@@ -252,7 +241,7 @@ Requests all diagnostics (errors, warnings, information, and hints) for a specif
       "workspaceFolderUri": "string" // URI of the workspace folder to get problems for
     }
     ```
-*   **VSCE Response**: `response_workspace_problems` (see 3.2.14)
+*   **VSCE Response**: `response_workspace_problems` (see 3.2.13)
 
 ---
 
@@ -508,34 +497,7 @@ Response to `search_workspace`.
 
 ---
 
-#### 3.2.9. `response_workspace_trust`
-**[DEPRECATED]** See `response_workspace_details` (3.2.11).
-Response to `check_workspace_trust`.
-
-*   **`type`**: `"response"`
-*   **`command`**: `"response_workspace_trust"`
-*   **`payload`**:
-    ```json
-    {
-      "success": "boolean",
-      "data": { // Present if success is true
-        "isTrusted": "boolean", // Overall trust status of the workspace
-        "workspaceFolders": [ // Information about each folder
-          {
-            "uri": "string",
-            "name": "string",
-            "isTrusted": "boolean" // Trust status of this specific folder
-          }
-          // ... more folders if multi-root
-        ]
-      } | null,
-      "error": "string | null" // e.g., "No workspace open."
-    }
-    ```
-
----
-
-#### 3.2.10. `response_filter_info`
+#### 3.2.9. `response_filter_info`
 Response to `get_filter_info`.
 
 *   **`type`**: `"response"`
@@ -555,7 +517,7 @@ Response to `get_filter_info`.
 
 ---
 
-#### 3.2.11. `response_workspace_details`
+#### 3.2.10. `response_workspace_details`
 Response to `get_workspace_details`.
 
 *   **`type`**: `"response"`
@@ -583,7 +545,7 @@ Response to `get_workspace_details`.
 
 ---
 
-#### 3.2.12. `error_response` (General Error)
+#### 3.2.11. `error_response` (General Error)
 A generic error response if a more specific one isn't suitable, or for unhandled errors.
 
 *   **`type`**: `"error_response"`
@@ -600,7 +562,7 @@ A generic error response if a more specific one isn't suitable, or for unhandled
 
 ---
 
-#### 3.2.13. `response_list_folder_contents`
+#### 3.2.12. `response_list_folder_contents`
 Response to `list_folder_contents`.
 
 The `entries` array contains a **flat list of all recursive descendants** (all files and folders within the target folder and all its subfolders) that are not ignored by filters. The client-side (`contentScript.ts`) is responsible for building the hierarchical tree view from this flat list.
@@ -633,7 +595,7 @@ The `entries` array contains a **flat list of all recursive descendants** (all f
 
 ---
 
-#### 3.2.14. `response_workspace_problems`
+#### 3.2.13. `response_workspace_problems`
 Response to `get_workspace_problems`.
 
 *   **`type`**: `"response"`
@@ -790,7 +752,7 @@ This object is included in VSCE responses when providing data that will be inser
 
 *   **1.0 (2025-05-26):** Initial design.
 *   **1.0.1 (2025-06-02):** Added `list_folder_contents` command and `response_list_folder_contents` for browsing folder contents.
-*   **1.1.0 (2025-06-XX):** Added multi-window support via Primary/Secondary architecture:
+*   **1.1.0 (2025-06-16):** Added multi-window support via Primary/Secondary architecture:
     *   Added `windowId` field to `ContextBlockMetadata`, `SearchResult`, and `DirectoryEntry` data models.
     *   Added new IPC commands: `register_secondary`, `forward_request_to_secondaries`.
     *   Added new push commands: `forward_response_to_primary`, `forward_push_to_primary`.

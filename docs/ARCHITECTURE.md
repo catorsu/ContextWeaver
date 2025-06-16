@@ -42,51 +42,79 @@ The project follows this directory structure:
 
 ```
 ContextWeaver/
-├── docs/                      # Project documentation
-│   ├── ARCHITECTURE.MD
-│   ├── Development_Plan.md
+├── .gitignore
+├── CLAUDE.md
+├── package.json
+├── README.md
+├── docs/
+│   ├── ARCHITECTURE.md
 │   ├── IPC_Protocol_Design.md
 │   ├── SRS.md
 │   └── TROUBLESHOOTING_AND_LESSONS_LEARNED.md
 ├── packages/
-│   ├── vscode-extension/      # VS Code Extension (VSCE)
-│   │   ├── src/               # Source files for VSCE
-│   │   │   ├── extension.ts
-│   │   │   ├── fileSystemService.ts
-│   │   │   ├── ipcServer.ts
-│   │   │   ├── searchService.ts
-│   │   │   ├── snippetService.ts
-│   │   │   └── workspaceService.ts
-│   │   ├── tests/             # Tests for VSCE
-│   │   │   └── unit/          #   - Unit test files (e.g., ipcServer.test.ts)
-│   │   ├── .eslintrc.json     # ESLint configuration
-│   │   ├── jest.config.js     # Jest configuration
-│   │   ├── package.json       # NPM manifest
-│   │   └── tsconfig.json      # TypeScript configuration
-│   ├── chrome-extension/      # Chrome Extension (CE)
-│   │   ├── src/               # Source files for CE
+│   ├── chrome-extension/
+│   │   ├── .eslintrc.json
+│   │   ├── jest.config.js
+│   │   ├── manifest.json
+│   │   ├── package.json
+│   │   ├── popup.html
+│   │   ├── tsconfig.json
+│   │   ├── assets/
+│   │   │   ├── fonts/
+│   │   │   │   └── MaterialSymbols-Variable.woff2
+│   │   │   └── icons/
+│   │   │       ├── account_tree.svg
+│   │   │       ├── arrow_back.svg
+│   │   │       ├── check_circle.svg
+│   │   │       ├── close.svg
+│   │   │       ├── content_cut.svg
+│   │   │       ├── description.svg
+│   │   │       ├── error.svg
+│   │   │       ├── folder_open.svg
+│   │   │       ├── folder.svg
+│   │   │       ├── menu_book.svg
+│   │   │       ├── progress_activity.svg
+│   │   │       └── search.svg
+│   │   ├── images/
+│   │   │   ├── icon16.png
+│   │   │   ├── icon48.png
+│   │   │   └── icon128.png
+│   │   ├── src/
 │   │   │   ├── contentScript.ts
-│   │   │   ├── popup.ts           // Handles settings and connection management
+│   │   │   ├── popup.ts
 │   │   │   ├── serviceWorker.ts
-│   │   │   ├── uiManager.ts         // ADDED
-│   │   │   ├── stateManager.ts      // ADDED
-│   │   │   └── serviceWorkerClient.ts // ADDED
-│   │   ├── images/            # Static image assets
-│   │   ├── .eslintrc.json     # ESLint configuration
-│   │   ├── manifest.json      # CE manifest
-│   │   ├── package.json       # NPM manifest
-│   │   ├── tsconfig.json      # TypeScript configuration
-│   │   └── popup.html         // Main popup UI with settings
-│   └── shared/                # Shared code
-│       ├── src/               # Source files for shared code
-│       │   ├── data-models.ts     // ADDED
-│       │   ├── ipc-types.ts       // ADDED
-│       │   └── index.ts           // ADDED
-│       ├── package.json       # NPM manifest
-│       └── tsconfig.json      # TypeScript configuration
-├── .gitignore                 # Specifies gitignored files
-├── package.json               # Root NPM manifest (workspaces, common scripts)
-└── README.md                  # Project README
+│   │   │   ├── serviceWorkerClient.ts
+│   │   │   ├── stateManager.ts
+│   │   │   └── uiManager.ts
+│   │   └── tests/
+│   │       ├── contentScript.test.ts
+│   │       └── setup.js
+│   ├── native-host/
+│   ├── shared/
+│   │   ├── package.json
+│   │   ├── tsconfig.json
+│   │   └── src/
+│   │       ├── data-models.ts
+│   │       ├── index.ts
+│   │       └── ipc-types.ts
+│   └── vscode-extension/
+│       ├── .eslintrc.json
+│       ├── .vscodeignore
+│       ├── jest.config.js
+│       ├── package.json
+│       ├── tsconfig.json
+│       ├── src/
+│       │   ├── diagnosticsService.ts
+│       │   ├── extension.ts
+│   │       ├── fileSystemService.ts
+│   │       ├── ipcServer.ts
+│   │       ├── searchService.ts
+│   │       ├── snippetService.ts
+│   │       └── workspaceService.ts
+│       └── tests/
+│           └── unit/
+│               ├── fileSystemService.test.ts
+│               └── ipcServer.test.ts
 ```
 
 *(Note: This diagram aims to represent a comprehensive view of the project structure, including source code, key configuration files, and commonly generated directories like `node_modules/` and `dist/` (which are typically gitignored but essential for development and building). It omits OS-specific generated files and AI-development-environment-specific files like `.claude/` or `CLAUDE.md`. The exact contents of `src/` and `tests/` directories will evolve as development progresses and should be updated here accordingly.)*
@@ -199,6 +227,12 @@ Refer to these TypeScript files for the authoritative definitions of these struc
     *   **Rationale:** Simplifies the backend (VSCE) logic by having it provide a simple, flat list of all recursive descendants. This offloads the view-specific task of rendering a tree to the client (CE), making the API more generic and reducing the complexity of the data sent over IPC. (Reflected in `contentScript.ts`'s `buildTreeStructure` function).
 *   **Decision:** Implement UI icons using SVG files with CSS masking for coloring.
     *   **Rationale:** Provides high-quality, scalable icons without relying on external font libraries. Using CSS `mask-image` and `background-color` allows for easy, dynamic theme-aware coloring (light/dark mode) with a single set of SVG assets. (Reflected in `uiManager.ts`'s `createIcon` method).
+*   **[2025-06-16] Decision:** Primary/Secondary Architecture.
+    *   **Rationale:** To provide robust multi-window support for VS Code, enabling the Chrome Extension to aggregate data from multiple VS Code instances. This design centralizes coordination in a primary VSCE instance, simplifying client-side logic and ensuring data consistency across windows.
+*   **[2025-06-16] Decision:** Client-Side Tree Building.
+    *   **Rationale:** To offload view-specific logic from the VS Code Extension to the Chrome Extension. The VSCE provides a flat list of file entries, and the CE constructs the hierarchical tree view, making the backend API simpler and more generic, and reducing IPC payload complexity.
+*   **[2025-06-16] Decision:** SVG Icons with CSS Masking.
+    *   **Rationale:** To achieve high-quality, scalable, and theme-aware icons without relying on external font libraries. SVG assets combined with CSS `mask-image` and `background-color` allow for dynamic coloring based on the UI theme (light/dark mode) using a single set of assets.
 
 ## 7. Security Considerations
 
