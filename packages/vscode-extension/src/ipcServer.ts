@@ -25,16 +25,16 @@ import {
     // Request Payloads
     GetFileTreeRequestPayload, GetFileContentRequestPayload, GetFolderContentRequestPayload,
     GetEntireCodebaseRequestPayload, SearchWorkspaceRequestPayload, GetFilterInfoRequestPayload,
-    ListFolderContentsRequestPayload, RegisterActiveTargetRequestPayload, GetWorkspaceProblemsRequestPayload,
+    ListFolderContentsRequestPayload, RegisterActiveTargetRequestPayload, GetWorkspaceProblemsRequestPayload, GetContentsForFilesRequestPayload,
     // Response Payloads
     FileTreeResponsePayload, FileContentResponsePayload, FolderContentResponsePayload,
     EntireCodebaseResponsePayload, SearchWorkspaceResponsePayload as CWSearchWorkspaceResponsePayload, // Alias to avoid conflict if SearchResult differs
     ActiveFileInfoResponsePayload, OpenFilesResponsePayload, WorkspaceDetailsResponsePayload,
-    FilterInfoResponsePayload, ListFolderContentsResponsePayload, WorkspaceProblemsResponsePayload, GenericAckResponsePayload, ErrorResponsePayload,
+    FilterInfoResponsePayload, ListFolderContentsResponsePayload, WorkspaceProblemsResponsePayload, GenericAckResponsePayload, ErrorResponsePayload, ContentsForFilesResponsePayload,
     // IPC Message Structure Types
     IPCMessageRequest, IPCMessageResponse, IPCMessageErrorResponse, IPCBaseMessage, IPCMessagePush, // We primarily deal with requests and send responses
     // Data Models (if directly used)
-    ContextBlockMetadata, FileData as CWFileData, SearchResult as CWSearchResult, PushSnippetPayload // Alias FileData and SearchResult
+    ContextBlockMetadata, FileData as CWFileData, SearchResult as CWSearchResult, PushSnippetPayload, FileContentResponseData // Alias FileData and SearchResult
 } from '@contextweaver/shared';
 
 
@@ -146,8 +146,8 @@ export class IPCServer {
         for (let port = PORT_RANGE_START; port <= PORT_RANGE_END; port++) {
             try {
                 const ws = new WebSocket(`ws://127.0.0.1:${port}`);
-                await new Promise<void>((resolve, reject) => {
-                    const timeout = setTimeout(() => reject(new Error('Connection timed out')), 200); // Quick timeout
+                await new Promise<void>((resolve, reject) => { // Increased timeout for reliability on slower systems
+                    const timeout = setTimeout(() => reject(new Error('Connection timed out')), 500);
                     ws.on('open', () => {
                         clearTimeout(timeout);
                         this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Found existing primary server on port ${port}. Becoming secondary.`);
@@ -333,30 +333,30 @@ export class IPCServer {
             const originalRequest = parsedMessage.payload.originalRequest as IPCMessageRequest;
             this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Received forwarded request: ${originalRequest.command}`);
 
+            // Store the original handler responses in a buffer
+            const responseBuffer: any[] = [];
+
             // Process the request locally
             const dummyClient: Client = {
-                ws: null as any, // We'll handle sending response differently
+                ws: { // Mock WebSocket to capture the response without monkey-patching this.sendMessage
+                    send: (data: string) => {
+                        // The handler calls sendMessage, which stringifies. We parse it back to store the object.
+                        responseBuffer.push(JSON.parse(data));
+                    },
+                    readyState: WebSocket.OPEN
+                } as any,
                 isAuthenticated: true,
                 ip: 'primary-forward',
                 windowId: this.windowId
             };
 
-            // Store the original handler responses in a buffer
-            const responseBuffer: any[] = [];
-            const originalSendMessage = this.sendMessage.bind(this);
-            this.sendMessage = (ws: any, type: any, command: any, payload: any, message_id?: string) => {
-                responseBuffer.push({ type, command, payload, message_id });
-            };
-
-            // Process the request
+            // Process the request using the dummy client
             await this.handleMessage(dummyClient, Buffer.from(JSON.stringify(originalRequest)));
 
-            // Restore original sendMessage
-            this.sendMessage = originalSendMessage;
-
+            // Send response back to primary
             // Send response back to primary
             if (responseBuffer.length > 0) {
-                const response = responseBuffer[0]; // Should only be one response
+                const response = responseBuffer[0]; // The full response message object
                 const forwardResponse: IPCMessagePush = {
                     protocol_version: '1.0',
                     message_id: uuidv4(),
@@ -364,7 +364,7 @@ export class IPCServer {
                     command: 'forward_response_to_primary',
                     payload: {
                         originalMessageId: originalRequest.message_id,
-                        responsePayload: response.payload
+                        responsePayload: response.payload // Extract the payload from the captured message
                     }
                 };
                 this.primaryWebSocket!.send(JSON.stringify(forwardResponse));
@@ -454,7 +454,8 @@ export class IPCServer {
         const commandsRequiringWorkspace = [
             'get_FileTree', 'get_file_content', 'get_folder_content',
             'get_entire_codebase', 'search_workspace', 'get_active_file_info',
-            'get_open_files', 'get_filter_info', 'list_folder_contents', 'get_workspace_problems'
+            'get_open_files', 'get_filter_info', 'list_folder_contents', 'get_workspace_problems',
+            'get_contents_for_files'
         ];
 
         if (commandsRequiringWorkspace.includes(command)) {
@@ -487,19 +488,22 @@ export class IPCServer {
                 this.handleGetWorkspaceDetails(client, message_id);
                 break;
             case 'get_FileTree':
-                this.handleGetFileTree(client, payload as GetFileTreeRequestPayload, message_id);
+                await this.handleGetFileTree(client, payload as GetFileTreeRequestPayload, message_id);
                 break;
             case 'get_file_content':
-                this.handleGetFileContent(client, payload as GetFileContentRequestPayload, message_id);
+                await this.handleGetFileContent(client, payload as GetFileContentRequestPayload, message_id);
+                break;
+            case 'get_contents_for_files':
+                await this.handleGetContentsForFiles(client, payload as GetContentsForFilesRequestPayload, message_id);
                 break;
             case 'get_folder_content':
-                this.handleGetFolderContent(client, payload as GetFolderContentRequestPayload, message_id);
+                await this.handleGetFolderContent(client, payload as GetFolderContentRequestPayload, message_id);
                 break;
             case 'get_entire_codebase':
-                this.handleGetEntireCodebase(client, payload as GetEntireCodebaseRequestPayload, message_id);
+                await this.handleGetEntireCodebase(client, payload as GetEntireCodebaseRequestPayload, message_id);
                 break;
             case 'search_workspace':
-                this.handleSearchWorkspace(client, payload as SearchWorkspaceRequestPayload, message_id);
+                await this.handleSearchWorkspace(client, payload as SearchWorkspaceRequestPayload, message_id);
                 break;
             case 'get_active_file_info':
                 this.handleGetActiveFileInfo(client, message_id);
@@ -508,13 +512,13 @@ export class IPCServer {
                 this.handleGetOpenFiles(client, message_id);
                 break;
             case 'get_filter_info':
-                this.handleGetFilterInfo(client, payload as GetFilterInfoRequestPayload, message_id);
+                await this.handleGetFilterInfo(client, payload as GetFilterInfoRequestPayload, message_id);
                 break;
             case 'list_folder_contents':
-                this.handleListFolderContents(client, payload as ListFolderContentsRequestPayload, message_id);
+                await this.handleListFolderContents(client, payload as ListFolderContentsRequestPayload, message_id);
                 break;
             case 'get_workspace_problems':
-                this.handleGetWorkspaceProblems(client, payload as GetWorkspaceProblemsRequestPayload, message_id);
+                await this.handleGetWorkspaceProblems(client, payload as GetWorkspaceProblemsRequestPayload, message_id);
                 break;
             // Note: 'check_workspace_trust' was deprecated and removed from IPCRequest union type
             default: {
@@ -590,36 +594,56 @@ export class IPCServer {
 
         // Store primary's response when it's ready
         const originalSendMessage = this.sendMessage.bind(this);
-        this.sendMessage = (ws: any, type: any, command: any, payload: any, message_id?: string) => {
+        const interceptOnce = (ws: any, type: any, command: any, payload: any, message_id?: string) => {
             if (message_id === originalRequest.message_id && ws === originalRequester.ws) {
                 // This is the primary's response
+                // Restore the original sendMessage function immediately after interception.
+                this.sendMessage = originalSendMessage;
+
                 const aggregation = this.pendingAggregatedResponses.get(aggregationId);
                 if (aggregation) {
                     aggregation.responses.push({ windowId: this.windowId, payload });
-                    if (aggregation.responses.length === aggregation.expectedResponses) {
+                    if (aggregation.responses.length >= aggregation.expectedResponses) {
                         this.completeAggregation(aggregationId);
                     }
                 }
                 // Don't send yet, wait for aggregation
             } else {
-                // Other message, send normally
+                // This is a different message. Send it normally using the original function.
                 originalSendMessage(ws, type, command, payload, message_id);
             }
         };
+        // Temporarily replace sendMessage with our interceptor
+        this.sendMessage = interceptOnce;
     }
 
     /**
      * Handles forwarded responses from secondary VSCE instances.
      */
     private handleForwardedResponse(payload: { originalMessageId: string; responsePayload: any }): void {
-        // Find the pending aggregation
+        // Find the pending aggregation by iterating, as was the original (inefficient but working) design.
         for (const [aggregationId, aggregation] of this.pendingAggregatedResponses) {
             if (aggregation.originalMessageId === payload.originalMessageId) {
-                aggregation.responses.push(payload.responsePayload);
-                if (aggregation.responses.length === aggregation.expectedResponses) {
+                // The responsePayload from the secondary is the full payload of the response message.
+                // We need to extract the windowId from it. It's usually in `payload.responsePayload.data.windowId`.
+                const secondaryWindowId = payload.responsePayload?.data?.windowId;
+
+                if (!secondaryWindowId) {
+                    this.outputChannel.appendLine(LOG_PREFIX_SERVER + `CRITICAL: Could not find windowId in forwarded response for command ${aggregation.originalCommand}. Aggregation may fail.`);
+                }
+
+                // Construct the same structure as the primary's response to ensure data consistency for aggregation.
+                const wrappedResponse = {
+                    windowId: secondaryWindowId || 'unknown-secondary',
+                    payload: payload.responsePayload
+                };
+
+                aggregation.responses.push(wrappedResponse);
+
+                if (aggregation.responses.length >= aggregation.expectedResponses) {
                     this.completeAggregation(aggregationId);
                 }
-                break;
+                break; // Found the matching aggregation, stop iterating.
             }
         }
     }
@@ -655,6 +679,26 @@ export class IPCServer {
                 };
                 break;
             }
+ 
+            case 'get_workspace_details': {
+                const allFolders: any[] = [];
+                let isTrusted = true;
+                let primaryWorkspaceName: string | undefined;
+ 
+                for (const response of aggregation.responses) {
+                    if (response.payload?.data?.workspaceFolders) {
+                        allFolders.push(...response.payload.data.workspaceFolders);
+                    }
+                    if (response.payload?.data?.isTrusted === false) isTrusted = false;
+                    if (response.windowId === this.windowId) primaryWorkspaceName = response.payload?.data?.workspaceName;
+                }
+                aggregatedPayload = {
+                    success: true,
+                    data: { isTrusted, workspaceFolders: allFolders, workspaceName: primaryWorkspaceName },
+                    error: null
+                };
+                break;
+            }
 
             case 'get_open_files': {
                 // Combine open files
@@ -667,6 +711,27 @@ export class IPCServer {
                 aggregatedPayload = {
                     success: true,
                     data: { openFiles: allOpenFiles },
+                    error: null
+                };
+                break;
+            }
+
+            case 'get_contents_for_files': {
+                const allData: FileContentResponseData[] = [];
+                const allErrors: { uri: string; error: string; errorCode?: string }[] = [];
+                for (const response of aggregation.responses) {
+                    // The payload of each response is a ContentsForFilesResponsePayload
+                    if (response.payload?.data) {
+                        allData.push(...response.payload.data);
+                    }
+                    if (response.payload?.errors) {
+                        allErrors.push(...response.payload.errors);
+                    }
+                }
+                aggregatedPayload = {
+                    success: true,
+                    data: allData,
+                    errors: allErrors,
                     error: null
                 };
                 break;
@@ -1067,6 +1132,77 @@ export class IPCServer {
             const errorCode = error.code === 'FileNotFound' ? 'FILE_NOT_FOUND' : 'FILE_READ_ERROR';
             this.sendError(client.ws, message_id, errorCode, `Error reading file: ${error.message}`);
         }
+    }
+
+    /**
+     * Handles a request to get the content of multiple files.
+     * @param client - The client that sent the request.
+     * @param payload - The request payload containing the file URIs.
+     * @param message_id - The message ID for the response.
+     */
+    private async handleGetContentsForFiles(
+        client: Client,
+        payload: GetContentsForFilesRequestPayload,
+        message_id: string
+    ): Promise<void> {
+        const { fileUris } = payload;
+        if (!Array.isArray(fileUris) || fileUris.length === 0) {
+            this.sendError(client.ws, message_id, 'INVALID_PAYLOAD', 'Missing or invalid fileUris array in payload.');
+            return;
+        }
+        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Processing get_contents_for_files for ${fileUris.length} files.`);
+
+        const results: FileContentResponseData[] = [];
+        const errors: { uri: string; error: string; errorCode?: string }[] = [];
+
+        for (const uriString of fileUris) {
+            try {
+                const fileUri = vscode.Uri.parse(uriString, true);
+                const result = await getFileContentWithLanguageId(fileUri);
+
+                if (result) {
+                    const associatedWorkspaceFolder = this.workspaceService.getWorkspaceFolder(fileUri);
+                    const metadata: ContextBlockMetadata = {
+                        unique_block_id: uuidv4(),
+                        content_source_id: fileUri.toString(),
+                        type: 'file_content',
+                        label: path.basename(fileUri.fsPath),
+                        workspaceFolderUri: associatedWorkspaceFolder?.uri.toString() || null,
+                        workspaceFolderName: associatedWorkspaceFolder?.name || null,
+                        windowId: this.windowId
+                    };
+                    results.push({
+                        fileData: result,
+                        metadata: metadata,
+                        windowId: this.windowId
+                    });
+                } else {
+                    errors.push({ uri: uriString, error: 'File is binary, empty, or could not be read.', errorCode: 'FILE_READ_ERROR' });
+                }
+            } catch (error: any) {
+                const errorCode = error.code === 'FileNotFound' ? 'FILE_NOT_FOUND' : 'FILE_READ_ERROR';
+                errors.push({ uri: uriString, error: error.message, errorCode });
+            }
+        }
+
+        const responsePayload: ContentsForFilesResponsePayload = {
+            success: true,
+            data: results,
+            errors: errors,
+            error: null
+        };
+
+        this.sendMessage<ContentsForFilesResponsePayload>(
+            client.ws,
+            'response',
+            'response_contents_for_files',
+            responsePayload,
+            message_id
+        );
+
+        this.outputChannel.appendLine(
+            LOG_PREFIX_SERVER + `Sent contents for ${results.length} files (and ${errors.length} errors) to ${client.ip}`
+        );
     }
 
     /**

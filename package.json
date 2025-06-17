@@ -7,7 +7,8 @@
     "build": "npm run build --workspaces --if-present",
     "check": "npm exec --workspaces -- tsc --noEmit && npm run lint --workspaces --if-present",
     "vscode:build": "echo \"VSCE build script placeholder\"",
-    "chrome:build": "echo \"CE build script placeholder\""
+    "chrome:build": "echo \"CE build script placeholder\"",
+    "test": "npm run test --workspaces --if-present"
   },
   "workspaces": [
     "packages/*"

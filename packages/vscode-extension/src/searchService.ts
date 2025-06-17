@@ -5,9 +5,9 @@
  */
 
 import * as vscode from 'vscode';
-import * as path from 'path';
-import { Ignore } from 'ignore';
-import { parseGitignore } from './fileSystemService';
+import path from 'path'; // Changed to default import
+import ignore, { Ignore } from 'ignore'; // Changed to default import
+import { parseGitignore, getPathIgnoreInfo } from './fileSystemService'; // Import getPathIgnoreInfo
 import { WorkspaceService } from './workspaceService';
 import { FilterType } from '@contextweaver/shared';
 
@@ -58,65 +58,7 @@ export class SearchService {
     this.workspaceService = workspaceService;
     this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + 'Initialized');
   }
-
-  /**
-   * Determines if a given path should be ignored based on .gitignore rules or default patterns.
-   * @param relativePath The path relative to the workspace root.
-   * @param name The base name of the file or folder.
-   * @param isDirectory True if the entry is a directory.
-   * @param gitignoreFilter The parsed .gitignore filter (can be null if no .gitignore is found).
-   * @param defaultIgnorePatterns An array of default patterns to ignore.
-   * @returns An object indicating whether the path is ignored and which filter type was applied.
-   */
-  private static getPathIgnoreInfoInternal(
-    relativePath: string,
-    name: string,
-    isDirectory: boolean,
-    gitignoreFilter: Ignore | null,
-    defaultIgnorePatterns: readonly string[]
-  ): { ignored: boolean; filterTypeApplied: FilterType } { // Changed to FilterType
-    const normalizedRelativePath = relativePath.replace(/\\/g, '/');
-
-    // 1. Check default patterns first, as per SRS FR-VSCE-005
-    for (const pattern of defaultIgnorePatterns) {
-      const isDirPattern = pattern.endsWith('/');
-      const cleanPattern = isDirPattern ? pattern.slice(0, -1) : pattern;
-
-      if (isDirPattern) { // Pattern targets a directory
-        if (isDirectory && (name === cleanPattern || normalizedRelativePath === cleanPattern || normalizedRelativePath.startsWith(cleanPattern + '/'))) {
-          return { ignored: true, filterTypeApplied: 'default' };
-        }
-      } else if (pattern.startsWith('*.')) { // Pattern targets an extension
-        if (!isDirectory && name.endsWith(pattern.substring(1))) {
-          return { ignored: true, filterTypeApplied: 'default' };
-        }
-      } else { // Pattern targets a specific file/folder name
-        if (name === pattern) {
-          return { ignored: true, filterTypeApplied: 'default' };
-        }
-      }
-    }
-
-    // 2. If not ignored by default, check gitignore if it exists
-    if (gitignoreFilter) {
-      let gitignorePath = normalizedRelativePath;
-      if (gitignorePath.startsWith('./')) {
-        gitignorePath = gitignorePath.substring(2);
-      }
-      // For directories, check with and without trailing slash for comprehensive matching by 'ignore'
-      const isGitignored = gitignoreFilter.ignores(gitignorePath) ||
-        (isDirectory && !gitignorePath.endsWith('/') && gitignoreFilter.ignores(gitignorePath + '/'));
-
-      if (isGitignored) {
-        return { ignored: true, filterTypeApplied: 'gitignore' };
-      }
-    }
-
-    // 3. Not ignored by anything. The "applied" filter is the one that was consulted.
-    return { ignored: false, filterTypeApplied: gitignoreFilter ? 'gitignore' : 'default' };
-  }
-
-
+ 
   /**
    * Searches for files and folders within trusted workspace folders, applying ignore rules.
    * Assumes workspace trust and folder existence are pre-checked by the caller (IPCServer).
@@ -159,7 +101,8 @@ export class SearchService {
       this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + `Searching in folder: ${folder.name} (${folder.uri.fsPath})`);
       try {
         const gitignoreFilter = await parseGitignore(folder);
-        const folderResults = await this.findInDirectoryRecursive(folder.uri, query, folder, gitignoreFilter);
+        const defaultIgnoreFilter = ignore().add(LOCAL_IGNORE_PATTERNS_DEFAULT);
+        const folderResults = await this.findInDirectoryRecursive(folder.uri, query, folder, gitignoreFilter, defaultIgnoreFilter);
         allResults.push(...folderResults);
       } catch (error: any) {
         this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + `Error searching in directory ${folder.uri.fsPath}: ${error.message}`);
@@ -169,7 +112,7 @@ export class SearchService {
     this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + `Found ${allResults.length} results for query '${query}' after filtering.`);
     return allResults;
   }
-
+ 
   /**
    * Recursively searches for files and folders within a directory that match the query.
    * Applies .gitignore and default ignore patterns.
@@ -177,37 +120,38 @@ export class SearchService {
    * @param query The search query string.
    * @param baseWorkspaceFolder The base workspace folder for relative path calculations and context.
    * @param gitignoreFilter The parsed .gitignore filter to apply.
+   * @param defaultIgnoreFilter A pre-compiled 'ignore' instance with default patterns.
    * @returns A Promise that resolves to an array of search results found in the directory and its subdirectories.
    */
   private async findInDirectoryRecursive(
     dirUri: vscode.Uri,
     query: string,
     baseWorkspaceFolder: vscode.WorkspaceFolder,
-    gitignoreFilter: Ignore | null
+    gitignoreFilter: Ignore | null,
+    defaultIgnoreFilter: Ignore
   ): Promise<LocalSearchResult[]> {
     let results: LocalSearchResult[] = [];
     const lowerCaseQuery = query.toLowerCase();
-
+ 
     try {
       const entries = await vscode.workspace.fs.readDirectory(dirUri);
       for (const [name, type] of entries) {
         const entryUri = vscode.Uri.joinPath(dirUri, name);
         const relativePath = path.relative(baseWorkspaceFolder.uri.fsPath, entryUri.fsPath).replace(/\\/g, '/');
-
-        const ignoreInfo = SearchService.getPathIgnoreInfoInternal(
+ 
+        const ignoreInfo = getPathIgnoreInfo(
           relativePath,
-          name,
           (type === vscode.FileType.Directory),
           gitignoreFilter,
-          LOCAL_IGNORE_PATTERNS_DEFAULT
+          defaultIgnoreFilter
         );
-
+ 
         if (ignoreInfo.ignored) {
           continue;
         }
-
+ 
         const itemMatchesQuery = name.toLowerCase().includes(lowerCaseQuery);
-
+ 
         if (itemMatchesQuery) {
           results.push({
             path: entryUri.fsPath,
@@ -218,12 +162,12 @@ export class SearchService {
             workspaceFolderUri: baseWorkspaceFolder.uri.toString(),
             workspaceFolderName: baseWorkspaceFolder.name,
             relativePath: relativePath,
-            filterTypeApplied: ignoreInfo.filterTypeApplied
+            filterTypeApplied: ignoreInfo.filterSource
           });
         }
-
+ 
         if (type === vscode.FileType.Directory) {
-          const subDirResults = await this.findInDirectoryRecursive(entryUri, query, baseWorkspaceFolder, gitignoreFilter);
+          const subDirResults = await this.findInDirectoryRecursive(entryUri, query, baseWorkspaceFolder, gitignoreFilter, defaultIgnoreFilter);
           results = results.concat(subDirResults);
         }
       }

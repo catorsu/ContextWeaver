@@ -337,23 +337,21 @@ async function processContentInsertion(
         return;
       }
 
-      // TODO: Replace 'any' with a discriminated union type for response data from @contextweaver/shared.
-      // This will provide type safety for accessing properties like 'fileTreeString', 'problemsString', etc.
-      const actualData = responsePayload.data as any; let contentToInsert: string;
+      let contentToInsert: string;
       let metadataFromResponse: ContextBlockMetadata;
 
       if (itemMetadata.type === 'FileTree') {
-        contentToInsert = actualData.fileTreeString;
-        metadataFromResponse = actualData.metadata;
+        contentToInsert = (responsePayload as FileTreeResponsePayload).data!.fileTreeString;
+        metadataFromResponse = (responsePayload as FileTreeResponsePayload).data!.metadata;
       } else if (itemMetadata.type === 'WorkspaceProblems') {
-        contentToInsert = actualData.problemsString;
-        metadataFromResponse = actualData.metadata;
+        contentToInsert = (responsePayload as WorkspaceProblemsResponsePayload).data!.problemsString;
+        metadataFromResponse = (responsePayload as WorkspaceProblemsResponsePayload).data!.metadata;
       } else if (itemMetadata.type === 'file') {
-        contentToInsert = formatFileContentsForLLM([actualData.fileData]);
-        metadataFromResponse = actualData.metadata;
+        contentToInsert = formatFileContentsForLLM([(responsePayload as FileContentResponsePayload).data!.fileData]);
+        metadataFromResponse = (responsePayload as FileContentResponsePayload).data!.metadata;
       } else { // 'folder' or 'codebase_content'
-        contentToInsert = formatFileContentsForLLM(actualData.filesData);
-        metadataFromResponse = actualData.metadata;
+        contentToInsert = formatFileContentsForLLM((responsePayload as FolderContentResponsePayload).data!.filesData);
+        metadataFromResponse = (responsePayload as FolderContentResponsePayload).data!.metadata;
       }
 
       const uniqueBlockId = metadataFromResponse.unique_block_id || `cw-block-${Date.now()}`;
@@ -1119,7 +1117,7 @@ function handleTextAreaInsertion(
   const originalValue = textArea.value;
 
   // 1. Find boundary of all existing CW blocks
-  const wrapperTags = ['FileContents', 'FileTree', 'CodeSnippet'];
+  const wrapperTags = ['FileContents', 'FileTree', 'CodeSnippet', 'WorkspaceProblems'];
   let lastWrapperEndIndex = -1;
 
   for (const tagName of wrapperTags) {
@@ -1665,8 +1663,8 @@ function createTreeNodeElement(node: TreeNode, level: number = 0): HTMLDivElemen
  */
 function createBrowseViewButtons(
   listContainer: HTMLElement,
-  _parentFolderUri: string,
-  _parentFolderName: string,
+  parentFolderUri: string,
+  parentFolderName: string,
   workspaceFolderUri: string | null
 ): HTMLDivElement {
   const buttonContainer = uiManager.createDiv({ style: { marginTop: '10px' } });
@@ -1676,6 +1674,26 @@ function createBrowseViewButtons(
       padding: '6px 12px'
     },
     onClick: async () => {
+      // --- NEW LOGIC START ---
+      const allCheckboxes = listContainer.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:not(:disabled)');
+      const checkedCheckboxes = listContainer.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:checked:not(:disabled)');
+
+      const allSelected = allCheckboxes.length > 0 && allCheckboxes.length === checkedCheckboxes.length;
+
+      if (allSelected) {
+        console.log(LOG_PREFIX_CS, `All items in browse view for "${parentFolderName}" are selected. Inserting as a single folder block.`);
+        // Use processContentInsertion to fetch and insert the entire parent folder's content
+        await processContentInsertion({
+          name: parentFolderName,
+          contentSourceId: parentFolderUri, // Use the parent folder's URI as the unique source ID
+          type: 'folder',
+          uri: parentFolderUri,
+          workspaceFolderUri: workspaceFolderUri
+        }, insertButton); // Pass button for visual feedback
+        return; // Exit after handling the "all selected" case
+      }
+      // --- NEW LOGIC END ---
+
       interface SelectedBrowseEntry { // Define local interface for clarity
         uri: string;
         type: 'file' | 'folder';
@@ -1683,12 +1701,13 @@ function createBrowseViewButtons(
         name: string;
       }
 
-      const selectedEntries: SelectedBrowseEntry[] = Array.from(listContainer.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:checked:not(:disabled)'))
+      // Use the already queried checkedCheckboxes for the partial selection case
+      const selectedEntries: SelectedBrowseEntry[] = Array.from(checkedCheckboxes)
         .map(cb => ({
           uri: cb.dataset.uri!,
           type: cb.dataset.type! as 'file' | 'folder',
           contentSourceId: cb.dataset.contentSourceId!,
-          name: cb.dataset.name! // Added missing 'name' property
+          name: cb.dataset.name!
         }));
 
       if (selectedEntries.length === 0) {
@@ -1712,37 +1731,55 @@ function createBrowseViewButtons(
       const newContextBlocks: ContextBlockMetadata[] = [];
 
       try {
-        for (let i = 0; i < selectedEntries.length; i++) {
-          const entry = selectedEntries[i];
-          progressDiv.textContent = `Processing item ${i + 1} of ${selectedEntries.length}: ${entry.name}...`;
+        const fileUrisToFetch = selectedEntries.filter(entry => entry.type === 'file').map(entry => entry.uri);
+        const folderEntriesToFetch = selectedEntries.filter(entry => entry.type === 'folder');
 
+        // Fetch all selected files in one go
+        if (fileUrisToFetch.length > 0) {
+          progressDiv.textContent = `Fetching ${fileUrisToFetch.length} selected files...`;
+          const filesResponse = await swClient.getContentsForSelectedOpenFiles(fileUrisToFetch);
+
+          if (filesResponse.success && filesResponse.data) {
+            filesResponse.data.forEach(item => {
+              const rawContent = formatFileContentsForLLM([item.fileData]);
+              const uniqueBlockId = item.metadata.unique_block_id || `cw-block-${Date.now()}`;
+              const contentTag = 'FileContents';
+              const finalBlock = `<${contentTag} id="${uniqueBlockId}">\n${rawContent}\n</${contentTag}>`;
+              allContentToInsert += finalBlock + '\n\n';
+              newContextBlocks.push({ ...item.metadata, unique_block_id: uniqueBlockId });
+              successCount++;
+            });
+          }
+          if (filesResponse.errors) {
+            failureCount += filesResponse.errors.length;
+            filesResponse.errors.forEach(err => console.warn(LOG_PREFIX_CS, `Failed to get content for ${err.uri}: ${err.error}`));
+          }
+        }
+
+        // Fetch folder contents one by one (as there's no batch API for folders yet)
+        for (let i = 0; i < folderEntriesToFetch.length; i++) {
+          const entry = folderEntriesToFetch[i];
+          progressDiv.textContent = `Processing folder ${i + 1} of ${folderEntriesToFetch.length}: ${entry.name}...`;
           try {
-            let responsePayload: FileContentResponsePayload | FolderContentResponsePayload;
-            if (entry.type === 'file') {
-              responsePayload = await swClient.getFileContent(entry.uri);
-            } else { // 'folder'
-              responsePayload = await swClient.getFolderContent(entry.uri, workspaceFolderUri);
-            }
-
+            const responsePayload = await swClient.getFolderContent(entry.uri, workspaceFolderUri);
             if (responsePayload.success && responsePayload.data) {
-              const actualData = responsePayload.data as any;
-              const filesToFormat = entry.type === 'file' ? [actualData.fileData] : actualData.filesData;
-              const metadataFromResponse = actualData.metadata as ContextBlockMetadata;
+              const filesToFormat = responsePayload.data.filesData;
+              const metadataFromResponse = responsePayload.data.metadata;
 
               const uniqueBlockId = metadataFromResponse.unique_block_id || `cw-block-${Date.now()}`;
               const rawContent = formatFileContentsForLLM(filesToFormat);
-              const contentTag = 'FileContents'; // Always FileContents for these types
+              const contentTag = 'FileContents';
               const finalBlock = `<${contentTag} id="${uniqueBlockId}">\n${rawContent}\n</${contentTag}>`;
               allContentToInsert += finalBlock + '\n\n';
               newContextBlocks.push({ ...metadataFromResponse, unique_block_id: uniqueBlockId });
               successCount++;
             } else {
               failureCount++;
-              console.warn(LOG_PREFIX_CS, `Failed to get content for ${entry.name}: ${responsePayload.error || 'No data'}`);
+              console.warn(LOG_PREFIX_CS, `Failed to get content for folder ${entry.name}: ${responsePayload.error || 'No data'}`);
             }
           } catch (innerError: any) {
             failureCount++;
-            console.error(LOG_PREFIX_CS, `Error fetching content for ${entry.name}:`, innerError);
+            console.error(LOG_PREFIX_CS, `Error fetching content for folder ${entry.name}:`, innerError);
           }
         }
 

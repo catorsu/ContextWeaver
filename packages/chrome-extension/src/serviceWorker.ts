@@ -9,12 +9,12 @@ import {
     // Request Payloads (for methods sending requests)
     RegisterActiveTargetRequestPayload, GetFileTreeRequestPayload, GetFileContentRequestPayload,
     GetFolderContentRequestPayload, GetEntireCodebaseRequestPayload, SearchWorkspaceRequestPayload,
-    GetFilterInfoRequestPayload, ListFolderContentsRequestPayload, GetWorkspaceProblemsRequestPayload,
+    GetFilterInfoRequestPayload, ListFolderContentsRequestPayload, GetWorkspaceProblemsRequestPayload, GetContentsForFilesRequestPayload,
     // Response Payloads (for resolving promises)
     GenericAckResponsePayload, FileTreeResponsePayload, FileContentResponsePayload,
     FolderContentResponsePayload, EntireCodebaseResponsePayload, ActiveFileInfoResponsePayload,
     OpenFilesResponsePayload, SearchWorkspaceResponsePayload, WorkspaceDetailsResponsePayload,
-    FilterInfoResponsePayload, ListFolderContentsResponsePayload, WorkspaceProblemsResponsePayload, ErrorResponsePayload,
+    FilterInfoResponsePayload, ListFolderContentsResponsePayload, WorkspaceProblemsResponsePayload, ErrorResponsePayload, ContentsForFilesResponsePayload,
     // Push Payloads
     PushSnippetPayload,
     // IPC Message Structure Types
@@ -93,98 +93,89 @@ class IPCClient {
     }
 
 
-    // Rationale: Renamed from connect() to be more descriptive of its action.
-    private attemptConnection(port: number): Promise<WebSocket> {
-        console.log(LOG_PREFIX_SW, `attemptConnection() called for port ${port}.`);
-        if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
-            console.log(LOG_PREFIX_SW, 'attemptConnection: WebSocket connection already open or connecting.');
-            return Promise.resolve(this.ws);
+    private async scanForServer(): Promise<void> {
+        const createConnectionAttempt = (port: number): Promise<{ ws: WebSocket, port: number }> => {
+            return new Promise((resolve, reject) => {
+                const serverUrl = `ws://127.0.0.1:${port}`;
+                const ws = new WebSocket(serverUrl);
+                ws.onopen = () => resolve({ ws, port });
+                ws.onerror = () => {
+                    ws.close();
+                    reject(new Error(`Connection failed on port ${port}`));
+                };
+            });
+        };
+
+        const connectionPromises = [];
+        for (let port = PORT_RANGE_START; port <= PORT_RANGE_END; port++) {
+            connectionPromises.push(createConnectionAttempt(port));
         }
 
-        return new Promise((resolve, reject) => {
-            const serverUrl = `ws://127.0.0.1:${port}`;
-            console.log(LOG_PREFIX_SW, `Attempting to connect to VSCE IPC Server at ${serverUrl}`);
+        try {
+            const { ws, port } = await Promise.any(connectionPromises);
 
-            const ws = new WebSocket(serverUrl);
+            // We have a winner. Configure it.
+            this.ws = ws;
+            this.port = port;
+            console.log(LOG_PREFIX_SW, `Successfully connected to ws://127.0.0.1:${port}`);
 
-            ws.onopen = () => {
-                this.ws = ws; // Assign to class property on success
-                console.log(LOG_PREFIX_SW, `Successfully connected to ${serverUrl}`);
-                if (this.resolveConnectionPromise) {
-                    this.resolveConnectionPromise();
-                }
-                // Nullify promise handlers after resolution/rejection
-                this.resolveConnectionPromise = null;
-                this.rejectConnectionPromise = null;
-                resolve(ws);
-            };
-
-            ws.onmessage = (event) => {
-                this.handleServerMessage(event.data);
-            };
-
-            ws.onclose = (event) => {
+            // Set up handlers
+            this.ws!.onmessage = (event) => this.handleServerMessage(event.data);
+            this.ws!.onclose = (event) => {
                 const wasIntentional = this.isIntentionalDisconnect;
                 this.isIntentionalDisconnect = false; // Reset flag
 
-                const reason = `Disconnected from ${serverUrl}. Code: ${event.code}, Reason: ${event.reason}. Clean: ${event.wasClean}`;
+                const reason = `Disconnected from ws://127.0.0.1:${this.port}. Code: ${event.code}, Reason: ${event.reason}. Clean: ${event.wasClean}`;
                 if (wasIntentional) {
                     console.log(LOG_PREFIX_SW, `Intentionally ${reason}`);
                 } else {
                     console.warn(LOG_PREFIX_SW, `Unintentionally ${reason}`);
-                    // Don't reject here; let the retry logic handle it.
-                    // Notify UI about unexpected disconnect
                     chrome.runtime.sendMessage({
                         action: 'ipcConnectionStatus',
                         status: 'disconnected_unexpectedly',
                         payload: { message: `Unexpectedly disconnected from VS Code. Code: ${event.code}, Reason: ${event.reason}. Will attempt to reconnect.` }
                     }).catch(err => console.warn(LOG_PREFIX_SW, 'Error sending IPC_CONNECTION_STATUS (disconnected_unexpectedly) message:', err));
-
-                    // Update badge to show failed status
                     this.updateBadge('failed');
-
-                    this.connectWithRetry(); // Rationale: Automatically try to reconnect if connection is lost.
+                    this.connectWithRetry();
                 }
-
-                // Clear the reject promise handler (unused but kept for future use)
-                // const currentReject = this.rejectConnectionPromise;
-                this.ws = null; // Clear WebSocket instance
+                this.ws = null;
+            };
+            this.ws!.onerror = (errorEvent) => {
+                console.error(LOG_PREFIX_SW, `WebSocket error post-connection: ${errorEvent.type}`);
+                this.ws?.close(); // Trigger onclose logic
             };
 
-            ws.onerror = (errorEvent) => {
-                const errorMsg = `WebSocket error with ${serverUrl}: ${errorEvent.type}`;
-                console.error(LOG_PREFIX_SW, errorMsg, errorEvent);
-                this.updateBadge('failed');
-                reject(new Error(`WebSocket error on port ${port}.`));
-            };
-        });
-    }
+            // Close all other connections that might eventually succeed.
+            connectionPromises.forEach(async (p) => {
+                try {
+                    const { ws: otherWs } = await p;
+                    if (otherWs !== this.ws) {
+                        otherWs.close();
+                    }
+                } catch (e) {
+                    // Expected for failed promises.
+                }
+            });
 
-    // Rationale: New method to scan the port range and find the active server.
-    private async scanForServer(): Promise<void> {
-        for (let port = PORT_RANGE_START; port <= PORT_RANGE_END; port++) {
-            try {
-                await this.attemptConnection(port);
-                // If connection is successful, this.ws is set.
-                this.port = port; // Store the successfully connected port.
-
-                // Notify the popup of the successful connection
-                chrome.runtime.sendMessage({
-                    action: 'ipcConnectionStatus',
-                    status: 'connected',
-                    payload: { message: `Connected to VS Code on port ${this.port}.`, port: this.port }
-                }).catch(err => console.warn(LOG_PREFIX_SW, 'Error sending IPC_CONNECTION_STATUS (connected) message:', err));
-
-                // Update badge to show connected status
-                this.updateBadge('connected');
-
-                return; // Exit after successful connection
-            } catch (error) {
-                // This is expected if the port is not the one. Continue to the next.
+            // Resolve the main connection promise
+            if (this.resolveConnectionPromise) {
+                this.resolveConnectionPromise();
             }
+            this.resolveConnectionPromise = null;
+            this.rejectConnectionPromise = null;
+
+            // Notify UI and update badge
+            this.updateBadge('connected');
+            chrome.runtime.sendMessage({
+                action: 'ipcConnectionStatus',
+                status: 'connected',
+                payload: { message: `Connected to VS Code on port ${this.port}.`, port: this.port }
+            }).catch(err => console.warn(LOG_PREFIX_SW, 'Error sending IPC_CONNECTION_STATUS (connected) message:', err));
+
+        } catch (error) {
+            // This block is reached if all promises in Promise.any reject.
+            throw new Error(`Could not find a ContextWeaver server in the port range ${PORT_RANGE_START}-${PORT_RANGE_END}.`);
         }
-        // If the loop completes, no server was found.
-        throw new Error(`Could not find a ContextWeaver server in the port range ${PORT_RANGE_START}-${PORT_RANGE_END}.`);
     }
 
     /**
@@ -458,6 +449,17 @@ class IPCClient {
         return this.sendRequest<Record<string, never>, OpenFilesResponsePayload>('get_open_files', {});
     }
     /**
+     * Requests the content for a list of selected open files via the service worker.
+     * @param fileUris An array of file URIs for which to retrieve content.
+     * @returns A Promise that resolves with a payload containing file data and any errors.
+     */
+    async getContentsForFiles(fileUris: string[]): Promise<ContentsForFilesResponsePayload> {
+        return this.sendRequest<GetContentsForFilesRequestPayload, ContentsForFilesResponsePayload>(
+            'get_contents_for_files',
+            { fileUris }
+        );
+    }
+    /**
      * Performs a workspace search in VS Code.
      * @param query The search query.
      * @param workspaceFolderUri The URI of the workspace folder to search within (optional).
@@ -718,40 +720,28 @@ chrome.runtime.onMessage.addListener((message: IncomingRuntimeMessage, sender, s
                 return false;
             }
 
-            const fetchPromises = fileUris.map(uri =>
-                ipcClient.getFileContent(uri) // This call is now typed
-                    .then(responsePayload => {
-                        if (responsePayload.success === false || !responsePayload.data || !responsePayload.data.fileData) {
-                            console.warn(LOG_PREFIX_SW, `Failed to get content for ${uri}: ${responsePayload.error || 'No fileData'}`);
-                            return { uri, success: false, error: responsePayload.error || 'Failed to retrieve content.', fileData: null, metadata: null };
-                        }
-                        return {
-                            uri,
-                            success: true,
-                            fileData: responsePayload.data.fileData,
-                            metadata: responsePayload.data.metadata || null
-                        };
-                    })
-                    .catch(error => {
-                        console.error(LOG_PREFIX_SW, `Error fetching content for ${uri}:`, error);
-                        return { uri, success: false, error: error.message || 'IPC call failed.', fileData: null, metadata: null };
-                    })
-            );
+            ipcClient.getContentsForFiles(fileUris)
+                .then((response: ContentsForFilesResponsePayload) => {
+                    if (!response || response.success === false) {
+                        sendResponse({ success: false, error: response?.error || 'Failed to get contents for files.' });
+                        return;
+                    }
 
-            Promise.all(fetchPromises)
-                .then(results => {
-                    const successfulFilesData = results.filter(r => r.success).map(r => ({ fileData: r.fileData, metadata: r.metadata }));
-                    const erroredFiles = results.filter(r => !r.success).map(r => ({ uri: r.uri, error: r.error }));
+                    const successfulFilesData = response.data?.map((item: any) => ({
+                        fileData: item.fileData,
+                        metadata: item.metadata
+                    })) || [];
 
-                    console.log(LOG_PREFIX_SW, `Processed selected files. Success: ${successfulFilesData.length}, Errors: ${erroredFiles.length}`);
+                    const erroredFiles = response.errors || [];
+
                     sendResponse({
                         success: true,
                         data: successfulFilesData,
                         errors: erroredFiles
                     });
                 })
-                .catch(error => {
-                    console.error(LOG_PREFIX_SW, 'Unexpected error in Promise.all for GET_CONTENTS_FOR_SELECTED_OPEN_FILES:', error);
+                .catch((error: any) => {
+                    console.error(LOG_PREFIX_SW, 'Error in getContentsForFiles IPC call:', error);
                     sendResponse({ success: false, error: error.message || 'Failed to process multiple file content requests.' });
                 });
             return true;
@@ -929,7 +919,10 @@ if (!ipcClient.isConnected()) {
     ipcClient.connectWithRetry();
 }
 
-const SUPPORTED_LLM_HOST_SUFFIXES = ['chat.deepseek.com'];
+const SUPPORTED_LLM_HOST_SUFFIXES = [
+    'chat.deepseek.com',
+    'aistudio.google.com'
+];
 
 /**
  * Checks if a given tab is a supported LLM host and registers it with the VSCE IPC server

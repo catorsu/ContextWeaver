@@ -44,6 +44,12 @@ jest.mock('ws', () => {
     const MockWebSocketConstructor: any = jest.fn().mockImplementation((url: string) => {
         const ws = new MockWebSocket(url);
         createdWebSockets.push(ws);
+        // For leader election failure test, immediately emit an error
+        process.nextTick(() => {
+            const error = new Error(`connect ECONNREFUSED 127.0.0.1:${url.split(':')[2]}`);
+            (error as any).code = 'ECONNREFUSED';
+            ws.emit('error', error);
+        });
         return ws;
     });
     // Add static properties to the constructor function
@@ -177,16 +183,10 @@ describe('IPCServer - Leader Election', () => {
 
         server.start();
 
-        await new Promise(resolve => setTimeout(resolve, 10));
-
-        const testClient = createdWebSockets[0];
-        expect(testClient).toBeDefined();
-
-        const error = new Error('connect ECONNREFUSED 127.0.0.1:30001');
-        (error as any).code = 'ECONNREFUSED';
-        testClient.emit('error', error);
-
-        await new Promise(resolve => setTimeout(resolve, 50));
+        // The mock now auto-emits errors, we just need to wait for the logic to complete
+        // findPrimaryAndInitialize has internal awaits, so we wait for the event loop to clear
+        await new Promise(resolve => process.nextTick(resolve));
+        await new Promise(resolve => setTimeout(resolve, 100)); // Add a small delay for async operations
 
         expect((server as any).isPrimary).toBe(true);
     });
@@ -416,6 +416,68 @@ describe('IPCServer - Primary Role', () => {
         expect(aggregatedResponse.type).toBe('response');
         expect(aggregatedResponse.command).toBe('response_search_workspace');
         expect(aggregatedResponse.payload.data.results.length).toBe(2);
+    });
+
+    test('should handle get_contents_for_files request and return file contents and errors', async () => {
+        const fileUris = [
+            'file:///workspace/file1.ts',
+            'file:///workspace/file2.js',
+            'file:///workspace/nonexistent.txt'
+        ];
+        const request: IPCMessageRequest = {
+            protocol_version: "1.0",
+            message_id: uuidv4(),
+            type: "request",
+            command: "get_contents_for_files",
+            payload: { fileUris }
+        };
+
+        const client = {
+            ws: mockCEWs,
+            isAuthenticated: true,
+            ip: '127.0.0.1'
+        };
+        (server as any).clients.set(mockCEWs, client);
+
+        // Mock file system reads
+        (vscode.workspace.fs.readFile as jest.Mock)
+            .mockResolvedValueOnce(Buffer.from('console.log("file1");')) // file1.ts
+            .mockResolvedValueOnce(Buffer.from('console.log("file2");')) // file2.js
+            .mockRejectedValueOnce(new vscode.FileSystemError('File not found')); // nonexistent.txt
+
+        // Mock getWorkspaceFolder for file1.ts and file2.js
+        (mockWorkspaceService.getWorkspaceFolder as jest.Mock)
+            .mockReturnValueOnce({
+                uri: vscode.Uri.parse('file:///workspace'),
+                name: 'TestWorkspace',
+                index: 0
+            })
+            .mockReturnValueOnce({
+                uri: vscode.Uri.parse('file:///workspace'),
+                name: 'TestWorkspace',
+                index: 0
+            });
+
+        await (server as any).handleMessage(client, Buffer.from(JSON.stringify(request)));
+
+        expect(mockCEWs.send).toHaveBeenCalledTimes(1);
+        const response = JSON.parse(mockCEWs.send.mock.calls[0][0]);
+
+        expect(response.type).toBe('response');
+        expect(response.command).toBe('response_contents_for_files');
+        expect(response.payload.success).toBe(true);
+        expect(response.payload.data).toHaveLength(2); // Two successful files
+        expect(response.payload.errors).toHaveLength(1); // One error
+
+        // Verify successful file data
+        expect(response.payload.data[0].fileData.fullPath).toContain('file1.ts');
+        expect(response.payload.data[0].fileData.content).toBe('console.log("file1");');
+        expect(response.payload.data[1].fileData.fullPath).toContain('file2.js');
+        expect(response.payload.data[1].fileData.content).toBe('console.log("file2");');
+
+        // Verify error data
+        expect(response.payload.errors[0].uri).toBe('file:///workspace/nonexistent.txt');
+        expect(response.payload.errors[0].errorCode).toBe('FILE_NOT_FOUND');
     });
 });
 

@@ -7,7 +7,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { TextDecoder } from 'util';
-import ignore, { Ignore } from 'ignore';
+import ignore, { Ignore } from 'ignore'; // Import 'ignore' as a default export and 'Ignore' as a type
 import {
   FileData as CWFileData,
   DirectoryEntry as CWDirectoryEntry,
@@ -55,58 +55,29 @@ export async function parseGitignore(workspaceFolder: vscode.WorkspaceFolder): P
 }
 
 /**
- * @description Helper function to check if a path should be ignored.
- * Default patterns are always checked. If a .gitignore filter is provided, it's checked afterwards.
+ * @description Helper function to check if a path should be ignored using the 'ignore' library for both default and gitignore rules.
  * @param {string} relativePath - Path relative to the workspace root.
- * @param {string} name - The base name of the file or folder.
  * @param {boolean} isDirectory - True if the entry is a directory.
- * @param {Ignore | null} gitignoreFilter - Parsed .gitignore filter. Can be an empty filter.
- * @param {readonly string[]} defaultIgnorePatterns - Default patterns.
- * @returns {{ ignored: boolean; filterSource: 'default' | 'gitignore' | 'none' }}
- *           'filterSource' indicates what caused the ignore, or 'none' if not ignored.
+ * @param {Ignore | null} gitignoreFilter - Parsed .gitignore filter. Can be null.
+ * @param {Ignore} defaultIgnoreFilter - A pre-compiled 'ignore' instance with default patterns.
+ * @returns An object indicating if the path is ignored and by which rule set.
  */
-function getPathIgnoreInfo(
+export function getPathIgnoreInfo(
   relativePath: string,
-  name: string,
   isDirectory: boolean,
   gitignoreFilter: Ignore | null,
-  defaultIgnorePatterns: readonly string[]
+  defaultIgnoreFilter: Ignore
 ): { ignored: boolean; filterSource: 'default' | 'gitignore' | 'none' } {
   // Normalize to use forward slashes and ensure directory patterns end with a slash
   const normalizedRelativePath = relativePath.replace(/\\/g, '/');
+  const pathToCheck = isDirectory && !normalizedRelativePath.endsWith('/') ? `${normalizedRelativePath}/` : normalizedRelativePath;
 
-  for (const pattern of defaultIgnorePatterns) {
-    const isDirPattern = pattern.endsWith('/');
-    const cleanPattern = isDirPattern ? pattern.slice(0, -1) : pattern;
-
-    if (isDirPattern) { // Pattern targets a directory
-      if (isDirectory && (name === cleanPattern || normalizedRelativePath === cleanPattern || normalizedRelativePath.startsWith(cleanPattern + '/'))) {
-        return { ignored: true, filterSource: 'default' };
-      }
-    } else if (pattern.startsWith('*.')) { // Pattern targets an extension
-      if (!isDirectory && name.endsWith(pattern.substring(1))) {
-        return { ignored: true, filterSource: 'default' };
-      }
-    } else { // Pattern targets a specific file/folder name
-      if (name === pattern) {
-        return { ignored: true, filterSource: 'default' };
-      }
-    }
+  if (defaultIgnoreFilter.ignores(pathToCheck)) {
+    return { ignored: true, filterSource: 'default' };
   }
 
-  if (gitignoreFilter) {
-    // The 'ignore' library expects paths relative to the .gitignore file (workspace root)
-    // It handles directory matching (e.g. `dist/` vs `dist`) internally.
-    let gitignorePath = normalizedRelativePath;
-    if (gitignorePath.startsWith('./')) {
-      gitignorePath = gitignorePath.substring(2);
-    }
-    // For directories, check with and without trailing slash for comprehensive matching by 'ignore'
-    const isGitignored = gitignoreFilter.ignores(gitignorePath) ||
-      (isDirectory && !gitignorePath.endsWith('/') && gitignoreFilter.ignores(gitignorePath + '/'));
-    if (isGitignored) {
-      return { ignored: true, filterSource: 'gitignore' };
-    }
+  if (gitignoreFilter && gitignoreFilter.ignores(pathToCheck)) {
+    return { ignored: true, filterSource: 'gitignore' };
   }
   return { ignored: false, filterSource: 'none' };
 }
@@ -120,10 +91,11 @@ function getPathIgnoreInfo(
  */
 export async function getFileTree(workspaceFolder: vscode.WorkspaceFolder): Promise<{ tree: string, filterTypeApplied: 'gitignore' | 'default' } | string> {
   const gitignoreFilter = await parseGitignore(workspaceFolder);
+  const defaultIgnoreFilter = ignore().add(IGNORE_PATTERNS_DEFAULT);
   const actualFilterType: 'gitignore' | 'default' = gitignoreFilter !== null ? 'gitignore' : 'default';
 
   try {
-    const internalTree = await generateFileTreeTextInternal(workspaceFolder.uri, workspaceFolder.uri, '', gitignoreFilter);
+    const internalTree = await generateFileTreeTextInternal(workspaceFolder.uri, workspaceFolder.uri, '', gitignoreFilter, defaultIgnoreFilter);
     const workspacePath = workspaceFolder.uri.fsPath.replace(/\\\\/g, '/'); // Ensure forward slashes for consistency
     // The content is the workspace path followed by the generated tree. The wrapper tag will be added by the client.
     const rawTreeContent = `${workspacePath}\n${internalTree.trim()}`;
@@ -146,7 +118,12 @@ export async function getFileTree(workspaceFolder: vscode.WorkspaceFolder): Prom
  * @param gitignoreFilter The parsed .gitignore filter to apply.
  * @returns A Promise that resolves to the formatted string representation of the directory's contents.
  */
-async function generateFileTreeTextInternal(dirUri: vscode.Uri, baseUri: vscode.Uri, prefix: string, gitignoreFilter: Ignore | null): Promise<string> {
+async function generateFileTreeTextInternal(
+  dirUri: vscode.Uri,
+  baseUri: vscode.Uri,
+  prefix: string,
+  gitignoreFilter: Ignore | null,
+  defaultIgnoreFilter: Ignore): Promise<string> {
   let treeString = '';
   try {
     const entries = await vscode.workspace.fs.readDirectory(dirUri);
@@ -160,7 +137,7 @@ async function generateFileTreeTextInternal(dirUri: vscode.Uri, baseUri: vscode.
     for (const [name, type] of entries) {
       const entryUri = vscode.Uri.joinPath(dirUri, name);
       const relativePathForIgnoreCheck = path.relative(baseUri.fsPath, entryUri.fsPath).replace(/\\/g, '/');
-      const ignoreInfo = getPathIgnoreInfo(relativePathForIgnoreCheck, name, (type === vscode.FileType.Directory), gitignoreFilter, IGNORE_PATTERNS_DEFAULT);
+      const ignoreInfo = getPathIgnoreInfo(relativePathForIgnoreCheck, (type === vscode.FileType.Directory), gitignoreFilter, defaultIgnoreFilter);
 
       if (!ignoreInfo.ignored) {
         filteredEntries.push([name, type, entryUri] as [string, vscode.FileType, vscode.Uri]);
@@ -175,7 +152,7 @@ async function generateFileTreeTextInternal(dirUri: vscode.Uri, baseUri: vscode.
       treeString += `${linePrefix}${name}\n`;
 
       if (type === vscode.FileType.Directory) {
-        const subdirContent = await generateFileTreeTextInternal(entryUri, baseUri, newPrefix, gitignoreFilter);
+        const subdirContent = await generateFileTreeTextInternal(entryUri, baseUri, newPrefix, gitignoreFilter, defaultIgnoreFilter);
         if (subdirContent) { // Only add if there's content (avoids empty prefixes for fully ignored subdirs)
           treeString += subdirContent;
         }
@@ -257,10 +234,12 @@ export async function getFileContentWithLanguageId(fileUri: vscode.Uri): Promise
   } catch (error: any) {
     if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
       console.warn(`[ContextWeaver FileSystemService] File not found: ${fileUri.fsPath}`);
+      // Re-throw the specific error so the caller can distinguish between "not found" and other read errors.
+      throw error;
     } else {
       console.error(`[ContextWeaver FileSystemService] Error reading file ${fileUri.fsPath}: ${error.message}`);
     }
-    return null;
+    return null; // For other errors (e.g., permission denied), returning null is still a safe fallback.
   }
 }
 
@@ -279,6 +258,7 @@ export async function getFolderContentsForIPC(
 
   const filesData: CWFileData[] = [];
   const gitignoreFilter = await parseGitignore(workspaceFolder);
+  const defaultIgnoreFilter = ignore().add(IGNORE_PATTERNS_DEFAULT);
   const actualFilterType: 'gitignore' | 'default' = gitignoreFilter !== null ? 'gitignore' : 'default';
 
   async function traverseAndProcess(currentUri: vscode.Uri): Promise<void> {
@@ -302,7 +282,7 @@ export async function getFolderContentsForIPC(
       const entryUri = vscode.Uri.joinPath(currentUri, name);
       const relativePathForIgnoreCheck = path.relative(workspaceFolder.uri.fsPath, entryUri.fsPath).replace(/\\/g, '/');
       const isDirectory = type === vscode.FileType.Directory;
-      const ignoreInfo = getPathIgnoreInfo(relativePathForIgnoreCheck, name, isDirectory, gitignoreFilter, IGNORE_PATTERNS_DEFAULT);
+      const ignoreInfo = getPathIgnoreInfo(relativePathForIgnoreCheck, isDirectory, gitignoreFilter, defaultIgnoreFilter);
 
       if (ignoreInfo.ignored) continue;
 
@@ -340,7 +320,8 @@ export async function getFolderContentsForIPC(
 async function getDirectoryListingRecursive(
   dirUri: vscode.Uri,
   baseWorkspaceFolder: vscode.WorkspaceFolder,
-  gitignoreFilter: Ignore | null
+  gitignoreFilter: Ignore | null,
+  defaultIgnoreFilter: Ignore
 ): Promise<CWDirectoryEntry[]> {
   const allEntries: CWDirectoryEntry[] = [];
   let dirEntries: [string, vscode.FileType][];
@@ -348,8 +329,8 @@ async function getDirectoryListingRecursive(
   try {
     dirEntries = await vscode.workspace.fs.readDirectory(dirUri);
   } catch (error) {
-    console.warn(`[ContextWeaver FileSystemService] Could not read directory ${dirUri.fsPath} during recursive listing:`, error);
-    return []; // Return empty array if a directory is unreadable, skipping it
+    console.warn(`[ContextWeaver FileSystemService] Error reading directory ${dirUri.fsPath} during recursive listing:`, error);
+    throw error; // Re-throw the error to be caught by the top-level caller
   }
 
   for (const [name, type] of dirEntries) {
@@ -357,7 +338,7 @@ async function getDirectoryListingRecursive(
     const relativePath = path.relative(baseWorkspaceFolder.uri.fsPath, entryUri.fsPath).replace(/\\/g, '/');
     const isDirectory = type === vscode.FileType.Directory;
 
-    const ignoreInfo = getPathIgnoreInfo(relativePath, name, isDirectory, gitignoreFilter, IGNORE_PATTERNS_DEFAULT);
+    const ignoreInfo = getPathIgnoreInfo(relativePath, isDirectory, gitignoreFilter, defaultIgnoreFilter);
 
     if (ignoreInfo.ignored) {
       continue;
@@ -373,7 +354,7 @@ async function getDirectoryListingRecursive(
     });
 
     if (isDirectory) {
-      const subEntries = await getDirectoryListingRecursive(entryUri, baseWorkspaceFolder, gitignoreFilter);
+      const subEntries = await getDirectoryListingRecursive(entryUri, baseWorkspaceFolder, gitignoreFilter, defaultIgnoreFilter);
       allEntries.push(...subEntries);
     }
   }
@@ -391,6 +372,7 @@ export async function getDirectoryListing(
   folderToScanUri: vscode.Uri,
   containingWorkspaceFolder: vscode.WorkspaceFolder
 ): Promise<{ entries: CWDirectoryEntry[]; filterTypeApplied: FilterType }> {
+  const defaultIgnoreFilter = ignore().add(IGNORE_PATTERNS_DEFAULT);
   const gitignoreFilter = await parseGitignore(containingWorkspaceFolder);
   const filterTypeApplied: FilterType = gitignoreFilter !== null ? 'gitignore' : 'default';
   const entries: CWDirectoryEntry[] = [];
@@ -400,7 +382,8 @@ export async function getDirectoryListing(
     const recursiveEntries = await getDirectoryListingRecursive(
       folderToScanUri,
       containingWorkspaceFolder,
-      gitignoreFilter
+      gitignoreFilter,
+      defaultIgnoreFilter
     );
     entries.push(...recursiveEntries);
 

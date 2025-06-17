@@ -43,9 +43,9 @@ jest.mock('vscode', () => ({
 // Now import modules that use vscode
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { getDirectoryListing } from '../../src/fileSystemService';
+import { getDirectoryListing, getPathIgnoreInfo } from '../../src/fileSystemService'; // Import getPathIgnoreInfo
 import { DirectoryEntry } from '@contextweaver/shared';
-import ignore from 'ignore';
+import ignore, { Ignore } from 'ignore'; // Import Ignore type
 
 describe('getDirectoryListing', () => {
   const mockWorkspaceFolder: vscode.WorkspaceFolder = {
@@ -67,11 +67,14 @@ describe('getDirectoryListing', () => {
   });
 
   it('should list files and folders correctly', async () => {
+    // Mock the top-level directory read
     mockReadDirectory.mockResolvedValueOnce([
       ['file1.ts', vscode.FileType.File],
       ['file2.js', vscode.FileType.File],
       ['subfolder', vscode.FileType.Directory],
     ]);
+    // Mock the recursive read for 'subfolder' to return an empty array
+    mockReadDirectory.mockResolvedValueOnce([]);
 
     mockReadFile.mockResolvedValueOnce(Buffer.from('')); // Empty .gitignore
 
@@ -79,13 +82,6 @@ describe('getDirectoryListing', () => {
 
     expect(result.entries).toHaveLength(3);
     expect(result.entries).toEqual([
-      {
-        name: 'subfolder',
-        type: 'folder',
-        uri: 'file:///workspace/root/src/subfolder',
-        content_source_id: 'file:///workspace/root/src/subfolder',
-        windowId: '',
-      },
       {
         name: 'file1.ts',
         type: 'file',
@@ -98,6 +94,13 @@ describe('getDirectoryListing', () => {
         type: 'file',
         uri: 'file:///workspace/root/src/file2.js',
         content_source_id: 'file:///workspace/root/src/file2.js',
+        windowId: '',
+      },
+      {
+        name: 'subfolder',
+        type: 'folder',
+        uri: 'file:///workspace/root/src/subfolder',
+        content_source_id: 'file:///workspace/root/src/subfolder',
         windowId: '',
       },
     ]);
@@ -156,5 +159,68 @@ describe('getDirectoryListing', () => {
     await expect(getDirectoryListing(mockFolderUri, mockWorkspaceFolder))
       .rejects
       .toThrow('Directory not found');
+  });
+});
+
+describe('getPathIgnoreInfo', () => {
+  const defaultIgnorePatterns = [
+    'node_modules/', '.git/', '*.log', '*.exe', '*.zip',
+  ];
+  const defaultIgnoreFilter = ignore().add(defaultIgnorePatterns);
+
+  it('should ignore files by default patterns', () => {
+    const info = getPathIgnoreInfo('path/to/file.log', false, null, defaultIgnoreFilter);
+    expect(info).toEqual({ ignored: true, filterSource: 'default' });
+  });
+
+  it('should ignore folders by default patterns', () => {
+    const info = getPathIgnoreInfo('path/to/node_modules', true, null, defaultIgnoreFilter);
+    expect(info).toEqual({ ignored: true, filterSource: 'default' });
+  });
+
+  it('should not ignore files not matching default patterns', () => {
+    const info = getPathIgnoreInfo('path/to/file.txt', false, null, defaultIgnoreFilter);
+    expect(info).toEqual({ ignored: false, filterSource: 'none' });
+  });
+
+  it('should ignore files by gitignore patterns', () => {
+    const gitignoreFilter = ignore().add('custom-ignored.txt');
+    const info = getPathIgnoreInfo('path/to/custom-ignored.txt', false, gitignoreFilter, defaultIgnoreFilter);
+    expect(info).toEqual({ ignored: true, filterSource: 'gitignore' });
+  });
+
+  it('should ignore folders by gitignore patterns', () => {
+    const gitignoreFilter = ignore().add('custom-ignored-folder/');
+    const info = getPathIgnoreInfo('path/to/custom-ignored-folder', true, gitignoreFilter, defaultIgnoreFilter);
+    expect(info).toEqual({ ignored: true, filterSource: 'gitignore' });
+  });
+
+  it('should prioritize default ignore over gitignore if both match (though current implementation checks default first)', () => {
+    const gitignoreFilter = ignore().add('node_modules/'); // Also in default
+    const info = getPathIgnoreInfo('path/to/node_modules', true, gitignoreFilter, defaultIgnoreFilter);
+    expect(info).toEqual({ ignored: true, filterSource: 'default' });
+  });
+
+  it('should handle nested paths correctly for default patterns', () => {
+    const info = getPathIgnoreInfo('nested/folder/node_modules/sub', true, null, defaultIgnoreFilter);
+    expect(info).toEqual({ ignored: true, filterSource: 'default' });
+  });
+
+  it('should handle nested paths correctly for gitignore patterns', () => {
+    const gitignoreFilter = ignore().add('nested/folder/temp/');
+    const info = getPathIgnoreInfo('nested/folder/temp/file.txt', false, gitignoreFilter, defaultIgnoreFilter);
+    expect(info).toEqual({ ignored: true, filterSource: 'gitignore' });
+  });
+
+  it('should correctly handle files within ignored folders', () => {
+    const gitignoreFilter = ignore().add('build/');
+    const info = getPathIgnoreInfo('build/output/app.js', false, gitignoreFilter, defaultIgnoreFilter);
+    expect(info).toEqual({ ignored: true, filterSource: 'gitignore' });
+  });
+
+  it('should return none if no filters match', () => {
+    const gitignoreFilter = ignore(); // Empty gitignore
+    const info = getPathIgnoreInfo('src/main.ts', false, gitignoreFilter, defaultIgnoreFilter);
+    expect(info).toEqual({ ignored: false, filterSource: 'none' });
   });
 });

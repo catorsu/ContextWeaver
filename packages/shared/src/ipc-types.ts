@@ -61,6 +61,10 @@ export interface GetFolderContentRequestPayload {
  * Payload for requesting the entire codebase content of a workspace folder.
  * @property {string | null} workspaceFolderUri - The URI of the workspace folder to get the codebase for. Null for all workspace folders.
  */
+export interface GetContentsForFilesRequestPayload {
+    fileUris: string[];
+}
+
 export interface GetEntireCodebaseRequestPayload {
     workspaceFolderUri: string | null;
 }
@@ -203,6 +207,22 @@ export interface FolderContentResponsePayload {
     folderPath: string;
     filterType: FilterType;
     workspaceFolderUri?: string;
+}
+
+/**
+ * Response payload for a multiple file content request.
+ * @property {boolean} success - Indicates if the operation was successful.
+ * @property {FileContentResponseData[] | null} data - An array of successful file data responses.
+ * @property {Array<{ uri: string; error: string; errorCode?: string }> | null} errors - An array of errors for files that failed.
+ * @property {string | null} error - A general error message if the entire operation failed.
+ * @property {string} [errorCode] - A machine-readable error code if the operation failed.
+ */
+export interface ContentsForFilesResponsePayload {
+    success: boolean;
+    data: FileContentResponseData[] | null;
+    errors: Array<{ uri: string; error: string; errorCode?: string }> | null;
+    error: string | null;
+    errorCode?: string;
 }
 
 /**
@@ -485,6 +505,7 @@ export type IPCRequest =
     | { command: "register_active_target"; payload: RegisterActiveTargetRequestPayload }
     | { command: "get_FileTree"; payload: GetFileTreeRequestPayload }
     | { command: "get_file_content"; payload: GetFileContentRequestPayload }
+    | { command: "get_contents_for_files"; payload: GetContentsForFilesRequestPayload }
     | { command: "get_folder_content"; payload: GetFolderContentRequestPayload }
     | { command: "get_entire_codebase"; payload: GetEntireCodebaseRequestPayload }
     | { command: "get_active_file_info"; payload: {} }
@@ -506,6 +527,7 @@ export type IPCResponse =
     | { command: "response_generic_ack"; payload: GenericAckResponsePayload }
     | { command: "response_FileTree"; payload: FileTreeResponsePayload }
     | { command: "response_file_content"; payload: FileContentResponsePayload }
+    | { command: "response_contents_for_files"; payload: ContentsForFilesResponsePayload }
     | { command: "response_folder_content"; payload: FolderContentResponsePayload }
     | { command: "response_entire_codebase"; payload: EntireCodebaseResponsePayload }
     | { command: "response_active_file_info"; payload: ActiveFileInfoResponsePayload }

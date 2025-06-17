@@ -9,7 +9,7 @@ import {
     SearchWorkspaceRequestPayload, SearchWorkspaceResponsePayload,
     WorkspaceDetailsResponsePayload,
     GetFileTreeRequestPayload, FileTreeResponsePayload,     ActiveFileInfoResponsePayload,
-    GetFileContentRequestPayload, FileContentResponsePayload,     GetEntireCodebaseRequestPayload, EntireCodebaseResponsePayload,     OpenFilesResponsePayload,
+    GetFileContentRequestPayload, FileContentResponsePayload, GetContentsForFilesRequestPayload, ContentsForFilesResponsePayload,     GetEntireCodebaseRequestPayload, EntireCodebaseResponsePayload,     OpenFilesResponsePayload,
     GetFolderContentRequestPayload, FolderContentResponsePayload,     ListFolderContentsRequestPayload, ListFolderContentsResponsePayload,
     GetWorkspaceProblemsRequestPayload, WorkspaceProblemsResponsePayload
     } from '@contextweaver/shared';
@@ -127,26 +127,16 @@ export async function getOpenFiles(): Promise<OpenFilesResponsePayload> {
     return sendMessageToSW<OpenFilesResponsePayload>({ type: 'GET_OPEN_FILES_FOR_UI' });
 }
 
-interface GetContentsForSelectedOpenFilesRequestPayloadSW {
-    fileUris: string[];
-}
-interface GetContentsForSelectedOpenFilesResponsePayloadSW {
-    success: boolean;
-    data?: { fileData: any, metadata: any }[]; // From serviceWorker response
-    errors?: any[];
-    error?: string;
-    errorCode?: string;
-}
 
 /**
  * Requests the content for a list of selected open files via the service worker.
  * @param fileUris An array of file URIs for which to retrieve content.
  * @returns A Promise that resolves with a payload containing file data and any errors.
  */
-export async function getContentsForSelectedOpenFiles(fileUris: string[]): Promise<GetContentsForSelectedOpenFilesResponsePayloadSW> {
-    return sendMessageToSW<GetContentsForSelectedOpenFilesResponsePayloadSW>({
+export async function getContentsForSelectedOpenFiles(fileUris: string[]): Promise<ContentsForFilesResponsePayload> {
+    return sendMessageToSW<ContentsForFilesResponsePayload>({
         type: 'GET_CONTENTS_FOR_SELECTED_OPEN_FILES',
-        payload: { fileUris } as GetContentsForSelectedOpenFilesRequestPayloadSW
+        payload: { fileUris } as GetContentsForFilesRequestPayload
     });
 }
 
