@@ -7,15 +7,14 @@
 
 import * as vscode from 'vscode';
 import { v4 as uuidv4 } from 'uuid';
+import { Logger, LogLevel } from '@contextweaver/shared';
 import { IPCServer } from './ipcServer';
 import { SearchService } from './searchService';
 import { SnippetService } from './snippetService';
-import { WorkspaceService } from './workspaceService'; // Added import
+import { WorkspaceService } from './workspaceService';
 import { DiagnosticsService } from './diagnosticsService';
+import { VSCodeOutputChannelLogger } from './vsceLogger';
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const EXTENSION_ID = 'contextweaver'; // For settings and prefixing
-const LOG_PREFIX = '[ContextWeaver] ';
 let outputChannel: vscode.OutputChannel;
 let ipcServer: IPCServer | null = null;
 let snippetService: SnippetService;
@@ -39,16 +38,16 @@ interface VSCodeWindowSubset {
  * @param services.ipcServer - The active IPCServer instance.
  * @param services.snippetService - The active SnippetService instance.
  * @param vsCodeWindow - A subset of the `vscode.window` API for displaying messages.
- * @param outputChannelRef - The VS Code output channel for logging.
+ * @deprecated The outputChannelRef parameter is no longer used and will be removed.
  */
 export async function _handleSendSnippetCommandLogic(
     services: { ipcServer: IPCServer | null; snippetService: SnippetService | null },
-    vsCodeWindow: VSCodeWindowSubset,
-    outputChannelRef: vscode.OutputChannel
+    vsCodeWindow: VSCodeWindowSubset
 ) {
+    const logger = new Logger('Extension');
     if (!services.ipcServer || !services.snippetService) {
         vsCodeWindow.showErrorMessage('ContextWeaver: Services not initialized.');
-        outputChannelRef.appendLine(LOG_PREFIX + 'Error: sendSnippet called but services not initialized.');
+        logger.error('sendSnippet called but services not initialized.');
         return;
     }
 
@@ -65,9 +64,9 @@ export async function _handleSendSnippetCommandLogic(
         // Instead of directly pushing, use the new method that handles primary/secondary logic
         services.ipcServer.handleSnippetSendRequest(snippetDataForIPC);
         vsCodeWindow.showInformationMessage('ContextWeaver: Snippet sent.');
-        outputChannelRef.appendLine(LOG_PREFIX + 'Snippet send request handled.');
+        logger.info('Snippet send request handled.');
     } else {
-        outputChannelRef.appendLine(LOG_PREFIX + 'Snippet preparation failed or not applicable (e.g., no selection).');
+        logger.warn('Snippet preparation failed or not applicable (e.g., no selection).');
     }
 }
 
@@ -79,24 +78,29 @@ export async function _handleSendSnippetCommandLogic(
  */
 export function activate(context: vscode.ExtensionContext) {
     outputChannel = vscode.window.createOutputChannel('ContextWeaver VSCE');
-    outputChannel.appendLine(LOG_PREFIX + 'Activating extension...');
-    console.log(LOG_PREFIX + 'VSCE is now active.'); // Keep console log for debug console visibility too
+
+    // 1. Configure the logger
+    Logger.setOutput(new VSCodeOutputChannelLogger(outputChannel));
+    Logger.setLevel(LogLevel.DEBUG); // Set to DEBUG for development, can be changed later
+
+    const logger = new Logger('Extension');
+    logger.info('Activating extension...');
 
     // Generate unique window ID
     const windowId = uuidv4();
-    outputChannel.appendLine(LOG_PREFIX + 'Generated window ID: ' + windowId);
+    logger.info('Generated window ID:', windowId);
 
     // Initialize services
-    workspaceService = new WorkspaceService(outputChannel); // Instantiate WorkspaceService
-    diagnosticsService = new DiagnosticsService(outputChannel);
-    const searchService = new SearchService(outputChannel, workspaceService); // Pass outputChannel and workspaceService to SearchService
+    workspaceService = new WorkspaceService();
+    diagnosticsService = new DiagnosticsService();
+    const searchService = new SearchService(workspaceService);
 
     // Rationale: Port is now determined automatically by the server. Pass a placeholder.
-    ipcServer = new IPCServer(0, windowId, context, outputChannel, searchService, workspaceService, diagnosticsService); // Pass windowId, workspaceService and diagnosticsService
+    ipcServer = new IPCServer(0, windowId, context, outputChannel, searchService, workspaceService, diagnosticsService);
 
     ipcServer.start();
 
-    snippetService = new SnippetService(outputChannel);
+    snippetService = new SnippetService();
 
     context.subscriptions.push(
         new vscode.Disposable(() => {
@@ -109,18 +113,18 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Example: Register a command (useful for testing later)
     const disposable = vscode.commands.registerCommand('contextweaver.helloWorld', () => {
-        vscode.window.showInformationMessage('Hello World from ContextWeaver VSCE!');
-        outputChannel.appendLine(LOG_PREFIX + 'Command \'contextweaver.helloWorld\' executed.');
+        vscode.window.showInformationMessage('ContextWeaver: Hello World!');
+        logger.info('Command \'contextweaver.helloWorld\' executed.');
     });
     context.subscriptions.push(disposable);
 
     // Register sendSnippet command
     const sendSnippetCommand = vscode.commands.registerCommand('contextweaver.sendSnippet',
-        () => _handleSendSnippetCommandLogic({ ipcServer, snippetService }, vscode.window, outputChannel)
+        () => _handleSendSnippetCommandLogic({ ipcServer, snippetService }, vscode.window)
     );
     context.subscriptions.push(sendSnippetCommand);
 
-    outputChannel.appendLine(LOG_PREFIX + 'Extension activated successfully.');
+    logger.info('Extension activated successfully.');
 }
 
 /**
@@ -131,6 +135,6 @@ export function deactivate() {
         ipcServer.stop();
         ipcServer = null;
     }
-    outputChannel.appendLine(LOG_PREFIX + 'Extension deactivated.');
-    console.log(LOG_PREFIX + 'VSCE has been deactivated.');
+    const logger = new Logger('Extension');
+    logger.info('Extension deactivated');
 }

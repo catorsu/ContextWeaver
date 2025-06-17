@@ -7,7 +7,9 @@
 
 import { ContextBlockMetadata } from '@contextweaver/shared'; // Import shared type
 
-const LOG_PREFIX_UI = '[ContextWeaver UIManager]';
+import { Logger } from '@contextweaver/shared';
+
+const logger = new Logger('UIManager');
 const CSS_PREFIX = 'cw-'; // Encapsulate CSS prefix
 const UI_PANEL_ID = `${CSS_PREFIX}floating-panel`;
 const CONTEXT_INDICATOR_AREA_ID = `${CSS_PREFIX}context-indicator-area`;
@@ -36,7 +38,7 @@ export class UIManager {
    */
   constructor() {
     this.injectFloatingUiCss();
-    console.log(LOG_PREFIX_UI, 'UIManager initialized and CSS injected.');
+    logger.info('UIManager initialized and CSS injected.');
   }
 
   /**
@@ -46,7 +48,7 @@ export class UIManager {
   public setTheme(theme: 'light' | 'dark'): void {
     this.currentTheme = theme;
     this.updateThemeStyles();
-    console.log(LOG_PREFIX_UI, `Theme set to: ${theme}`);
+    logger.debug(`Theme set to: ${theme}`);
   }
 
   /**
@@ -581,7 +583,7 @@ export class UIManager {
     style.id = styleId;
     style.textContent = css;
     document.head.appendChild(style);
-    console.log(LOG_PREFIX_UI, 'Floating UI CSS with SVG icons injected/updated.');
+    logger.debug('Floating UI CSS with SVG icons injected/updated.');
   }
 
   private createPanel(): void {
@@ -615,7 +617,7 @@ export class UIManager {
     this.floatingUIPanel.appendChild(this.contentElement);
 
     document.body.appendChild(this.floatingUIPanel);
-    console.log(LOG_PREFIX_UI, 'Floating panel element created and appended to body.');
+    logger.debug('Floating panel element created and appended to body.');
   }
 
   /**
@@ -640,7 +642,7 @@ export class UIManager {
     }
 
     if (!this.floatingUIPanel || !this.titleElement || !this.contentElement) {
-      console.error(LOG_PREFIX_UI, 'Panel elements not created, cannot show.');
+      logger.error('Panel elements not created, cannot show.');
       return;
     }
 
@@ -696,7 +698,7 @@ export class UIManager {
     }
 
     this.addDismissalEventListeners();
-    console.log(LOG_PREFIX_UI, 'Floating UI shown.');
+    logger.info('Floating UI shown.');
   }
 
   /**
@@ -721,7 +723,7 @@ export class UIManager {
         this.onHideCallback();
       }
       this.currentTargetElementForPanel = null; // Clear target on hide
-      console.log(LOG_PREFIX_UI, 'Floating UI hidden.');
+      logger.info('Floating UI hidden.');
     }
   }
 
@@ -792,7 +794,7 @@ export class UIManager {
       this.createPanel();
     }
     if (!this.floatingUIPanel || !this.contentElement) {
-      console.error(LOG_PREFIX_UI, 'Panel elements not created, cannot show loading.');
+      logger.error('Panel elements not created, cannot show loading.');
       return;
     }
 
@@ -820,7 +822,7 @@ export class UIManager {
     loadingOverlay.appendChild(loadingIcon);
     loadingOverlay.appendChild(loadingText);
     this.floatingUIPanel.appendChild(loadingOverlay);
-    console.log(LOG_PREFIX_UI, `Loading overlay shown with message: ${loadingMessage}`);
+    logger.debug(`Loading overlay shown with message: ${loadingMessage}`);
   }
 
   /**
@@ -831,7 +833,7 @@ export class UIManager {
       const loadingOverlay = this.floatingUIPanel.querySelector(`.${CSS_PREFIX}loading-overlay`) as HTMLElement;
       if (loadingOverlay) {
         loadingOverlay.remove();
-        console.log(LOG_PREFIX_UI, 'Loading overlay hidden.');
+        logger.debug('Loading overlay hidden.');
       }
     }
   }
@@ -991,7 +993,7 @@ export class UIManager {
     targetInputElement: HTMLElement | null
   ): void {
     if (!targetInputElement) {
-      console.warn(LOG_PREFIX_UI, 'No target input for context indicators.');
+      logger.warn('No target input for context indicators.');
       if (this.contextIndicatorArea) this.contextIndicatorArea.style.display = 'none';
       return;
     }
@@ -1010,12 +1012,12 @@ export class UIManager {
         // main container of the input textarea. This is typically 3 levels up from the textarea.
         const inputWrapper = targetInputElement.parentElement?.parentElement?.parentElement;
         if (inputWrapper && inputWrapper.parentElement) {
-          console.log(LOG_PREFIX_UI, 'Applying DeepSeek-specific indicator placement.');
+          logger.debug('Applying DeepSeek-specific indicator placement.');
           // Insert the indicator area BEFORE the wrapper of the text input area.
           inputWrapper.parentElement.insertBefore(this.contextIndicatorArea, inputWrapper);
         } else {
           // Fallback to generic logic if the expected structure isn't found
-          console.warn(LOG_PREFIX_UI, 'DeepSeek structure not found, using generic placement.');
+          logger.warn('DeepSeek structure not found, using generic placement.');
           this.insertIndicatorAreaGeneric(targetInputElement);
         }
       } else if (currentHostname.includes('aistudio.google.com')) {
@@ -1023,11 +1025,11 @@ export class UIManager {
         // We traverse up from the textarea to find it.
         const promptWrapper = targetInputElement.closest('ms-prompt-input-wrapper');
         if (promptWrapper) {
-          console.log(LOG_PREFIX_UI, 'Applying AI Studio-specific indicator placement.');
+          logger.debug('Applying AI Studio-specific indicator placement.');
           // Prepend the indicator area as the first child of the wrapper for encapsulation.
           promptWrapper.prepend(this.contextIndicatorArea);
         } else {
-          console.warn(LOG_PREFIX_UI, 'AI Studio <ms-prompt-input-wrapper> not found, using generic placement.');
+          logger.warn('AI Studio <ms-prompt-input-wrapper> not found, using generic placement.');
           this.insertIndicatorAreaGeneric(targetInputElement);
         }
       } else {
@@ -1073,7 +1075,7 @@ export class UIManager {
         if (this.onIndicatorRemoveCallback && closeBtn.dataset.uniqueBlockId && closeBtn.dataset.blockType) {
           this.onIndicatorRemoveCallback(closeBtn.dataset.uniqueBlockId, closeBtn.dataset.blockType);
         } else {
-          console.error(LOG_PREFIX_UI, 'Indicator remove callback not set or button missing data.');
+          logger.error('Indicator remove callback not set or button missing data.');
         }
       };
 
@@ -1109,12 +1111,12 @@ export class UIManager {
     } else if (targetInputElement.parentElement) {
       // Fallback: If no grandparent, but a parent exists, insert as a sibling to the input.
       // This might still cause overlap on some sites but is better than appending to body globally.
-      console.warn(LOG_PREFIX_UI, 'Target input\'s grandparent not found for indicator area. Inserting as sibling to input.');
+      logger.warn('Target input\'s grandparent not found for indicator area. Inserting as sibling to input.');
       targetInputElement.parentElement.insertBefore(this.contextIndicatorArea, targetInputElement);
     }
     else {
       // Last resort: Append to body.
-      console.warn(LOG_PREFIX_UI, 'Target input has no parent for indicator area. Appending to body.');
+      logger.warn('Target input has no parent for indicator area. Appending to body.');
       document.body.appendChild(this.contextIndicatorArea);
     }
   }

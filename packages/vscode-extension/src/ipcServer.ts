@@ -18,6 +18,7 @@ import {
 import { SearchService } from './searchService'; // Removed local SearchResult import
 import { WorkspaceService, WorkspaceServiceError } from './workspaceService';
 import { DiagnosticsService } from './diagnosticsService';
+import { Logger } from '@contextweaver/shared';
 import { v4 as uuidv4 } from 'uuid';
 
 // Import shared types
@@ -38,7 +39,6 @@ import {
 } from '@contextweaver/shared';
 
 
-const LOG_PREFIX_SERVER = '[ContextWeaver IPCServer] ';
 // Rationale: Define a port range for the server to try, making it resilient to port conflicts.
 const PORT_RANGE_START = 30001;
 const PORT_RANGE_END = 30005;
@@ -72,6 +72,7 @@ export class IPCServer {
     private readonly windowId: string;
     private readonly extensionContext: vscode.ExtensionContext;
     private activePort: number | null = null; // Rationale: Store the port the server successfully binds to.
+    private readonly logger = new Logger('IPCServer');
     private outputChannel: vscode.OutputChannel;
 
     // Primary/Secondary architecture properties
@@ -107,8 +108,7 @@ export class IPCServer {
         workspaceServiceInstance: WorkspaceService,
         diagnosticsServiceInstance: DiagnosticsService
     ) {
-        console.log(LOG_PREFIX_SERVER + 'Constructor called.');
-        outputChannelInstance.appendLine(LOG_PREFIX_SERVER + 'Constructor called.');
+        this.logger.info('Constructor called.');
 
         this.port = PORT_RANGE_START; // Set a default/initial port, but it will be updated.
         this.windowId = windowId;
@@ -117,7 +117,7 @@ export class IPCServer {
         this.searchService = searchServiceInstance;
         this.workspaceService = workspaceServiceInstance;
         this.diagnosticsService = diagnosticsServiceInstance;
-        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Initialized with port ${this.port}, windowId ${this.windowId}.`);
+        this.logger.info(`Initialized with windowId ${this.windowId}.`);
     }
 
     /**
@@ -130,8 +130,7 @@ export class IPCServer {
      * should become a Primary (listening for connections) or a Secondary (connecting to a Primary).
      */
     public start(): void {
-        console.log(LOG_PREFIX_SERVER + 'start() method called.');
-        this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'start() method called.');
+        this.logger.info('start() method called.');
 
         // Try to connect to primary first (leader election)
         this.findPrimaryAndInitialize();
@@ -150,7 +149,7 @@ export class IPCServer {
                     const timeout = setTimeout(() => reject(new Error('Connection timed out')), 500);
                     ws.on('open', () => {
                         clearTimeout(timeout);
-                        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Found existing primary server on port ${port}. Becoming secondary.`);
+                        this.logger.info(`Found existing primary server on port ${port}. Becoming secondary.`);
                         ws.close();
                         this.becomeSecondary(port); // Connect to the found port
                         resolve();
@@ -159,7 +158,7 @@ export class IPCServer {
                         clearTimeout(timeout);
                         // ECONNREFUSED is expected, other errors might be noteworthy
                         if ((err as any).code !== 'ECONNREFUSED') {
-                            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Non-refused error on port ${port}: ${err.message}`);
+                            this.logger.warn(`Non-refused error on port ${port}: ${err.message}`);
                         }
                         reject(err);
                     });
@@ -167,12 +166,16 @@ export class IPCServer {
                 // If promise resolved, we found a primary and became secondary, so we can stop scanning.
                 return;
             } catch (error) {
-                // This is the expected path when a port is not open. Continue to next port.
+                // This is the expected path when a port is not open.
+                if ((error as any).code === 'ECONNREFUSED') {
+                    this.logger.trace(`Port scan: Port ${port} is not open (ECONNREFUSED).`);
+                }
+                this.logger.trace(`Port scan on ${port} failed (as expected for unoccupied port):`, (error as any).code);
             }
         }
 
         // If loop completes, no primary was found. Become primary.
-        this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'No primary server found in range. Becoming primary.');
+        this.logger.info('No primary server found in range. Becoming primary.');
         this.becomePrimary();
     }
 
@@ -209,7 +212,7 @@ export class IPCServer {
      */
     private async becomePrimary(): Promise<void> {
         this.isPrimary = true;
-        this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'Setting up as PRIMARY server.');
+        this.logger.info('Setting up as PRIMARY server.');
 
         for (let port = PORT_RANGE_START; port <= PORT_RANGE_END; port++) {
             try {
@@ -217,25 +220,24 @@ export class IPCServer {
                 break; // Exit loop on success
             } catch (error: any) {
                 if (error.code === 'EADDRINUSE') {
-                    this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Port ${port} is in use, trying next...`);
+                    this.logger.info(`Port ${port} is in use, trying next...`);
                     continue;
                 }
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Failed to start PRIMARY server with unexpected error: ${error.message}`);
+                this.logger.error(`Failed to start PRIMARY server with unexpected error: ${error.message}`);
                 vscode.window.showErrorMessage(`ContextWeaver: A critical error occurred while starting the server: ${error.message}`);
                 return; // Stop trying if it's not a port conflict
             }
         }
 
         if (this.wss && this.activePort) {
-            const msg = `PRIMARY WebSocket server listening on 127.0.0.1:${this.activePort}`;
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + msg);
+            this.logger.info(`PRIMARY WebSocket server listening on 127.0.0.1:${this.activePort}`);
             vscode.window.showInformationMessage(`ContextWeaver: Primary IPC Server started on port ${this.activePort}.`);
 
             this.wss.on('connection', (ws: WebSocket, req) => {
                 const clientIp = req.socket.remoteAddress || 'unknown';
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Client connected from ${clientIp}`);
+                this.logger.info(`Client connected from ${clientIp}`);
                 const client: Client = { ws, isAuthenticated: true, ip: clientIp }; // Token auth removed
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Client from ${client.ip} authenticated (token auth removed).`);
+                this.logger.info(`Client from ${client.ip} authenticated (token auth removed).`);
                 this.clients.set(ws, client);
 
                 ws.on('message', (message) => {
@@ -243,19 +245,18 @@ export class IPCServer {
                 });
 
                 ws.on('close', () => {
-                    this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Client from ${client.ip} disconnected.`);
+                    this.logger.info(`Client from ${client.ip} disconnected.`);
                     // If this was a secondary VSCE, remove from secondaryClients
                     if (client.windowId) {
                         this.secondaryClients.delete(client.windowId);
-                        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Removed secondary VSCE with windowId ${client.windowId}`);
+                        this.logger.info(`Removed secondary VSCE with windowId ${client.windowId}`);
                     }
                     ws.removeAllListeners();
                     this.clients.delete(ws);
                 });
 
                 ws.on('error', (error) => {
-                    this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error on WebSocket connection from ${client.ip}: ${error.message}`);
-                    console.error(LOG_PREFIX_SERVER + `Error on WebSocket connection from ${client.ip}:`, error);
+                    this.logger.error(`Error on WebSocket connection from ${client.ip}: ${error.message}`);
                     if (this.clients.has(ws)) {
                         ws.removeAllListeners();
                         this.clients.delete(ws);
@@ -264,7 +265,7 @@ export class IPCServer {
             });
 
         } else {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `CRITICAL: All ports in range ${PORT_RANGE_START}-${PORT_RANGE_END} are in use.`);
+            this.logger.error(`CRITICAL: All ports in range ${PORT_RANGE_START}-${PORT_RANGE_END} are in use.`);
             vscode.window.showErrorMessage(
                 `ContextWeaver: Server failed to start. All ports from ${PORT_RANGE_START}-${PORT_RANGE_END} are busy. Please free up a port and restart VS Code.`
             );
@@ -277,13 +278,13 @@ export class IPCServer {
      */
     private becomeSecondary(primaryPort: number): void {
         this.isPrimary = false;
-        this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'Setting up as SECONDARY server.');
+        this.logger.info('Setting up as SECONDARY server.');
 
         // Connect to primary
         this.primaryWebSocket = new WebSocket(`ws://127.0.0.1:${primaryPort}`);
 
         this.primaryWebSocket.on('open', () => {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'Connected to primary server.');
+            this.logger.info('Connected to primary server.');
 
             // Register ourselves as a secondary
             const registerMessage: IPCMessageRequest = {
@@ -303,15 +304,14 @@ export class IPCServer {
         });
 
         this.primaryWebSocket.on('close', () => {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'Connection to primary server closed. Attempting to become primary...');
+            this.logger.warn('Connection to primary server closed. Attempting to become primary...');
             this.primaryWebSocket = null;
             // Primary died, try to become primary
             setTimeout(() => this.start(), 1000); // Retry after 1 second
         });
 
         this.primaryWebSocket.on('error', (error) => {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error connecting to primary: ${error.message}`);
-            console.error(LOG_PREFIX_SERVER + 'Error connecting to primary:', error);
+            this.logger.error(`Error connecting to primary: ${error.message}`);
         });
     }
 
@@ -324,14 +324,14 @@ export class IPCServer {
         try {
             parsedMessage = JSON.parse(data.toString());
         } catch (error: any) {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Failed to parse message from primary: ${error.message}`);
+            this.logger.error(`Failed to parse message from primary: ${error.message}`);
             return;
         }
 
         // Handle forwarded requests from primary
         if (parsedMessage.command === 'forward_request_to_secondaries') {
             const originalRequest = parsedMessage.payload.originalRequest as IPCMessageRequest;
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Received forwarded request: ${originalRequest.command}`);
+            this.logger.debug(`Received forwarded request: ${originalRequest.command}`);
 
             // Store the original handler responses in a buffer
             const responseBuffer: any[] = [];
@@ -387,8 +387,7 @@ export class IPCServer {
             }
             parsedMessage = rawParsed as IPCMessageRequest | IPCMessagePush;
         } catch (error: any) {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Failed to parse message or invalid message format from ${client.ip}: ${message.toString()}. Error: ${error.message}`);
-            console.error(LOG_PREFIX_SERVER + 'Failed to parse message or invalid message format:', message.toString(), error);
+            this.logger.error(`Failed to parse message or invalid message format from ${client.ip}. Error: ${error.message}`, { message: message.toString() });
             this.sendError(client.ws, null, 'INVALID_MESSAGE_FORMAT', `Error parsing message: ${error.message}`);
             return;
         }
@@ -396,13 +395,12 @@ export class IPCServer {
         const { protocol_version, message_id, type, command, payload } = parsedMessage;
 
         if (protocol_version !== '1.0') {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Protocol version mismatch from ${client.ip}. Expected 1.0, got ${protocol_version}.`);
+            this.logger.warn(`Protocol version mismatch from ${client.ip}. Expected 1.0, got ${protocol_version}.`);
             this.sendError(client.ws, message_id, 'UNSUPPORTED_PROTOCOL_VERSION', 'Protocol version mismatch.');
             return;
         }
 
-        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Received command '${command}' of type '${type}' from ${client.ip}. Payload: ${JSON.stringify(payload)}`);
-        console.log(LOG_PREFIX_SERVER + `Received command '${command}' of type '${type}' from ${client.ip}. Payload:`, payload);
+        this.logger.debug(`Received command '${command}' (ID: ${message_id}) of type '${type}' from ${client.ip}.`);
 
         // Handle push messages first - they don't follow the request/response pattern
         if (type === 'push') {
@@ -428,12 +426,12 @@ export class IPCServer {
                         return;
                 }
             }
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Received push command '${command}' from ${client.ip}, but no handler defined.`);
+            this.logger.warn(`Received push command '${command}' from ${client.ip}, but no handler defined.`);
             return;
         }
 
         if (type !== 'request') {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Unexpected message type '${type}' from ${client.ip}. Expected 'request' or 'push'.`);
+            this.logger.warn(`Unexpected message type '${type}' from ${client.ip}. Expected 'request' or 'push'.`);
             this.sendError(client.ws, message_id, 'INVALID_MESSAGE_TYPE', `Unexpected message type: ${type}`);
             return;
         }
@@ -463,10 +461,10 @@ export class IPCServer {
                 await this.workspaceService.ensureWorkspaceTrustedAndOpen();
             } catch (error: any) {
                 if (error instanceof WorkspaceServiceError) {
-                    this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Workspace check failed for command '${command}': ${error.message}`);
+                    this.logger.warn(`Workspace check failed for command '${command}': ${error.message}`);
                     this.sendError(client.ws, message_id, error.code, error.message);
                 } else {
-                    this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Unexpected error during workspace check for command '${command}': ${error.message}`);
+                    this.logger.error(`Unexpected error during workspace check for command '${command}': ${error.message}`);
                     this.sendError(client.ws, message_id, 'INTERNAL_SERVER_ERROR', `Unexpected error during workspace check: ${error.message}`);
                 }
                 return;
@@ -523,8 +521,7 @@ export class IPCServer {
             // Note: 'check_workspace_trust' was deprecated and removed from IPCRequest union type
             default: {
                 const unknownCommand = command as string;
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Unknown command '${unknownCommand}' from ${client.ip}.`);
-                console.warn(LOG_PREFIX_SERVER + `Unknown command '${unknownCommand}' from ${client.ip}.`);
+                this.logger.warn(`Unknown command '${unknownCommand}' from ${client.ip}.`);
                 this.sendError(client.ws, message_id, 'UNKNOWN_COMMAND', `Unknown command: ${unknownCommand}`);
             }
         }
@@ -536,7 +533,7 @@ export class IPCServer {
     private handleRegisterSecondary(client: Client, payload: { windowId: string; port: number }, message_id: string): void {
         client.windowId = payload.windowId;
         this.secondaryClients.set(payload.windowId, client.ws);
-        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Registered secondary VSCE with windowId: ${payload.windowId}`);
+        this.logger.info(`Registered secondary VSCE with windowId: ${payload.windowId}`);
         this.sendGenericAck(client, message_id, true, 'Secondary registered successfully.');
     }
 
@@ -545,7 +542,7 @@ export class IPCServer {
      */
     private handleUnregisterSecondary(client: Client, payload: { windowId: string }, message_id: string): void {
         this.secondaryClients.delete(payload.windowId);
-        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Unregistered secondary VSCE with windowId: ${payload.windowId}`);
+        this.logger.info(`Unregistered secondary VSCE with windowId: ${payload.windowId}`);
         const ackPayload: GenericAckResponsePayload = { success: true, message: 'Secondary unregistered successfully.' };
         this.sendMessage<GenericAckResponsePayload>(client.ws, 'response', 'response_unregister_secondary_ack', ackPayload, message_id);
     }
@@ -588,7 +585,7 @@ export class IPCServer {
         for (const [windowId, ws] of this.secondaryClients) {
             if (ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify(forwardMessage));
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Forwarded request to secondary ${windowId}`);
+                this.logger.debug(`Forwarded request to secondary ${windowId}`);
             }
         }
 
@@ -629,7 +626,7 @@ export class IPCServer {
                 const secondaryWindowId = payload.responsePayload?.data?.windowId;
 
                 if (!secondaryWindowId) {
-                    this.outputChannel.appendLine(LOG_PREFIX_SERVER + `CRITICAL: Could not find windowId in forwarded response for command ${aggregation.originalCommand}. Aggregation may fail.`);
+                    this.logger.error(`CRITICAL: Could not find windowId in forwarded response for command ${aggregation.originalCommand}. Aggregation may fail.`);
                 }
 
                 // Construct the same structure as the primary's response to ensure data consistency for aggregation.
@@ -767,7 +764,7 @@ export class IPCServer {
 
                 if (client.ws.readyState === WebSocket.OPEN) {
                     client.ws.send(JSON.stringify(pushMessage));
-                    this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'Forwarded push to CE client');
+                    this.logger.debug('Forwarded push to CE client');
                 }
             }
         }
@@ -803,7 +800,7 @@ export class IPCServer {
 
                     if (client.ws.readyState === WebSocket.OPEN) {
                         client.ws.send(JSON.stringify(pushMessage));
-                        this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'Pushed snippet to CE client');
+                        this.logger.info('Pushed snippet to CE client');
                     }
                 }
             }
@@ -819,9 +816,9 @@ export class IPCServer {
                 };
 
                 this.primaryWebSocket.send(JSON.stringify(forwardPush));
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'Forwarded snippet push to primary');
+                this.logger.info('Forwarded snippet push to primary');
             } else {
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'Cannot forward snippet - no connection to primary');
+                this.logger.warn('Cannot forward snippet - no connection to primary');
                 vscode.window.showWarningMessage('ContextWeaver: Cannot send snippet - no connection to primary server.');
             }
         }
@@ -850,21 +847,17 @@ export class IPCServer {
             payload
         };
         try {
-            const messageString = JSON.stringify(message); // Stringify once
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `sendMessage: Attempting to send to client. ReadyState: ${ws.readyState}. Message: ${messageString}`);
-            console.log(LOG_PREFIX_SERVER + `sendMessage: Attempting to send to client. ReadyState: ${ws.readyState}. Message:`, message); // Log full object for console
+            const messageString = JSON.stringify(message);
+            this.logger.trace(`Sending message for command '${command}'. ReadyState: ${ws.readyState}.`, { message_id: message.message_id, type: message.type, payloadKeys: message.payload ? Object.keys(message.payload) : [] });
 
             if (ws.readyState === WebSocket.OPEN) { // Check if OPEN before sending
                 ws.send(messageString);
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `sendMessage: Message sent successfully for command: ${command}`);
-                console.log(LOG_PREFIX_SERVER + `sendMessage: Message sent successfully for command: ${command}`);
+                this.logger.trace(`Message sent successfully for command: ${command}`);
             } else {
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `sendMessage: WebSocket not OPEN (state: ${ws.readyState}). Message for command '${command}' NOT sent.`);
-                console.warn(LOG_PREFIX_SERVER + `sendMessage: WebSocket not OPEN (state: ${ws.readyState}). Message for command '${command}' NOT sent.`);
+                this.logger.warn(`WebSocket not OPEN (state: ${ws.readyState}). Message for command '${command}' NOT sent.`);
             }
         } catch (error: any) {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `sendMessage: Error during ws.send() for command '${command}': ${error.message}. Message: ${JSON.stringify(message)}`);
-            console.error(LOG_PREFIX_SERVER + `sendMessage: Error during ws.send() for command '${command}': `, error, message);
+            this.logger.error(`Error during ws.send() for command '${command}': ${error.message}`, { message_id: message.message_id, type: message.type });
         }
     }
 
@@ -877,9 +870,11 @@ export class IPCServer {
      */
     private sendError(ws: WebSocket, original_message_id: string | null, errorCode: string, errorMessage: string): void {
         if (!ws) {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Attempted to send error but WebSocket was null. Error: ${errorCode} - ${errorMessage}`);
+            this.logger.error('Attempted to send error but WebSocket was null.', { errorCode, errorMessage });
             return;
         }
+        // Add a central log point for all errors sent to clients.
+        this.logger.warn(`Sending error to client: ${errorMessage}`, { errorCode, original_message_id });
         const errorPayload: ErrorResponsePayload = {
             success: false,
             error: errorMessage,
@@ -916,10 +911,10 @@ export class IPCServer {
      * @param message_id - The message ID for the response.
      */
     private handleRegisterActiveTarget(client: Client, payload: RegisterActiveTargetRequestPayload, message_id: string): void {
-        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `handleRegisterActiveTarget called: TabID ${payload.tabId}, Host ${payload.llmHost} for client ${client.ip}`);
+        this.logger.debug(`Registering active target: TabID ${payload.tabId}, Host ${payload.llmHost} for client ${client.ip}`);
         client.activeLLMTabId = payload.tabId;
         client.activeLLMHost = payload.llmHost;
-        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Registered active target for client ${client.ip}: TabID ${payload.tabId}, Host ${payload.llmHost}`);
+        this.logger.info(`Registered active target for client ${client.ip}: TabID ${payload.tabId}, Host ${payload.llmHost}`);
         this.sendGenericAck(client, message_id, true, 'Target registered successfully.');
     }
 
@@ -942,10 +937,9 @@ export class IPCServer {
                 errorCode: undefined
             };
             this.sendMessage<WorkspaceDetailsResponsePayload>(client.ws, 'response', 'response_workspace_details', responsePayload, message_id);
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent workspace details to ${client.ip}`);
+            this.logger.debug(`Sent workspace details to ${client.ip}`);
         } catch (error: any) {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error getting workspace details: ${error.message}`);
-            console.error(LOG_PREFIX_SERVER + 'Error getting workspace details:', error);
+            this.logger.error(`Error getting workspace details: ${error.message}`);
             const errorCode = error instanceof WorkspaceServiceError ? error.code : 'INTERNAL_SERVER_ERROR';
             this.sendError(client.ws, message_id, errorCode, `Error getting workspace details: ${error.message}`);
         }
@@ -977,7 +971,7 @@ export class IPCServer {
                     return null;
                 }
             } catch (e: any) {
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Invalid workspaceFolderUri for ${commandName}: ${requestedUriString}. Error: ${e.message}`);
+                this.logger.warn(`Invalid workspaceFolderUri for ${commandName}: ${requestedUriString}. Error: ${e.message}`);
                 this.sendError(client.ws, message_id, 'INVALID_PAYLOAD', `Invalid workspaceFolderUri: ${e.message}`);
                 return null;
             }
@@ -1043,11 +1037,10 @@ export class IPCServer {
                 filterType: filterTypeApplied
             };
             this.sendMessage<FileTreeResponsePayload>(client.ws, 'response', 'response_FileTree', responsePayload, message_id);
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent file tree for ${targetWorkspaceFolder.uri.toString()} (Filter: ${filterTypeApplied}) to ${client.ip}`);
+            this.logger.debug(`Sent file tree for ${targetWorkspaceFolder.uri.toString()} (Filter: ${filterTypeApplied}) to ${client.ip}`);
 
         } catch (error: any) {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error generating file tree for ${targetWorkspaceFolder.uri.toString()}: ${error.message}`);
-            console.error(LOG_PREFIX_SERVER + 'Error generating file tree:', error);
+            this.logger.error(`Error generating file tree for ${targetWorkspaceFolder.uri.toString()}: ${error.message}`);
             const errorCode = error instanceof WorkspaceServiceError ? error.code : 'FileTree_ERROR';
             this.sendError(client.ws, message_id, errorCode, `Error generating file tree: ${error.message}`);
         }
@@ -1069,7 +1062,7 @@ export class IPCServer {
             this.sendError(client.ws, message_id, 'INVALID_PAYLOAD', 'Missing or invalid filePath in payload.');
             return;
         }
-        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Processing get_file_content for: ${filePath}`);
+        this.logger.debug(`Processing get_file_content for: ${filePath}`);
 
         try {
             const fileUri = vscode.Uri.parse(filePath, true);
@@ -1124,11 +1117,10 @@ export class IPCServer {
             };
 
             this.sendMessage<FileContentResponsePayload>(client.ws, 'response', 'response_file_content', responsePayload, message_id);
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent file content for ${filePath} to ${client.ip}`);
+            this.logger.debug(`Sent file content for ${filePath} to ${client.ip}`);
 
         } catch (error: any) {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error reading file ${filePath}: ${error.message}`);
-            console.error(LOG_PREFIX_SERVER + 'Error reading file:', error);
+            this.logger.error(`Error reading file ${filePath}: ${error.message}`);
             const errorCode = error.code === 'FileNotFound' ? 'FILE_NOT_FOUND' : 'FILE_READ_ERROR';
             this.sendError(client.ws, message_id, errorCode, `Error reading file: ${error.message}`);
         }
@@ -1150,7 +1142,7 @@ export class IPCServer {
             this.sendError(client.ws, message_id, 'INVALID_PAYLOAD', 'Missing or invalid fileUris array in payload.');
             return;
         }
-        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Processing get_contents_for_files for ${fileUris.length} files.`);
+        this.logger.debug(`Processing get_contents_for_files for ${fileUris.length} files.`);
 
         const results: FileContentResponseData[] = [];
         const errors: { uri: string; error: string; errorCode?: string }[] = [];
@@ -1200,9 +1192,7 @@ export class IPCServer {
             message_id
         );
 
-        this.outputChannel.appendLine(
-            LOG_PREFIX_SERVER + `Sent contents for ${results.length} files (and ${errors.length} errors) to ${client.ip}`
-        );
+        this.logger.debug(`Sent contents for ${results.length} files (and ${errors.length} errors) to ${client.ip}`);
     }
 
     /**
@@ -1222,7 +1212,7 @@ export class IPCServer {
             return;
         }
 
-        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Processing get_folder_content for: ${folderPath} in workspace ${workspaceFolderUri}`);
+        this.logger.debug(`Processing get_folder_content for: ${folderPath} in workspace ${workspaceFolderUri}`);
 
         try {
             const folderUri = vscode.Uri.parse(folderPath, true); // strict parsing
@@ -1264,11 +1254,10 @@ export class IPCServer {
             };
 
             this.sendMessage<FolderContentResponsePayload>(client.ws, 'response', 'response_folder_content', responsePayload, message_id);
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent folder content for ${actualFolderUri.toString()} (${filesData.length} files, Filter: ${filterTypeApplied}) to ${client.ip}`);
+            this.logger.debug(`Sent folder content for ${actualFolderUri.toString()} (${filesData.length} files, Filter: ${filterTypeApplied}) to ${client.ip}`);
 
         } catch (error: any) {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error reading folder ${folderPath}: ${error.message}`);
-            console.error(LOG_PREFIX_SERVER + 'Error reading folder:', error);
+            this.logger.error(`Error reading folder ${folderPath}: ${error.message}`);
             const errorCode = error.code === 'DirectoryNotFound' ? 'DIRECTORY_NOT_FOUND' : 'FOLDER_READ_ERROR';
             this.sendError(client.ws, message_id, errorCode, `Error reading folder: ${error.message}`);
         }
@@ -1288,7 +1277,7 @@ export class IPCServer {
         const targetWorkspaceFolder = await this.getTargetWorkspaceFolder(client, payload.workspaceFolderUri, 'get_entire_codebase', message_id);
         if (!targetWorkspaceFolder) return;
 
-        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Processing get_entire_codebase for workspace ${targetWorkspaceFolder.uri.toString()}`);
+        this.logger.debug(`Processing get_entire_codebase for workspace ${targetWorkspaceFolder.uri.toString()}`);
 
         try {
             const result = await getWorkspaceDataForIPC(targetWorkspaceFolder);
@@ -1326,11 +1315,10 @@ export class IPCServer {
             };
 
             this.sendMessage<EntireCodebaseResponsePayload>(client.ws, 'response', 'response_entire_codebase', responsePayload, message_id);
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent entire codebase for ${targetWorkspaceFolder.uri.toString()} (${filesData.length} files, Filter: ${filterTypeApplied}) to ${client.ip}`);
+            this.logger.debug(`Sent entire codebase for ${targetWorkspaceFolder.uri.toString()} (${filesData.length} files, Filter: ${filterTypeApplied}) to ${client.ip}`);
 
         } catch (error: any) {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error reading entire codebase: ${error.message}`);
-            console.error(LOG_PREFIX_SERVER + 'Error reading entire codebase:', error);
+            this.logger.error(`Error reading entire codebase: ${error.message}`);
             const errorCode = error instanceof WorkspaceServiceError ? error.code : 'CODEBASE_READ_ERROR';
             this.sendError(client.ws, message_id, errorCode, `Error reading entire codebase: ${error.message}`);
         }
@@ -1353,7 +1341,7 @@ export class IPCServer {
             return;
         }
 
-        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Processing search_workspace for query: "${query}" in workspace: ${workspaceFolderUri || 'all'}`);
+        this.logger.debug(`Processing search_workspace in workspace: ${workspaceFolderUri || 'all'}`);
 
         try {
             const results = await this.searchService.search(query, workspaceFolderUri ? vscode.Uri.parse(workspaceFolderUri) : undefined);
@@ -1376,11 +1364,10 @@ export class IPCServer {
             };
 
             this.sendMessage<CWSearchWorkspaceResponsePayload>(client.ws, 'response', 'response_search_workspace', responsePayload, message_id);
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent search results (${results.length} items) to ${client.ip}`);
+            this.logger.debug(`Sent search results (${results.length} items) to ${client.ip}`);
 
         } catch (error: any) {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error searching workspace: ${error.message}`);
-            console.error(LOG_PREFIX_SERVER + 'Error searching workspace:', error);
+            this.logger.error(`Error searching workspace: ${error.message}`);
             const errorCode = error instanceof WorkspaceServiceError ? error.code : 'SEARCH_ERROR';
             this.sendError(client.ws, message_id, errorCode, `Error searching workspace: ${error.message}`);
         }
@@ -1422,11 +1409,10 @@ export class IPCServer {
             };
 
             this.sendMessage<ActiveFileInfoResponsePayload>(client.ws, 'response', 'response_active_file_info', responsePayload, message_id);
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent active file info to ${client.ip}`);
+            this.logger.debug(`Sent active file info to ${client.ip}`);
 
         } catch (error: any) {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error getting active file info: ${error.message}`);
-            console.error(LOG_PREFIX_SERVER + 'Error getting active file info:', error);
+            this.logger.error(`Error getting active file info: ${error.message}`);
             this.sendError(client.ws, message_id, 'INTERNAL_SERVER_ERROR', `Error getting active file info: ${error.message}`);
         }
     }
@@ -1463,11 +1449,10 @@ export class IPCServer {
             };
 
             this.sendMessage<OpenFilesResponsePayload>(client.ws, 'response', 'response_open_files', responsePayload, message_id);
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent open files list (${openFiles.length} files) to ${client.ip}`);
+            this.logger.debug(`Sent open files list (${openFiles.length} files) to ${client.ip}`);
 
         } catch (error: any) {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error getting open files: ${error.message}`);
-            console.error(LOG_PREFIX_SERVER + 'Error getting open files:', error);
+            this.logger.error(`Error getting open files: ${error.message}`);
             this.sendError(client.ws, message_id, 'INTERNAL_SERVER_ERROR', `Error getting open files: ${error.message}`);
         }
     }
@@ -1508,11 +1493,10 @@ export class IPCServer {
             };
 
             this.sendMessage<FilterInfoResponsePayload>(client.ws, 'response', 'response_filter_info', responsePayload, message_id);
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent filter info (${filterType}) for ${targetWorkspaceFolder.uri.toString()} to ${client.ip}`);
+            this.logger.debug(`Sent filter info (${filterType}) for ${targetWorkspaceFolder.uri.toString()} to ${client.ip}`);
 
         } catch (error: any) {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error getting filter info: ${error.message}`);
-            console.error(LOG_PREFIX_SERVER + 'Error getting filter info:', error);
+            this.logger.error(`Error getting filter info: ${error.message}`);
             this.sendError(client.ws, message_id, 'INTERNAL_SERVER_ERROR', `Error getting filter info: ${error.message}`);
         }
     }
@@ -1534,7 +1518,7 @@ export class IPCServer {
             return;
         }
 
-        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Processing list_folder_contents for: ${folderUriString}`);
+        this.logger.debug(`Processing list_folder_contents for: ${folderUriString}`);
 
         try {
             const folderUri = vscode.Uri.parse(folderUriString, true);
@@ -1572,11 +1556,10 @@ export class IPCServer {
             };
 
             this.sendMessage<ListFolderContentsResponsePayload>(client.ws, 'response', 'response_list_folder_contents', responsePayload, message_id);
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent folder listing (${entries.length} entries) for ${folderUriString} to ${client.ip}`);
+            this.logger.debug(`Sent folder listing (${entries.length} entries) for ${folderUriString} to ${client.ip}`);
 
         } catch (error: any) {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error listing folder contents: ${error.message}`);
-            console.error(LOG_PREFIX_SERVER + 'Error listing folder contents:', error);
+            this.logger.error(`Error listing folder contents for ${folderUriString}: ${error.message}`);
             const errorCode = error.code === 'DirectoryNotFound' ? 'DIRECTORY_NOT_FOUND' : 'DIRECTORY_READ_ERROR';
             this.sendError(client.ws, message_id, errorCode, `Error listing folder contents: ${error.message}`);
         }
@@ -1621,9 +1604,9 @@ export class IPCServer {
                 workspaceFolderUri: targetWorkspaceFolder.uri.toString(),
             };
             this.sendMessage<WorkspaceProblemsResponsePayload>(client.ws, 'response', 'response_workspace_problems', responsePayload, message_id);
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Sent workspace problems for ${targetWorkspaceFolder.name} to ${client.ip}`);
+            this.logger.debug(`Sent workspace problems for ${targetWorkspaceFolder.name} to ${client.ip}`);
         } catch (error: any) {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error getting workspace problems for ${targetWorkspaceFolder.uri.toString()}: ${error.message}`);
+            this.logger.error(`Error getting workspace problems for ${targetWorkspaceFolder.uri.toString()}: ${error.message}`);
             this.sendError(client.ws, message_id, 'PROBLEMS_ERROR', `Error getting workspace problems: ${error.message}`);
         }
     }
@@ -1636,11 +1619,11 @@ export class IPCServer {
     public getPrimaryTargetTabId(): number | undefined {
         for (const client of this.clients.values()) {
             if (client.isAuthenticated && client.activeLLMTabId !== undefined) {
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Primary target tab ID found: ${client.activeLLMTabId}`);
+                this.logger.debug(`Primary target tab ID found: ${client.activeLLMTabId}`);
                 return client.activeLLMTabId;
             }
         }
-        this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'No primary target tab ID found among connected clients.');
+        this.logger.debug('No primary target tab ID found among connected clients.');
         return undefined;
     }
 
@@ -1661,8 +1644,7 @@ export class IPCServer {
 
         if (targetClient) {
             if (targetClient.ws) {
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `pushSnippetToTarget: targetClient.ws.readyState: ${targetClient.ws.readyState}`);
-                console.log(LOG_PREFIX_SERVER + `pushSnippetToTarget: targetClient.ws.readyState: ${targetClient.ws.readyState}`);
+                this.logger.trace(`pushSnippetToTarget: targetClient.ws.readyState: ${targetClient.ws.readyState}`);
                 // The sendMessage method expects a response command, but this is a push.
                 // For pushes, we construct the message directly or have a separate sendPushMessage utility.
                 // For now, adapting the existing sendMessage structure slightly for a push.
@@ -1677,24 +1659,19 @@ export class IPCServer {
                 try {
                     if (targetClient.ws.readyState === WebSocket.OPEN) {
                         targetClient.ws.send(JSON.stringify(pushMessage));
-                        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Pushed snippet to tabId ${targetTabId}`);
-                        console.log(LOG_PREFIX_SERVER + `Pushed snippet to tabId ${targetTabId}`);
+                        this.logger.info(`Pushed snippet to tabId ${targetTabId}`);
                     } else {
-                        this.outputChannel.appendLine(LOG_PREFIX_SERVER + `WARN: WebSocket not OPEN for tabId ${targetTabId}. Snippet not sent.`);
-                        console.warn(LOG_PREFIX_SERVER + `WARN: WebSocket not OPEN for tabId ${targetTabId}. Snippet not sent.`);
+                        this.logger.warn(`WebSocket not OPEN for tabId ${targetTabId}. Snippet not sent.`);
                     }
                 } catch (error: any) {
-                    this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error sending push_snippet: ${error.message}`);
-                    console.error(LOG_PREFIX_SERVER + 'Error sending push_snippet:', error);
+                    this.logger.error(`Error sending push_snippet: ${error.message}`);
                 }
             } else {
-                this.outputChannel.appendLine(LOG_PREFIX_SERVER + `WARN: targetClient found for tabId ${targetTabId} but its WebSocket is missing.`);
-                console.warn(LOG_PREFIX_SERVER + `WARN: targetClient found for tabId ${targetTabId} but its WebSocket is missing.`);
+                this.logger.warn(`targetClient found for tabId ${targetTabId} but its WebSocket is missing.`);
                 vscode.window.showWarningMessage('ContextWeaver: Could not send snippet. Target client found, but WebSocket is missing.');
             }
         } else {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + `WARN: No authenticated client found for targetTabId ${targetTabId} to push snippet.`);
-            console.warn(LOG_PREFIX_SERVER + `No authenticated client found for targetTabId ${targetTabId} to push snippet.`);
+            this.logger.warn(`No authenticated client found for targetTabId ${targetTabId} to push snippet.`);
             vscode.window.showWarningMessage('ContextWeaver: Could not send snippet. No active, authenticated Chrome tab found.');
         }
     }
@@ -1706,25 +1683,22 @@ export class IPCServer {
      */
     public stop(): void {
         if (this.wss) {
-            this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'Stopping WebSocket server...');
-            console.log(LOG_PREFIX_SERVER + 'Stopping WebSocket server...');
+            this.logger.info('Stopping WebSocket server...');
             this.clients.forEach(client => {
                 try {
                     client.ws.removeAllListeners();
                     client.ws.close();
                 } catch (err) {
-                    console.error(LOG_PREFIX_SERVER + 'Error cleaning up client:', err);
+                    this.logger.error('Error cleaning up client:', err);
                 }
             });
             this.clients.clear();
             this.wss.removeAllListeners();
             this.wss.close((err) => {
                 if (err) {
-                    this.outputChannel.appendLine(LOG_PREFIX_SERVER + `Error closing WebSocket server: ${err.message}`);
-                    console.error(LOG_PREFIX_SERVER + 'Error closing WebSocket server:', err);
+                    this.logger.error(`Error closing WebSocket server: ${err.message}`);
                 } else {
-                    this.outputChannel.appendLine(LOG_PREFIX_SERVER + 'WebSocket server stopped.');
-                    console.log(LOG_PREFIX_SERVER + 'WebSocket server stopped.');
+                    this.logger.info('WebSocket server stopped.');
                 }
                 this.wss = null;
             });

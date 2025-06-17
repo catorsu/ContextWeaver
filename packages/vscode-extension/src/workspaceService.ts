@@ -6,8 +6,8 @@
  */
 
 import * as vscode from 'vscode';
+import { Logger } from '@contextweaver/shared';
 
-const LOG_PREFIX_WORKSPACE_SERVICE = '[ContextWeaver WorkspaceService] ';
 
 /**
  * Custom error class for WorkspaceService operations.
@@ -24,15 +24,13 @@ export class WorkspaceServiceError extends Error {
  * including checking workspace trust, retrieving folder information, and managing state.
  */
 export class WorkspaceService {
-    private outputChannel: vscode.OutputChannel;
+    private readonly logger = new Logger('WorkspaceService');
 
     /**
      * Creates an instance of WorkspaceService.
-     * @param outputChannel The VS Code output channel for logging.
      */
-    constructor(outputChannel: vscode.OutputChannel) {
-        this.outputChannel = outputChannel;
-        this.outputChannel.appendLine(LOG_PREFIX_WORKSPACE_SERVICE + 'Initialized.');
+    constructor() {
+        this.logger.info('Initialized.');
     }
 
     /**
@@ -41,7 +39,7 @@ export class WorkspaceService {
      */
     public isWorkspaceTrusted(): boolean {
         const trusted = vscode.workspace.isTrusted;
-        this.outputChannel.appendLine(LOG_PREFIX_WORKSPACE_SERVICE + `Workspace trusted: ${trusted}`);
+        this.logger.debug(`Workspace trusted: ${trusted}`);
         return trusted;
     }
 
@@ -52,9 +50,9 @@ export class WorkspaceService {
     public getWorkspaceFolders(): readonly vscode.WorkspaceFolder[] | undefined {
         const folders = vscode.workspace.workspaceFolders;
         if (folders && folders.length > 0) {
-            this.outputChannel.appendLine(LOG_PREFIX_WORKSPACE_SERVICE + `Found ${folders.length} workspace folder(s).`);
+            this.logger.debug(`Found ${folders.length} workspace folder(s).`);
         } else {
-            this.outputChannel.appendLine(LOG_PREFIX_WORKSPACE_SERVICE + 'No workspace folders found.');
+            this.logger.debug('No workspace folders found.');
         }
         return folders;
     }
@@ -67,9 +65,9 @@ export class WorkspaceService {
     public getWorkspaceFolder(uri: vscode.Uri): vscode.WorkspaceFolder | undefined {
         const folder = vscode.workspace.getWorkspaceFolder(uri);
         if (folder) {
-            this.outputChannel.appendLine(LOG_PREFIX_WORKSPACE_SERVICE + `Workspace folder found for URI ${uri.toString()}: ${folder.name}`);
+            this.logger.trace(`Workspace folder found for URI ${uri.toString()}: ${folder.name}`);
         } else {
-            this.outputChannel.appendLine(LOG_PREFIX_WORKSPACE_SERVICE + `No workspace folder found for URI ${uri.toString()}`);
+            this.logger.trace(`No workspace folder found for URI ${uri.toString()}`);
         }
         return folder;
     }
@@ -84,7 +82,7 @@ export class WorkspaceService {
     public getWorkspaceDetailsForIPC(): { uri: string, name: string, isTrusted: boolean }[] | null {
         const folders = this.getWorkspaceFolders();
         if (!folders || folders.length === 0) {
-            this.outputChannel.appendLine(LOG_PREFIX_WORKSPACE_SERVICE + 'No workspace open, returning null for IPC details.');
+            this.logger.info('No workspace open, returning null for IPC details.');
             return null;
         }
 
@@ -108,12 +106,12 @@ export class WorkspaceService {
      */
     public async ensureWorkspaceTrustedAndOpen(): Promise<void> {
         if (!this.isWorkspaceTrusted()) {
-            this.outputChannel.appendLine(LOG_PREFIX_WORKSPACE_SERVICE + 'Error: Workspace is not trusted.');
+            this.logger.error('Workspace trust check failed.');
             throw new WorkspaceServiceError('WORKSPACE_NOT_TRUSTED', 'Workspace is not trusted. Please trust the workspace to use this feature.');
         }
         const folders = this.getWorkspaceFolders();
         if (!folders || folders.length === 0) {
-            this.outputChannel.appendLine(LOG_PREFIX_WORKSPACE_SERVICE + 'Error: No workspace folder is open.');
+            this.logger.error('No workspace folder is open check failed.');
             throw new WorkspaceServiceError('NO_WORKSPACE_OPEN', 'No workspace folder is open. Please open a folder or workspace.');
         }
         // If we reach here, workspace is trusted and at least one folder is open.

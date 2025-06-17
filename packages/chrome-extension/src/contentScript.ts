@@ -24,10 +24,11 @@ import { StateManager } from './stateManager';
 import * as swClient from './serviceWorkerClient'; // Import the client
 
 
-const LOG_PREFIX_CS = '[ContextWeaver CS]';
+import { Logger } from '@contextweaver/shared';
+const logger = new Logger('ContentScript');
 const LOCAL_CSS_PREFIX = 'cw-'; // For classes not managed by UIManager but needed locally
 
-console.log(`${LOG_PREFIX_CS} Content script loaded.`);
+logger.debug('Content script loaded.');
 
 type Theme = 'light' | 'dark';
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -51,7 +52,7 @@ function detectBrowserTheme(): Theme {
 function updateTheme(theme: Theme): void {
   // Update theme variable (unused but kept for future use)
   currentTheme = theme;
-  console.log(`${LOG_PREFIX_CS} Theme updated to: ${theme}`);
+  logger.debug(`Theme updated to: ${theme}`);
 
   // Apply theme to body for global components like modals
   document.body.setAttribute('data-theme', theme);
@@ -160,8 +161,6 @@ function groupItemsByWorkspace<T extends WorkspaceGroupable>(
   return grouped;
 }
 
-// TODO: Avoid attaching to window. This is for debugging and should be removed in production builds.
-(window as any).groupItemsByWorkspace = groupItemsByWorkspace;
 
 /**
  * Defines a common structure for items that can be grouped by window.
@@ -204,8 +203,6 @@ function groupItemsByWindow<T extends WindowGroupable>(
   return grouped;
 }
 
-// TODO: Avoid attaching to window. This is for debugging and should be removed in production builds.
-(window as any).groupItemsByWindow = groupItemsByWindow;
 
 interface LLMInputConfig {
   hostSuffix: string;
@@ -248,12 +245,12 @@ async function performSearch(query: string): Promise<void> {
   }
 
   try {
-    console.log(LOG_PREFIX_CS, `Sending SEARCH_WORKSPACE for query: "${query}"`);
+    logger.debug('Sending SEARCH_WORKSPACE request.');
     const response = await swClient.searchWorkspace(query, null);
-    console.log(LOG_PREFIX_CS, 'Search response from service worker:', response);
+    logger.debug(`Search response from service worker. Found ${response.data?.results?.length || 0} results.`);
     renderSearchResults(response, query);
   } catch (error: any) {
-    console.error(LOG_PREFIX_CS, 'Error sending search request or processing response:', error);
+    logger.error('Error sending search request or processing response:', error);
     uiManager.showToast(`Search Error: ${error.message || 'Unknown error performing search.'}`, 'error');
   }
 }
@@ -285,7 +282,7 @@ async function processContentInsertion(
   const targetElementForThisOperation = stateManager.getCurrentTargetElementForPanel();
 
   if (!targetElementForThisOperation) {
-    console.warn(LOG_PREFIX_CS, 'processContentInsertion: No target element at the start of operation. Aborting indicator rendering path.');
+    logger.warn('processContentInsertion: No target element at the start of operation. Aborting indicator rendering path.');
     // Decide if we should still try to insert text if target is lost, or show error.
     // For now, let's assume if target is lost, we might not want to proceed or show error.
     // This part depends on desired UX if target is lost mid-operation.
@@ -293,7 +290,7 @@ async function processContentInsertion(
   }
 
   if (stateManager.isDuplicateContentSource(itemMetadata.contentSourceId)) {
-    console.warn(LOG_PREFIX_CS, `Duplicate content source: ${itemMetadata.contentSourceId}. Label: "${itemMetadata.name}"`);
+    logger.warn(`Duplicate content source: ${itemMetadata.contentSourceId}. Label: "${itemMetadata.name}"`);
     uiManager.showError('Content Already Added', `Content from "${itemMetadata.name}" is already added.`);
     setTimeout(() => uiManager.hide(), 2000);
     return;
@@ -376,7 +373,7 @@ async function processContentInsertion(
       } else {
         // If targetElementForThisOperation was null from the start, indicators can't be rendered.
         // This case should be handled based on UX requirements (e.g., error, or silent fail of indicators).
-        console.warn(LOG_PREFIX_CS, 'Cannot render indicators: target element was lost before/during operation.');
+        logger.warn('Cannot render indicators: target element was lost before/during operation.');
       }
 
       uiManager.hide();
@@ -388,7 +385,7 @@ async function processContentInsertion(
       }
     }
   } catch (error: any) {
-    console.error(LOG_PREFIX_CS, `Error fetching content for ${itemMetadata.name}:`, error);
+    logger.error(`Error fetching content for ${itemMetadata.name}:`, error);
     uiManager.showToast(`Error Loading ${itemMetadata.name}: ${error.message || 'Failed to get content.'}`, 'error');
     if (itemDivForFeedback) {
       itemDivForFeedback.style.opacity = '';
@@ -459,8 +456,7 @@ function createSearchResultItemElement(result: SharedSearchResult, omitWorkspace
     const itemContentSourceId = result.content_source_id;
     const itemWorkspaceFolderUri = result.workspaceFolderUri;
 
-    console.log(LOG_PREFIX_CS, `CLICKED ITEM: Name: "${itemName}", SourceID: "${itemContentSourceId}"`);
-    console.log(LOG_PREFIX_CS, 'ACTIVE BLOCKS before check:', JSON.parse(JSON.stringify(stateManager.getActiveContextBlocks())));
+    logger.debug(`Clicked item: Name: "${itemName}"`);
 
     if (itemType === 'file') {
       await processContentInsertion({
@@ -470,13 +466,13 @@ function createSearchResultItemElement(result: SharedSearchResult, omitWorkspace
         uri: itemUri
       }, itemDiv);
     } else if (itemType === 'folder') {
-      console.log(LOG_PREFIX_CS, 'Folder clicked:', itemName);
+      logger.debug('Folder clicked:', itemName);
       uiManager.showLoading(`Browsing: ${itemName}`, 'Loading folder contents...');
       try {
         const browseResponse = await swClient.listFolderContents(itemUri, itemWorkspaceFolderUri || null);
         renderBrowseView(browseResponse, itemUri, itemName, itemWorkspaceFolderUri || null);
       } catch (error: any) {
-        console.error(LOG_PREFIX_CS, 'Error getting folder contents:', error);
+        logger.error('Error getting folder contents:', error);
         uiManager.showToast(`Error Browsing ${itemName}: ${error.message || 'Failed to get folder contents.'}`, 'error');
       } finally {
         uiManager.hideLoading(); // Ensure loading indicator is hidden
@@ -694,7 +690,7 @@ function renderSearchResults(response: SearchWorkspaceResponsePayload, query: st
  */
 function formatFileContentsForLLM(filesData: { fullPath: string; content: string; languageId: string }[]): string {
   if (!Array.isArray(filesData) || filesData.length === 0) {
-    console.warn('[ContextWeaver CE] formatFileContentsForLLM: Invalid or empty filesData array.');
+    logger.warn('formatFileContentsForLLM: Invalid or empty filesData array.');
     return '';
   }
   const formattedBlocks = [];
@@ -723,7 +719,7 @@ function formatFileContentsForLLM(filesData: { fullPath: string; content: string
       fileBlock += '```\n';
       formattedBlocks.push(fileBlock);
     } else {
-      console.warn('[ContextWeaver CE] formatFileContentsForLLM: Skipping invalid file data object:', file);
+      logger.warn('formatFileContentsForLLM: Skipping invalid file data object:', file);
     }
   }
   if (formattedBlocks.length === 0) return '';
@@ -782,12 +778,12 @@ function createGeneralOptionsSection(workspaceDetails: WorkspaceDetailsResponseP
     id: `${LOCAL_CSS_PREFIX}btn-active-file`,
     onClick: async (e) => {
       const itemDiv = e.currentTarget as HTMLElement;
-      console.log('ContextWeaver: "📄 Active File" clicked');
+      logger.debug('"Active File" clicked');
 
       // The processContentInsertion function will handle loading state and feedback
       try {
         const activeFileInfoResponse = await swClient.getActiveFileInfo();
-        console.log('ContextWeaver: Active file info response:', activeFileInfoResponse);
+        logger.debug('Active file info response:', { success: activeFileInfoResponse.success, path: activeFileInfoResponse.data?.activeFilePath });
 
         if (activeFileInfoResponse.success && activeFileInfoResponse.data && activeFileInfoResponse.data.activeFilePath) {
           const activeFilePath = activeFileInfoResponse.data.activeFilePath;
@@ -802,11 +798,11 @@ function createGeneralOptionsSection(workspaceDetails: WorkspaceDetailsResponseP
 
         } else {
           const errorMsg = activeFileInfoResponse.error || 'Could not get active file information from VS Code. Is a file editor active?';
-          console.error('ContextWeaver: Error getting active file info:', errorMsg);
+          logger.error('Error getting active file info:', errorMsg);
           uiManager.showToast(`Active File Error: ${errorMsg} (Code: ${activeFileInfoResponse.errorCode || 'N/A'})`, 'error');
         }
       } catch (err: any) {
-        console.error('ContextWeaver: Error in active file workflow:', err);
+        logger.error('Error in active file workflow:', err);
         uiManager.showToast(`Active File Error: ${err.message || 'Failed to process active file request.'}`, 'error');
       }
     }
@@ -817,26 +813,26 @@ function createGeneralOptionsSection(workspaceDetails: WorkspaceDetailsResponseP
     id: `${LOCAL_CSS_PREFIX}btn-open-files`,
     onClick: async (e) => {
       const itemDiv = e.currentTarget as HTMLElement;
-      console.log('ContextWeaver: "📂 Open Files" clicked');
+      logger.debug('"Open Files" clicked');
 
       itemDiv.style.opacity = '0.5';
       itemDiv.style.pointerEvents = 'none';
       uiManager.showLoading('Loading Open Files', 'Fetching list of open files...');
       try {
         const openFilesResponse = await swClient.getOpenFiles();
-        console.log('ContextWeaver: Open files response:', openFilesResponse);
+        logger.debug('Open files response:', { success: openFilesResponse.success, count: openFilesResponse.data?.openFiles?.length });
 
         if (openFilesResponse.success && openFilesResponse.data && Array.isArray(openFilesResponse.data.openFiles)) {
           displayOpenFilesSelectorUI(openFilesResponse.data.openFiles);
         } else {
           const errorMsg = openFilesResponse.error || 'Failed to get open files list.';
-          console.error('ContextWeaver: Error getting open files list:', errorMsg);
+          logger.error('Error getting open files list:', errorMsg);
           uiManager.showToast(`Open Files Error: ${errorMsg} (Code: ${openFilesResponse.errorCode || 'N/A'})`, 'error');
           itemDiv.style.opacity = '';
           itemDiv.style.pointerEvents = '';
         }
       } catch (err: any) {
-        console.error('ContextWeaver: Error in open files workflow:', err);
+        logger.error('Error in open files workflow:', err);
         uiManager.showToast(`Open Files Error: ${err.message || 'Failed to process open files request.'}`, 'error');
         itemDiv.style.opacity = '';
         itemDiv.style.pointerEvents = '';
@@ -879,7 +875,7 @@ async function populateFloatingUiContent(uiContext: UIContext): Promise<void> {
 
   try {
     const response = await swClient.getWorkspaceDetails();
-    console.log('ContextWeaver: Workspace details response:', response);
+    logger.debug('Workspace details response:', { success: response.success, folders: response.data?.workspaceFolders?.length });
 
     if (response.error || !response.success) {
       uiManager.showToast(`Workspace Error: ${response.error || 'Unknown error'} (Code: ${response.errorCode || 'N/A'})`, 'error');
@@ -908,7 +904,7 @@ async function populateFloatingUiContent(uiContext: UIContext): Promise<void> {
       uiManager.showToast('Connection Issue: Could not retrieve workspace details. Is ContextWeaver VSCode extension running and connected?', 'error');
     }
   } catch (error: any) {
-    console.error('ContextWeaver: Error requesting workspace details from service worker:', error);
+    logger.error('Error requesting workspace details from service worker:', error);
     uiManager.showToast(`Communication Error: ${error.message || 'Failed to communicate with service worker.'}`, 'error');
   } finally {
     uiManager.hideLoading();
@@ -923,9 +919,9 @@ async function populateFloatingUiContent(uiContext: UIContext): Promise<void> {
  * @returns {void}
  */
 function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string): void {
-  console.log(LOG_PREFIX_CS, `Request to remove indicator for block ID: ${uniqueBlockId}, Type: ${blockType}`);
-  if (!uniqueBlockId || typeof uniqueBlockId !== 'string') {
-    console.error(LOG_PREFIX_CS, 'Cannot remove block: uniqueId is invalid.', uniqueBlockId);
+  logger.debug(`Request to remove indicator for block ID: ${uniqueBlockId}, Type: ${blockType}`);
+  if (!uniqueBlockId) {
+    logger.error('Cannot remove block: uniqueId is invalid.', uniqueBlockId);
     stateManager.removeActiveContextBlock(uniqueBlockId);
     renderContextIndicators(stateManager.getCurrentTargetElementForPanel());
     return;
@@ -941,7 +937,7 @@ function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string):
   } else if (blockType === 'WorkspaceProblems') {
     tagNameForRegex = 'WorkspaceProblems';
   } else {
-    console.warn(LOG_PREFIX_CS, `Unknown blockType for removal: ${blockType}`);
+    logger.warn(`Unknown blockType for removal: ${blockType}`);
     stateManager.removeActiveContextBlock(uniqueBlockId);
     renderContextIndicators(stateManager.getCurrentTargetElementForPanel());
     return;
@@ -965,10 +961,10 @@ function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string):
       textArea.value = originalValue.replace(blockRegex, '');
 
       if (originalValue.length !== textArea.value.length) {
-        console.log(LOG_PREFIX_CS, `Removed text block ${uniqueBlockId} (type: ${blockType}, tag: ${tagNameForRegex}) from TEXTAREA value.`);
+        logger.debug(`Removed text block ${uniqueBlockId} (type: ${blockType}, tag: ${tagNameForRegex}) from TEXTAREA value.`);
         textArea.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
       } else {
-        console.warn(LOG_PREFIX_CS, `Could not find/remove text block ${uniqueBlockId} (type: ${blockType}, tag: ${tagNameForRegex}) in TEXTAREA value using regex.`);
+        logger.warn(`Could not find/remove text block ${uniqueBlockId} (type: ${blockType}, tag: ${tagNameForRegex}) in TEXTAREA value using regex.`);
       }
     } else if (currentTargetElement.isContentEditable) {
       // CONTENTEDITABLE handling - use text-based approach
@@ -981,7 +977,7 @@ function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string):
         const textNode = document.createTextNode(newText);
         currentTargetElement.appendChild(textNode);
 
-        console.log(LOG_PREFIX_CS, `Removed text block ${uniqueBlockId} (type: ${blockType}, tag: ${tagNameForRegex}) from ContentEditable via text replacement.`);
+        logger.debug(`Removed text block ${uniqueBlockId} (type: ${blockType}, tag: ${tagNameForRegex}) from ContentEditable via text replacement.`);
         currentTargetElement.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
 
         // Restore cursor position to the end
@@ -994,11 +990,11 @@ function handleRemoveContextIndicator(uniqueBlockId: string, blockType: string):
           selection.addRange(range);
         }
       } else {
-        console.warn(LOG_PREFIX_CS, `Could not find text block ${uniqueBlockId} (type: ${blockType}, tag: ${tagNameForRegex}) in ContentEditable text content.`);
+        logger.warn(`Could not find text block ${uniqueBlockId} (type: ${blockType}, tag: ${tagNameForRegex}) in ContentEditable text content.`);
       }
     }
   } else {
-    console.warn(LOG_PREFIX_CS, `currentTargetElementForPanel is null, cannot remove block ${uniqueBlockId}.`);
+    logger.warn(`currentTargetElementForPanel is null, cannot remove block ${uniqueBlockId}.`);
   }
 
   stateManager.removeActiveContextBlock(uniqueBlockId);
@@ -1026,10 +1022,10 @@ function renderContextIndicators(explicitTarget: HTMLElement | null): void {
  * @param label The user-friendly label of the block, used as the modal title.
  */
 function handleIndicatorClick(uniqueBlockId: string, label: string): void {
-  console.log(LOG_PREFIX_CS, `Request to view content for block ID: ${uniqueBlockId}`);
+  logger.debug(`Request to view content for block: ${label}`);
   const targetElement = stateManager.getCurrentTargetElementForPanel();
   if (!targetElement) {
-    console.warn(LOG_PREFIX_CS, 'No target element found to retrieve content from.');
+    logger.warn('No target element found to retrieve content from.');
     uiManager.showToast('Could not find the source input to show content.', 'error');
     return;
   }
@@ -1038,7 +1034,7 @@ function handleIndicatorClick(uniqueBlockId: string, label: string): void {
 
   const block = stateManager.getActiveContextBlocks().find((b: { unique_block_id: string }) => b.unique_block_id === uniqueBlockId);
   if (!block) {
-    console.error(LOG_PREFIX_CS, `Could not find metadata for block ID ${uniqueBlockId}.`);
+    logger.error(`Could not find metadata for block ID ${uniqueBlockId}.`);
     uiManager.showToast('Internal error: Could not find block metadata.', 'error');
     return;
   }
@@ -1066,7 +1062,7 @@ function handleIndicatorClick(uniqueBlockId: string, label: string): void {
     const extractedContent = match[1].trim();
     uiManager.showContentModal(`${label}`, extractedContent);
   } else {
-    console.warn(LOG_PREFIX_CS, `Could not extract content for block ID ${uniqueBlockId}.`);
+    logger.warn(`Could not extract content for block: ${label}`);
     uiManager.showToast('Could not find the content in the input field.', 'error');
   }
 }
@@ -1084,7 +1080,7 @@ function insertTextIntoLLMInput(
   triggerQuery?: string // This is the query part only, e.g., "search_term"
 ): void {
   if (!targetInput) {
-    console.error(LOG_PREFIX_CS, 'No target input field to insert text into.');
+    logger.error('No target input field to insert text into.');
     return;
   }
   targetInput.focus();
@@ -1094,10 +1090,10 @@ function insertTextIntoLLMInput(
   if (targetInput instanceof HTMLTextAreaElement) {
     handleTextAreaInsertion(targetInput, textToInsert, fullTriggerTextToReplace); // Only textareas are supported now
   } else {
-    console.warn(LOG_PREFIX_CS, 'Target input field is not a textarea.');
+    logger.warn('Target input field is not a textarea.');
     // If other types were supported, the logic would go here.
   }
-  console.log(LOG_PREFIX_CS, 'Text insertion attempt completed.');
+  logger.debug('Text insertion attempt completed.');
 }
 
 /**
@@ -1154,7 +1150,7 @@ function handleTextAreaInsertion(
   textArea.selectionStart = endPosition;
   textArea.selectionEnd = endPosition;
 
-  console.log(LOG_PREFIX_CS, `Inserted content with trigger "${fullTriggerToReplace}" in textarea.`);
+  logger.debug('Inserted content in textarea.');
 
   // Dispatch event to notify the host application of the change
   textArea.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
@@ -1186,7 +1182,7 @@ function attachListenerToInputField(inputField: HTMLElement, config: LLMInputCon
     }
   }
 
-  console.log('ContextWeaver: Attaching listener to input field:', inputField, `with selector: ${config.selector}`);
+  logger.debug('Attaching listener to input field:', { selector: config.selector, element: inputField });
   inputField.dataset.cwSelector = config.selector;
 
   const handleSpecificEvent = () => {
@@ -1214,14 +1210,14 @@ function attachListenerToInputField(inputField: HTMLElement, config: LLMInputCon
 
       if (queryText.length > 0) {
         // Search Mode: Triggered if there are non-whitespace characters after @
-        console.log(LOG_PREFIX_CS, `Search trigger detected. Query: "${queryText}"`);
+        logger.debug(`Search trigger detected. Query length: ${queryText.length}`);
         stateManager.setOriginalQueryTextFromUI(queryText);
         uiManager.show(
           inputField,
           `"@${queryText}"`, // Set concise title immediately
           null, // Pass null to show an empty content area initially
           () => {
-            console.log(LOG_PREFIX_CS, 'UI hidden (search mode), callback from UIManager.');
+            logger.debug('UI hidden (search mode), callback from UIManager.');
             stateManager.onUiHidden();
           }
         );
@@ -1235,14 +1231,14 @@ function attachListenerToInputField(inputField: HTMLElement, config: LLMInputCon
         const isAtAloneOrFollowedBySpace = fullTriggerText === '@' || charImmediatelyAfterAt === ' ';
 
         if (isAtAloneOrFollowedBySpace) {
-          console.log(LOG_PREFIX_CS, 'General trigger detected (\'@\' or \'@ \' or \'@\' at end of query).');
+          logger.debug('General trigger detected (\'@\' or \'@ \' or \'@\' at end of query).');
           stateManager.setOriginalQueryTextFromUI(undefined); // No specific query text for general mode
           uiManager.show(
             inputField,
             'ContextWeaver',
             uiManager.createParagraph({ classNames: [`${LOCAL_CSS_PREFIX}loading-text`], textContent: 'Loading options...' }),
             () => {
-              console.log(LOG_PREFIX_CS, 'UI hidden (general mode), callback from UIManager.');
+              logger.debug('UI hidden (general mode), callback from UIManager.');
               stateManager.onUiHidden();
             }
           );
@@ -1256,7 +1252,7 @@ function attachListenerToInputField(inputField: HTMLElement, config: LLMInputCon
           // Hiding seems safer to avoid a lingering general UI if the user is mid-typing a search query.
           if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible') &&
             stateManager.getCurrentTargetElementForPanel()?.isSameNode(inputField)) {
-            console.log(LOG_PREFIX_CS, 'Ambiguous \'@\' trigger (not search, not general), hiding UI if currently shown for this input.');
+            logger.debug('Ambiguous \'@\' trigger, hiding UI.');
             uiManager.hide();
           }
         }
@@ -1265,7 +1261,7 @@ function attachListenerToInputField(inputField: HTMLElement, config: LLMInputCon
       // No valid "@" trigger ending at the cursor. Hide UI if it's currently shown for this input field.
       if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible') &&
         stateManager.getCurrentTargetElementForPanel()?.isSameNode(inputField)) {
-        console.log(LOG_PREFIX_CS, 'No valid \'@\' trigger found at cursor, hiding UI.');
+        logger.debug('No valid \'@\' trigger found at cursor, hiding UI.');
         uiManager.hide();
       }
     }
@@ -1282,7 +1278,7 @@ function attachListenerToInputField(inputField: HTMLElement, config: LLMInputCon
       }
 
       if (blocksToRemove.length > 0) {
-        console.log(LOG_PREFIX_CS, `Detected manual removal of ${blocksToRemove.length} context blocks. Syncing indicators.`);
+        logger.debug(`Detected manual removal of ${blocksToRemove.length} context blocks. Syncing indicators.`);
         for (const blockId of blocksToRemove) {
           stateManager.removeActiveContextBlock(blockId);
         }
@@ -1303,16 +1299,16 @@ function attachListenerToInputField(inputField: HTMLElement, config: LLMInputCon
  */
 function initializeTriggerDetection(): void {
   const currentHostname = window.location.hostname;
-  console.log(`ContextWeaver: Initializing trigger detection on ${currentHostname}`);
+  logger.debug(`Initializing trigger detection on ${currentHostname}`);
 
   for (const config of llmInputsConfig) {
     if (currentHostname.includes(config.hostSuffix)) {
-      console.log(`ContextWeaver: Hostname match for ${config.hostSuffix}. Looking for selector: ${config.selector}`);
+      logger.debug(`Hostname match for ${config.hostSuffix}. Looking for selector: ${config.selector}`);
       const inputField = document.querySelector(config.selector) as HTMLElement;
       if (inputField) {
         attachListenerToInputField(inputField, config);
       } else {
-        console.log(`ContextWeaver: Input field ${config.selector} not found immediately. Setting up MutationObserver.`);
+        logger.debug(`Input field ${config.selector} not found immediately. Setting up MutationObserver.`);
         observeForElement(config);
       }
     }
@@ -1337,11 +1333,11 @@ function observeForElement(config: LLMInputConfig): void {
     }
     const inputField = document.querySelector(config.selector) as HTMLElement;
     if (inputField) {
-      console.log(`ContextWeaver: Element with selector ${config.selector} found/re-found by MutationObserver.`);
+      logger.debug(`Element with selector ${config.selector} found/re-found by MutationObserver.`);
       attachListenerToInputField(inputField, config);
     }
   });
-  console.log(`ContextWeaver: Setting up/re-arming MutationObserver for selector: ${config.selector}`);
+  logger.debug(`Setting up/re-arming MutationObserver for selector: ${config.selector}`);
   observer.observe(document.body, { childList: true, subtree: true });
 }
 
@@ -1362,25 +1358,25 @@ function findActiveLLMInput(): HTMLElement | null {
     if (currentHostname.includes(config.hostSuffix)) {
       const inputField = document.querySelector(config.selector) as HTMLElement;
       if (inputField && inputField.offsetParent !== null) {
-        console.log(LOG_PREFIX_CS, 'findActiveLLMInput: Found active LLM input field:', inputField);
+        logger.debug('findActiveLLMInput: Found active LLM input field:', inputField);
         return inputField;
       }
     }
   }
-  console.warn(LOG_PREFIX_CS, 'findActiveLLMInput: No active LLM input field found on the page.');
+  logger.warn('findActiveLLMInput: No active LLM input field found on the page.');
   return null;
 }
 
 chrome.runtime.onMessage.addListener((message) => {
-  console.log('ContextWeaver (contentScript.ts): Message received', message);
+  logger.debug('Message received from runtime', { type: message.type, command: message.command });
 
   if (message.type === 'push' && message.command === 'push_snippet') {
     const snippetData = message.payload;
-    console.log('ContextWeaver: Received snippet to insert:', snippetData);
+    logger.debug('Received snippet to insert:', { label: snippetData.metadata.label });
 
     let targetInputElement = stateManager.getCurrentTargetElementForPanel();
     if (!targetInputElement) {
-      console.log(LOG_PREFIX_CS, 'currentTargetElementForPanel is null, attempting to find active LLM input for snippet insertion.');
+      logger.debug('currentTargetElementForPanel is null, attempting to find active LLM input for snippet insertion.');
       targetInputElement = findActiveLLMInput();
     }
 
@@ -1410,18 +1406,18 @@ chrome.runtime.onMessage.addListener((message) => {
           workspaceFolderUri: snippetData.metadata.workspaceFolderUri,
           windowId: snippetData.metadata.windowId
         });
-        console.log(LOG_PREFIX_CS, 'Added snippet to activeContextBlocks:', snippetData.metadata);
+        logger.debug('Added snippet to activeContextBlocks.');
         renderContextIndicators(targetInputElement);
       } else {
-        console.warn(LOG_PREFIX_CS, 'Snippet received without metadata, cannot create indicator:', snippetData);
+        logger.warn('Snippet received without metadata, cannot create indicator.');
       }
     } else {
-      console.warn('ContextWeaver: No target LLM input element known or found for snippet insertion.');
+      logger.warn('No target LLM input element known or found for snippet insertion.');
     }
     uiManager.hideLoading(); // Hide loading after snippet insertion attempt
     return false;
   } else if (message.type === 'ERROR_FROM_SERVICE_WORKER' || message.type === 'ERROR_FROM_VSCE_IPC') {
-    console.error(`ContextWeaver: Error received: ${message.payload.message}`);
+    logger.error(`Error received from service worker: ${message.payload.message}`, { code: message.payload.errorCode });
     if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible')) {
       uiManager.showToast(`Extension Error: ${message.payload.message} (Code: ${message.payload.errorCode || 'N/A'})`, 'error');
     }
@@ -1681,7 +1677,7 @@ function createBrowseViewButtons(
       const allSelected = allCheckboxes.length > 0 && allCheckboxes.length === checkedCheckboxes.length;
 
       if (allSelected) {
-        console.log(LOG_PREFIX_CS, `All items in browse view for "${parentFolderName}" are selected. Inserting as a single folder block.`);
+        logger.info(`All items in browse view for "${parentFolderName}" are selected. Inserting as a single folder block.`);
         // Use processContentInsertion to fetch and insert the entire parent folder's content
         await processContentInsertion({
           name: parentFolderName,
@@ -1752,7 +1748,7 @@ function createBrowseViewButtons(
           }
           if (filesResponse.errors) {
             failureCount += filesResponse.errors.length;
-            filesResponse.errors.forEach(err => console.warn(LOG_PREFIX_CS, `Failed to get content for ${err.uri}: ${err.error}`));
+            filesResponse.errors.forEach(err => logger.warn(`Failed to get content for ${err.uri}: ${err.error}`));
           }
         }
 
@@ -1775,11 +1771,11 @@ function createBrowseViewButtons(
               successCount++;
             } else {
               failureCount++;
-              console.warn(LOG_PREFIX_CS, `Failed to get content for folder ${entry.name}: ${responsePayload.error || 'No data'}`);
+              logger.warn(`Failed to get content for folder ${entry.name}: ${responsePayload.error || 'No data'}`);
             }
           } catch (innerError: any) {
             failureCount++;
-            console.error(LOG_PREFIX_CS, `Error fetching content for folder ${entry.name}:`, innerError);
+            logger.error(`Error fetching content for folder ${entry.name}:`, innerError);
           }
         }
 
@@ -1791,9 +1787,9 @@ function createBrowseViewButtons(
         } else {
           uiManager.showToast('Insertion Failed: Failed to insert any of the selected items.', 'error');
         }
-        if (failureCount > 0) console.warn(LOG_PREFIX_CS, `${failureCount} items failed to insert.`);
+        if (failureCount > 0) logger.warn(`${failureCount} items failed to insert.`);
       } catch (error: any) {
-        console.error(LOG_PREFIX_CS, 'Error processing selected items:', error);
+        logger.error('Error processing selected items:', error);
         uiManager.showToast(`Insertion Error: ${error.message || 'Failed to process selected items.'}`, 'error');
       } finally {
         uiManager.hideLoading(); // Hide loading for this operation
@@ -2058,13 +2054,13 @@ function createOpenFilesFormElements(
           }
           uiManager.hide();
           if (response.errors && response.errors.length > 0) {
-            console.warn('ContextWeaver: Some files failed to load:', response.errors);
+            logger.warn('ContextWeaver: Some files failed to load:', response.errors);
           }
         } else {
           uiManager.showToast(`File Content Error: ${response.error || 'Unknown error fetching content.'} (Code: ${response.errorCode || 'N/A'})`, 'error');
         }
       } catch (e: any) {
-        console.error('ContextWeaver: Error requesting selected files content:', e);
+        logger.error('Error requesting selected files content:', e);
         uiManager.showToast(`File Content Error: ${e.message || 'Failed to process request.'}`, 'error');
       } finally {
         uiManager.hideLoading(); // Hide loading for this operation
@@ -2237,13 +2233,13 @@ function displayOpenFilesSelectorUI(
             }
             uiManager.hide();
             if (response.errors && response.errors.length > 0) {
-              console.warn('ContextWeaver: Some files failed to load:', response.errors);
+              logger.warn('ContextWeaver: Some files failed to load:', response.errors);
             }
           } else {
             uiManager.showToast(`File Content Error: ${response.error || 'Unknown error fetching content.'} (Code: ${response.errorCode || 'N/A'})`, 'error');
           }
         } catch (e: any) {
-          console.error('ContextWeaver: Error requesting selected files content:', e);
+          logger.error('Error requesting selected files content:', e);
           uiManager.showToast(`File Content Error: ${e.message || 'Failed to process request.'}`, 'error');
         } finally {
           uiManager.hideLoading();

@@ -7,6 +7,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import { Logger } from '@contextweaver/shared';
 
 /**
  * Defines the structure for a code snippet payload, excluding `targetTabId` and `windowId`
@@ -46,16 +47,13 @@ export interface SnippetPayload {
  * for transmission to the Chrome Extension.
  */
 export class SnippetService {
-    private outputChannel: vscode.OutputChannel;
+    private readonly logger = new Logger('SnippetService');
 
     /**
      * Creates an instance of SnippetService.
-     * @param outputChannel The VS Code output channel for logging.
      */
-    constructor(outputChannel: vscode.OutputChannel) {
-        this.outputChannel = outputChannel;
-        this.outputChannel.appendLine('[ContextWeaver SnippetService] Initialized.');
-        console.log('[ContextWeaver SnippetService] Initialized.');
+    constructor() {
+        this.logger.info('Initialized.');
     }
 
     /**
@@ -67,19 +65,19 @@ export class SnippetService {
     public prepareSnippetData(): SnippetPayload | null {
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
-            this.outputChannel.appendLine('[ContextWeaver SnippetService] No active text editor.');
+            this.logger.warn('No active text editor.');
             return null;
         }
 
         if (editor.document.isUntitled) {
-            this.outputChannel.appendLine('[ContextWeaver SnippetService] Cannot get snippet from an untitled document.');
+            this.logger.warn('Cannot get snippet from an untitled document.');
             vscode.window.showWarningMessage('ContextWeaver: Please save the file before sending a snippet.');
             return null;
         }
 
         const selection = editor.selection;
         if (selection.isEmpty) {
-            this.outputChannel.appendLine('[ContextWeaver SnippetService] No text selected.');
+            this.logger.debug('No text selected.');
             return null;
         }
 
@@ -123,7 +121,7 @@ export class SnippetService {
             },
         };
 
-        this.outputChannel.appendLine(`[ContextWeaver SnippetService] Prepared snippet from ${filePath} (lines ${startLine}-${endLine})`);
+        this.logger.info(`Prepared snippet from ${filePath} (lines ${startLine}-${endLine})`);
         return snippetPayload;
     }
 }

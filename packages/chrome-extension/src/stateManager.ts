@@ -6,11 +6,12 @@
  */
 
 import {
+    Logger,
     ContextBlockMetadata,
     SearchWorkspaceResponsePayload
 } from '@contextweaver/shared';
 
-const LOG_PREFIX_SM = '[ContextWeaver StateManager]';
+const logger = new Logger('StateManager');
 
 /**
  * Manages the state for the ContextWeaver Chrome Extension,
@@ -27,7 +28,7 @@ export class StateManager {
      * Initializes the StateManager.
      */
     constructor() {
-        console.log(LOG_PREFIX_SM, 'StateManager initialized.');
+        logger.info('StateManager initialized.');
     }
 
         /**
@@ -46,7 +47,7 @@ export class StateManager {
         // Optional: Could add a check here to prevent adding if unique_block_id already exists,
         // though content_source_id is used for user-facing duplicate prevention.
         this._activeContextBlocks.push(block);
-        console.log(LOG_PREFIX_SM, `Added block: ${block.label}. Total: ${this._activeContextBlocks.length}`);
+        logger.info(`Added block: ${block.label}. Total: ${this._activeContextBlocks.length}`);
     }
 
     /**
@@ -59,7 +60,7 @@ export class StateManager {
             (b) => b.unique_block_id !== uniqueBlockId
         );
         if (this._activeContextBlocks.length < initialLength) {
-            console.log(LOG_PREFIX_SM, `Removed block ID: ${uniqueBlockId}. Total: ${this._activeContextBlocks.length}`);
+            logger.info(`Removed block ID: ${uniqueBlockId}. Total: ${this._activeContextBlocks.length}`);
         }
     }
 
@@ -77,7 +78,7 @@ export class StateManager {
      */
     public clearActiveContextBlocks(): void {
         this._activeContextBlocks = [];
-        console.log(LOG_PREFIX_SM, 'Active context blocks cleared.');
+        logger.info('Active context blocks cleared.');
     }
 
         /**
@@ -155,6 +156,6 @@ export class StateManager {
         // this.setSearchQuery(null);
         // this.setSearchResponse(null);
         // this.setOriginalQueryTextFromUI(undefined);
-        console.log(LOG_PREFIX_SM, 'UI hidden. Target element reference retained for subsequent operations.');
+        logger.debug('UI hidden. Target element reference retained for subsequent operations.');
     }
 }

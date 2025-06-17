@@ -5,9 +5,10 @@
  */
 
 import * as vscode from 'vscode';
-import path from 'path'; // Changed to default import
-import ignore, { Ignore } from 'ignore'; // Changed to default import
-import { parseGitignore, getPathIgnoreInfo } from './fileSystemService'; // Import getPathIgnoreInfo
+import path from 'path';
+import ignore, { Ignore } from 'ignore';
+import { parseGitignore, getPathIgnoreInfo } from './fileSystemService';
+import { Logger } from '@contextweaver/shared';
 import { WorkspaceService } from './workspaceService';
 import { FilterType } from '@contextweaver/shared';
 
@@ -24,7 +25,6 @@ type LocalSearchResult = {
   filterTypeApplied?: FilterType;
 };
 
-const LOG_PREFIX_SEARCH_SERVICE = '[ContextWeaver SearchService] ';
 
 // Default ignore patterns (can be kept or potentially centralized if WorkspaceService provides them)
 // Default patterns for files and folders to ignore during search operations.
@@ -45,18 +45,16 @@ const LOCAL_IGNORE_PATTERNS_DEFAULT = [
  * It applies .gitignore rules and allows searching within specific or all trusted workspace folders.
  */
 export class SearchService {
-  private outputChannel: vscode.OutputChannel;
   private workspaceService: WorkspaceService;
+  private readonly logger = new Logger('SearchService');
 
   /**
    * Creates an instance of SearchService.
-   * @param outputChannel The VS Code output channel for logging.
    * @param workspaceService The WorkspaceService instance for accessing workspace information.
    */
-  constructor(outputChannel: vscode.OutputChannel, workspaceService: WorkspaceService) {
-    this.outputChannel = outputChannel;
+  constructor(workspaceService: WorkspaceService) {
     this.workspaceService = workspaceService;
-    this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + 'Initialized');
+    this.logger.info('Initialized');
   }
  
   /**
@@ -80,7 +78,7 @@ export class SearchService {
       if (folder) {
         foldersToSearch.push(folder);
       } else {
-        this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + `Warning: Specified workspace folder for search not found: ${specificWorkspaceFolderUri.toString()}`);
+        this.logger.warn(`Specified workspace folder for search not found: ${specificWorkspaceFolderUri.toString()}`);
         return [];
       }
     } else {
@@ -91,25 +89,24 @@ export class SearchService {
     }
 
     if (foldersToSearch.length === 0) {
-      this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + 'No workspace folders to search in.');
+      this.logger.warn('No workspace folders to search in.');
       return [];
     }
 
-    this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + `Searching for '${query}' in ${foldersToSearch.length} target folder(s).`);
+    this.logger.debug(`Searching for '${query}' in ${foldersToSearch.length} target folder(s).`);
 
     for (const folder of foldersToSearch) {
-      this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + `Searching in folder: ${folder.name} (${folder.uri.fsPath})`);
+      this.logger.trace(`Searching in folder: ${folder.name} (${folder.uri.fsPath})`);
       try {
         const gitignoreFilter = await parseGitignore(folder);
         const defaultIgnoreFilter = ignore().add(LOCAL_IGNORE_PATTERNS_DEFAULT);
         const folderResults = await this.findInDirectoryRecursive(folder.uri, query, folder, gitignoreFilter, defaultIgnoreFilter);
         allResults.push(...folderResults);
       } catch (error: any) {
-        this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + `Error searching in directory ${folder.uri.fsPath}: ${error.message}`);
-        console.error(LOG_PREFIX_SEARCH_SERVICE + `Error searching in directory ${folder.uri.fsPath}:`, error);
+        this.logger.error(`Error searching in directory ${folder.uri.fsPath}: ${error.message}`, error);
       }
     }
-    this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + `Found ${allResults.length} results for query '${query}' after filtering.`);
+    this.logger.info(`Found ${allResults.length} results for query '${query}' after filtering.`);
     return allResults;
   }
  
@@ -172,7 +169,7 @@ export class SearchService {
         }
       }
     } catch (error: any) {
-      this.outputChannel.appendLine(LOG_PREFIX_SEARCH_SERVICE + `Failed to read directory ${dirUri.fsPath}: ${error.message}`);
+      this.logger.warn(`Failed to read directory ${dirUri.fsPath}: ${error.message}`);
     }
     return results;
   }

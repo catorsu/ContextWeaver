@@ -8,11 +8,15 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { TextDecoder } from 'util';
 import ignore, { Ignore } from 'ignore'; // Import 'ignore' as a default export and 'Ignore' as a type
+import { Logger } from '@contextweaver/shared';
 import {
   FileData as CWFileData,
   DirectoryEntry as CWDirectoryEntry,
   FilterType
 } from '@contextweaver/shared';
+
+// Default patterns for files and folders to ignore during file system operations.
+const logger = new Logger('FileSystemService');
 
 // Default patterns for files and folders to ignore during file system operations.
 const IGNORE_PATTERNS_DEFAULT = [
@@ -38,17 +42,17 @@ export async function parseGitignore(workspaceFolder: vscode.WorkspaceFolder): P
     const rawContent = await vscode.workspace.fs.readFile(gitignoreUri);
     const content = new TextDecoder('utf-8').decode(rawContent);
     if (content.trim() === '') {
-      console.log(`[ContextWeaver FileSystemService] .gitignore file found in ${workspaceFolder.name} but it is empty. Default patterns will still apply.`);
+      logger.debug(`.gitignore file found in ${workspaceFolder.name} but it is empty. Default patterns will still apply.`);
       return ignore(); // Return an empty ignore instance
     }
     const ig = ignore().add(content);
-    console.log(`[ContextWeaver FileSystemService] Parsed .gitignore for ${workspaceFolder.name}`);
+    logger.debug(`Parsed .gitignore for ${workspaceFolder.name}`);
     return ig;
   } catch (error: any) {
     if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
-      console.log(`[ContextWeaver FileSystemService] No .gitignore file found in ${workspaceFolder.name}. Default patterns will apply.`);
+      logger.info(`No .gitignore file found in ${workspaceFolder.name}. Default patterns will still apply.`);
     } else {
-      console.error(`[ContextWeaver FileSystemService] Error reading or parsing .gitignore for ${workspaceFolder.name}: ${error.message}. Default patterns will still apply.`);
+      logger.error(`Error reading or parsing .gitignore for ${workspaceFolder.name}: ${error.message}. Default patterns will still apply.`);
     }
     return null;
   }
@@ -100,12 +104,11 @@ export async function getFileTree(workspaceFolder: vscode.WorkspaceFolder): Prom
     // The content is the workspace path followed by the generated tree. The wrapper tag will be added by the client.
     const rawTreeContent = `${workspacePath}\n${internalTree.trim()}`;
 
-    console.log('[ContextWeaver FileSystemService] getFileTree: raw tree content to be sent:');
-    // console.log(rawTreeContent);
+    logger.trace('getFileTree: raw tree content to be sent:', rawTreeContent);
 
     return { tree: rawTreeContent, filterTypeApplied: actualFilterType };
   } catch (error: any) {
-    console.error(`[ContextWeaver FileSystemService] Error in getFileTree for ${workspaceFolder.name}: ${error.message}`);
+    logger.error(`Error in getFileTree for ${workspaceFolder.name}: ${error.message}`);
     return `Error generating file tree for ${workspaceFolder.name}: ${error.message}`;
   }
 }
@@ -160,10 +163,10 @@ async function generateFileTreeTextInternal(
     }
   } catch (error: any) {
     if (error.code === 'FileNotFound') {
-      console.warn(`[ContextWeaver FileSystemService] Directory not found during tree generation: ${dirUri.fsPath}`);
+      logger.warn(`Directory not found during tree generation: ${dirUri.fsPath}`);
       return ''; // Return empty string if directory not found, prevents error propagation
     }
-    console.error(`[ContextWeaver FileSystemService] Error reading directory ${dirUri.fsPath}: ${error.message}`);
+    logger.error(`Error reading directory ${dirUri.fsPath}: ${error.message}`);
     // Avoid adding error to tree string here, let higher level handle overall error
     throw error; // Re-throw to be caught by the caller of getFileTree
   }
@@ -188,7 +191,7 @@ async function getLanguageId(fileUri: vscode.Uri): Promise<string> {
     };
     return langMap[extension] || 'plaintext';
   } catch (e) {
-    console.warn(`[ContextWeaver FileSystemService] Could not determine language for ${fileUri.fsPath}, defaulting to plaintext. Error: ${e}`);
+    logger.warn(`Could not determine language for ${fileUri.fsPath}, defaulting to plaintext. Error: ${e}`);
     return 'plaintext';
   }
 }
@@ -206,7 +209,7 @@ export async function getFileContentWithLanguageId(fileUri: vscode.Uri): Promise
     const fileData = await vscode.workspace.fs.readFile(fileUri);
     const sample = fileData.slice(0, 1024);
     if (sample.includes(0)) {
-      console.log(`[ContextWeaver FileSystemService] Skipping binary file (null byte detected): ${fileUri.fsPath}`);
+      logger.debug(`Skipping binary file (null byte detected): ${fileUri.fsPath}`);
       return null;
     }
 
@@ -215,11 +218,11 @@ export async function getFileContentWithLanguageId(fileUri: vscode.Uri): Promise
     try {
       content = decoder.decode(fileData);
       if (content.includes('\\uFFFD')) {
-        console.log(`[ContextWeaver FileSystemService] Skipping file with decoding errors (likely not UTF-8, or binary): ${fileUri.fsPath}`);
+        logger.debug(`Skipping file with decoding errors (likely not UTF-8, or binary): ${fileUri.fsPath}`);
         return null;
       }
     } catch (decodeError: any) {
-      console.log(`[ContextWeaver FileSystemService] Skipping binary file (decode error for ${fileUri.fsPath}): ${decodeError.message}`);
+      logger.debug(`Skipping binary file (decode error for ${fileUri.fsPath}): ${decodeError.message}`);
       return null;
     }
 
@@ -233,11 +236,11 @@ export async function getFileContentWithLanguageId(fileUri: vscode.Uri): Promise
     };
   } catch (error: any) {
     if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
-      console.warn(`[ContextWeaver FileSystemService] File not found: ${fileUri.fsPath}`);
+      logger.warn(`File not found: ${fileUri.fsPath}`);
       // Re-throw the specific error so the caller can distinguish between "not found" and other read errors.
       throw error;
     } else {
-      console.error(`[ContextWeaver FileSystemService] Error reading file ${fileUri.fsPath}: ${error.message}`);
+      logger.error(`Error reading file ${fileUri.fsPath}: ${error.message}`);
     }
     return null; // For other errors (e.g., permission denied), returning null is still a safe fallback.
   }
@@ -268,7 +271,7 @@ export async function getFolderContentsForIPC(
     } catch (error: any) {
       if (error.code === 'FileNotFound') { throw error; }
       const errorDisplayPath = path.relative(folderUri.fsPath, currentUri.fsPath).replace(/\\/g, '/') || '.';
-      console.error(`[ContextWeaver FileSystemService] Error reading directory ${errorDisplayPath} for getFolderContentsForIPC: ${error.message}`);
+      logger.error(`Error reading directory ${errorDisplayPath} for getFolderContentsForIPC: ${error.message}`);
       return;
     }
 
@@ -295,7 +298,7 @@ export async function getFolderContentsForIPC(
         if (fileDetail) {
           filesData.push(fileDetail);
         } else {
-          console.log(`[ContextWeaver FileSystemService] File ${entryUri.fsPath} skipped (binary or read error).`);
+          logger.debug(`File ${entryUri.fsPath} skipped (binary or read error).`);
         }
       }
     }
@@ -305,7 +308,7 @@ export async function getFolderContentsForIPC(
     await traverseAndProcess(folderUri);
     return { filesData, filterTypeApplied: actualFilterType };
   } catch (error: any) {
-    console.error(`[ContextWeaver FileSystemService] Error in getFolderContentsForIPC for ${folderUri.fsPath}: ${error.message}`);
+    logger.error(`Error in getFolderContentsForIPC for ${folderUri.fsPath}: ${error.message}`);
     return `Error getting contents for folder ${folderUri.fsPath}: ${error.message}`;
   }
 }
@@ -329,7 +332,7 @@ async function getDirectoryListingRecursive(
   try {
     dirEntries = await vscode.workspace.fs.readDirectory(dirUri);
   } catch (error) {
-    console.warn(`[ContextWeaver FileSystemService] Error reading directory ${dirUri.fsPath} during recursive listing:`, error);
+    logger.warn(`Error reading directory ${dirUri.fsPath} during recursive listing:`, error);
     throw error; // Re-throw the error to be caught by the top-level caller
   }
 
@@ -390,10 +393,10 @@ export async function getDirectoryListing(
     return { entries, filterTypeApplied };
   } catch (error: any) {
     if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
-      console.warn(`[ContextWeaver FileSystemService] Directory not found: ${folderToScanUri.fsPath}`);
+      logger.warn(`Directory not found: ${folderToScanUri.fsPath}`);
       throw error;
     }
-    console.error(`[ContextWeaver FileSystemService] Error reading directory ${folderToScanUri.fsPath}: ${error.message}`);
+    logger.error(`Error reading directory ${folderToScanUri.fsPath}: ${error.message}`);
     throw error;
   }
 }

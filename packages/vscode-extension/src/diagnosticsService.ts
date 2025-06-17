@@ -5,22 +5,20 @@
  */
 
 import * as vscode from 'vscode';
+import { Logger } from '@contextweaver/shared';
 
-const LOG_PREFIX_DIAGNOSTICS_SERVICE = '[ContextWeaver DiagnosticsService] ';
+
+const logger = new Logger('DiagnosticsService');
 
 /**
  * Provides services for fetching and formatting workspace diagnostics (problems).
  */
 export class DiagnosticsService {
-    private outputChannel: vscode.OutputChannel;
-
     /**
      * Creates an instance of DiagnosticsService.
-     * @param outputChannel The VS Code output channel for logging.
      */
-    constructor(outputChannel: vscode.OutputChannel) {
-        this.outputChannel = outputChannel;
-        this.outputChannel.appendLine(LOG_PREFIX_DIAGNOSTICS_SERVICE + 'Initialized.');
+    constructor() {
+        logger.info('Initialized.');
     }
 
     /**

@@ -3,7 +3,9 @@
  * @description Logic for the ContextWeaver Chrome Extension popup.
  * @module ContextWeaver/CE
  */
-const LOG_PREFIX_POPUP = '[ContextWeaver CE-Popup]';
+import { Logger } from '@contextweaver/shared';
+
+const logger = new Logger('Popup');
 
 const statusContainer = document.getElementById('status-container');
 const statusIcon = document.getElementById('status-icon');
@@ -29,7 +31,7 @@ function detectBrowserTheme(): Theme {
  */
 function applyTheme(theme: Theme): void {
     document.body.setAttribute('data-theme', theme);
-    console.log(`${LOG_PREFIX_POPUP} Theme applied: ${theme}`);
+    logger.info(`Theme applied: ${theme}`);
 }
 
 /**
@@ -122,18 +124,18 @@ function updateStatusUI(state: 'connected' | 'connecting' | 'failed', details: {
  * Sends a message to the service worker to trigger a reconnection attempt.
  */
 function triggerReconnect() {
-    console.log(LOG_PREFIX_POPUP, 'Reconnect triggered. Sending message to service worker.');
+    logger.info('Reconnect triggered. Sending message to service worker.');
     updateStatusUI('connecting', { message: 'Attempting to reconnect...' });
     chrome.runtime.sendMessage({ action: 'reconnectIPC' })
         .catch(err => {
-            console.error(LOG_PREFIX_POPUP, 'Error sending reconnectIPC message:', err);
+            logger.error('Error sending reconnectIPC message:', err);
             updateStatusUI('failed', { message: 'Failed to send reconnect command.' });
         });
 }
 
 chrome.runtime.onMessage.addListener((message) => {
     if (message.action === 'ipcConnectionStatus') {
-        console.log(LOG_PREFIX_POPUP, 'Received ipcConnectionStatus:', message);
+        logger.debug('Received ipcConnectionStatus:', message);
         const { status, payload } = message;
         switch (status) {
             case 'connected':
@@ -155,7 +157,7 @@ chrome.runtime.onMessage.addListener((message) => {
  * Requests the initial connection status from the service worker upon opening.
  */
 function requestInitialConnectionStatus() {
-    console.log(LOG_PREFIX_POPUP, 'Requesting initial IPC connection status.');
+    logger.info('Requesting initial IPC connection status.');
     updateStatusUI('connecting', { message: 'Checking status...' });
     chrome.runtime.sendMessage({ action: 'getIPCConnectionStatus' })
         .then(response => {
@@ -201,5 +203,5 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Also ensure badge is updated when popup opens
     chrome.runtime.sendMessage({ action: 'updateBadge' })
-        .catch(err => console.log(LOG_PREFIX_POPUP, 'Badge update request error:', err));
+        .catch(err => logger.warn('Badge update request error:', err));
 });

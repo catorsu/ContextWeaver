@@ -1,0 +1,1 @@
+run `npm run check` command, then fix the errors.

@@ -12,9 +12,10 @@ import {
     GetFileContentRequestPayload, FileContentResponsePayload, GetContentsForFilesRequestPayload, ContentsForFilesResponsePayload,     GetEntireCodebaseRequestPayload, EntireCodebaseResponsePayload,     OpenFilesResponsePayload,
     GetFolderContentRequestPayload, FolderContentResponsePayload,     ListFolderContentsRequestPayload, ListFolderContentsResponsePayload,
     GetWorkspaceProblemsRequestPayload, WorkspaceProblemsResponsePayload
-    } from '@contextweaver/shared';
+} from '@contextweaver/shared';
+import { Logger } from '@contextweaver/shared';
 
-const LOG_PREFIX_SW_CLIENT = '[ContextWeaver SWClient]';
+const logger = new Logger('SWClient');
 
 /**
  * Defines the structure for messages sent from content scripts/UI to the service worker,
@@ -35,23 +36,24 @@ interface SWApiRequestMessage {
  * @throws An error if the service worker communication fails or the operation itself returns an error.
  */
 async function sendMessageToSW<TResponsePayload>(message: SWApiRequestMessage): Promise<TResponsePayload> {
-    console.log(LOG_PREFIX_SW_CLIENT, 'Sending message to SW:', message);
+    logger.debug(`Sending message to SW: ${message.type}`);
+logger.trace('Message payload:', message.payload);
     try {
         const response = await chrome.runtime.sendMessage(message);
         if (chrome.runtime.lastError) {
-            console.error(LOG_PREFIX_SW_CLIENT, `Error sending message to SW or SW responded with error: ${chrome.runtime.lastError.message}`, message);
+            logger.error(`Error sending message to SW or SW responded with error: ${chrome.runtime.lastError.message}`, message);
             throw new Error(chrome.runtime.lastError.message || 'Service worker communication error');
         }
         if (response && response.success === false) { // Check for business logic errors from SW/VSCE
-            console.error(LOG_PREFIX_SW_CLIENT, `Service worker reported failure for ${message.type}:`, response.error, `Code: ${response.errorCode}`);
+            logger.error(`Service worker reported failure for ${message.type}:`, { error: response.error, code: response.errorCode });
             const error = new Error(response.error || `Operation ${message.type} failed.`);
             (error as any).errorCode = response.errorCode; // Attach errorCode if present
             throw error;
         }
-        console.log(LOG_PREFIX_SW_CLIENT, `Response from SW for ${message.type}:`, response);
+        logger.trace(`Response from SW for ${message.type}:`, response);
         return response as TResponsePayload; // The caller expects the full response payload
     } catch (error) {
-        console.error(LOG_PREFIX_SW_CLIENT, `Exception during sendMessageToSW for ${message.type}:`, error);
+        logger.error(`Exception during sendMessageToSW for ${message.type}:`, error);
         throw error; // Re-throw to be caught by the caller
     }
 }
