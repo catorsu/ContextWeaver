@@ -416,6 +416,8 @@ describe('IPCServer - Primary Role', () => {
         expect(aggregatedResponse.type).toBe('response');
         expect(aggregatedResponse.command).toBe('response_search_workspace');
         expect(aggregatedResponse.payload.data.results.length).toBe(2);
+        expect(aggregatedResponse.payload.data.windowId).toBe('primary-window-id');
+        expect(aggregatedResponse.payload.data.errors).toBeUndefined();
     });
 
     test('should handle get_contents_for_files request and return file contents and errors', async () => {
@@ -478,6 +480,55 @@ describe('IPCServer - Primary Role', () => {
         // Verify error data
         expect(response.payload.errors[0].uri).toBe('file:///workspace/nonexistent.txt');
         expect(response.payload.errors[0].errorCode).toBe('FILE_NOT_FOUND');
+    });
+
+    test('should use primary response for default aggregation case', async () => {
+        // Clear previous mock calls
+        jest.clearAllMocks();
+        
+        // Setup CE client
+        const ceClient = {
+            ws: mockCEWs,
+            isAuthenticated: true,
+            ip: '192.168.1.100'
+        };
+        (server as any).clients.set(mockCEWs, ceClient);
+
+        // Manually create an aggregation entry for 'get_FileTree' which uses the default logic
+        const originalMessageId = uuidv4();
+        const aggregationId = uuidv4();
+
+        (server as any).pendingAggregatedResponses.set(aggregationId, {
+            originalRequester: mockCEWs,
+            responses: [],
+            expectedResponses: 2,
+            timeout: setTimeout(() => { }, 5000),
+            originalMessageId: originalMessageId,
+            originalCommand: 'get_FileTree'
+        });
+
+        // Call completeAggregation directly with responses, with primary's being different
+        const aggregation = (server as any).pendingAggregatedResponses.get(aggregationId);
+        aggregation.responses = [
+            {
+                windowId: 'secondary-window-id',
+                payload: { success: true, data: { fileTreeString: 'secondary tree' } }
+            },
+            {
+                windowId: 'primary-window-id',
+                payload: { success: true, data: { fileTreeString: 'primary tree' } }
+            }
+        ];
+
+        // Complete aggregation
+        (server as any).completeAggregation(aggregationId);
+
+        // Verify aggregated response was sent to CE and it used the primary's data
+        expect(mockCEWs.send).toHaveBeenCalled();
+        const aggregatedResponse = JSON.parse(mockCEWs.send.mock.calls[0][0]);
+        expect(aggregatedResponse.type).toBe('response');
+        expect(aggregatedResponse.command).toBe('response_get_FileTree');
+        expect(aggregatedResponse.payload.data.fileTreeString).toBe('primary tree');
     });
 });
 
@@ -582,7 +633,11 @@ describe('IPCServer - Secondary Role', () => {
             payload: { query: "test", workspaceFolderUri: null }
         };
 
+        const aggregationId = uuidv4();
         const forwardedMessage = {
+            protocol_version: "1.0",
+            message_id: aggregationId,
+            type: "request",
             command: 'forward_request_to_secondaries',
             payload: { originalRequest }
         };
@@ -598,9 +653,9 @@ describe('IPCServer - Secondary Role', () => {
         const response = JSON.parse(mockPrimaryWs.send.mock.calls[0][0]);
         expect(response.type).toBe('push');
         expect(response.command).toBe('forward_response_to_primary');
-        expect(response.payload.originalMessageId).toBe(originalRequest.message_id);
+        expect(response.payload.originalMessageId).toBe(aggregationId);
 
-        expect(response.payload.originalMessageId).toBe(originalRequest.message_id);
+        expect(response.payload.originalMessageId).toBe(aggregationId);
         expect(response.payload.responsePayload).toBeTruthy();
         expect(response.payload.responsePayload.data.results.length).toBe(1);
         expect(response.payload.responsePayload.data.results[0].windowId).toBe('secondary-window-id');

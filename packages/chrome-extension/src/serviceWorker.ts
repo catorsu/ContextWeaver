@@ -16,7 +16,6 @@ import {
     OpenFilesResponsePayload, SearchWorkspaceResponsePayload, WorkspaceDetailsResponsePayload,
     FilterInfoResponsePayload, ListFolderContentsResponsePayload, WorkspaceProblemsResponsePayload, ErrorResponsePayload, ContentsForFilesResponsePayload,
     // Push Payloads
-    PushSnippetPayload,
     // IPC Message Structure Types
     IPCMessageRequest, IPCMessagePush, AnyIPCMessage, IPCBaseMessage
 } from '@contextweaver/shared';
@@ -276,7 +275,9 @@ class IPCClient {
                         // Ensure payload is treated as ErrorResponsePayload or a success:false response
                         const errorPayload = message.payload as ErrorResponsePayload | { success: false, error: string, errorCode: string };
                         this.logger.warn(`Error response for message_id ${message.message_id}:`, errorPayload);
-                        requestState.reject(new Error(errorPayload.error));
+                        const error = new Error(errorPayload.error);
+                        (error as any).errorCode = errorPayload.errorCode;
+                        requestState.reject(error);
                     } else {
                         // The resolve function in pendingRequests now expects the specific TResPayload type
                         requestState.resolve(message.payload); // message.payload is already the correct TResPayload
@@ -565,34 +566,7 @@ chrome.runtime.onMessage.addListener((message: IncomingRuntimeMessage, sender, s
     if ('type' in message) { // Handle messages from contentScript (via serviceWorkerClient) or direct IPC pushes
         const typedMessage = message as SWApiRequestMessage | IPCMessagePush; // Type assertion for this block
 
-        if (typedMessage.type === 'push') { // Handle direct IPC pushes (e.g., snippets)
-            const pushMessage = typedMessage as IPCMessagePush;
-            if (pushMessage.command === 'push_snippet') {
-                const snippetPayload = pushMessage.payload as PushSnippetPayload;
-                if (snippetPayload && snippetPayload.targetTabId) {
-                    const targetTabId = snippetPayload.targetTabId;
-                    logger.debug(`Forwarding 'push_snippet' to specific tabId: ${targetTabId}.`);
-                    chrome.tabs.sendMessage(targetTabId, pushMessage)
-                        .then(() => {
-                            if (chrome.runtime.lastError) {
-                                logger.warn(`Error sending push_snippet to tab ${targetTabId}: ${chrome.runtime.lastError.message}`);
-                            } else {
-                                logger.debug(`Push_snippet message sent to tab ${targetTabId}`);
-                            }
-                        })
-                        .catch(e => {
-                            logger.warn(`Error explicitly sending push_snippet message to tab ${targetTabId}:`, e);
-                        });
-                    logger.debug('Specifically received and processed push_snippet.', snippetPayload);
-                } else {
-                    logger.warn('\'push_snippet\' received without targetTabId. Broadcasting.');
-                    chrome.runtime.sendMessage(pushMessage).catch(e => logger.warn('Error broadcasting push_snippet (fallback):', e));
-                }
-            } else {
-                logger.debug(`Forwarding generic push message to all listeners. Command: ${pushMessage.command}.`);
-                chrome.runtime.sendMessage(pushMessage).catch(e => logger.warn('Error broadcasting generic push message:', e));
-            }
-        } else if (typedMessage.type === 'GET_WORKSPACE_DETAILS_FOR_UI') {
+        if (typedMessage.type === 'GET_WORKSPACE_DETAILS_FOR_UI') {
             logger.debug('Handling GET_WORKSPACE_DETAILS_FOR_UI');
             ipcClient.getWorkspaceDetails()
                 .then((responsePayload: WorkspaceDetailsResponsePayload) => { // Explicitly type here for clarity

@@ -86,7 +86,8 @@ export class IPCServer {
         expectedResponses: number,
         timeout: NodeJS.Timeout,
         originalMessageId: string,
-        originalCommand: string
+        originalCommand: string,
+        completed?: boolean
     }> = new Map();
 
     /**
@@ -319,22 +320,21 @@ export class IPCServer {
      * Handles messages when running as secondary VSCE.
      */
     private async handleSecondaryMessage(data: WebSocket.RawData): Promise<void> {
-        // TODO: Replace 'any' with a discriminated union of possible forwarded messages.
-        let parsedMessage: any;
+        let parsedMessage: IPCMessageRequest;
         try {
-            parsedMessage = JSON.parse(data.toString());
+            parsedMessage = JSON.parse(data.toString()) as IPCMessageRequest;
         } catch (error: any) {
             this.logger.error(`Failed to parse message from primary: ${error.message}`);
             return;
         }
 
         // Handle forwarded requests from primary
-        if (parsedMessage.command === 'forward_request_to_secondaries') {
+        if (parsedMessage.type === 'request' && parsedMessage.command === 'forward_request_to_secondaries') {
             const originalRequest = parsedMessage.payload.originalRequest as IPCMessageRequest;
             this.logger.debug(`Received forwarded request: ${originalRequest.command}`);
 
-            // Store the original handler responses in a buffer
-            const responseBuffer: any[] = [];
+            // Store the original handler responses in a buffer. It can be a success or error response.
+            const responseBuffer: (IPCMessageResponse | IPCMessageErrorResponse)[] = [];
 
             // Process the request locally
             const dummyClient: Client = {
@@ -359,12 +359,13 @@ export class IPCServer {
                 const response = responseBuffer[0]; // The full response message object
                 const forwardResponse: IPCMessagePush = {
                     protocol_version: '1.0',
-                    message_id: uuidv4(),
+                    message_id: parsedMessage.message_id, // Use the aggregationId as the message_id for the response
                     type: 'push',
                     command: 'forward_response_to_primary',
                     payload: {
-                        originalMessageId: originalRequest.message_id,
-                        responsePayload: response.payload // Extract the payload from the captured message
+                        originalMessageId: parsedMessage.message_id, // This is the aggregationId
+                        responsePayload: response.payload as any, // Extract the payload from the captured message
+                        secondaryWindowId: this.windowId
                     }
                 };
                 this.primaryWebSocket!.send(JSON.stringify(forwardResponse));
@@ -451,7 +452,7 @@ export class IPCServer {
 
         const commandsRequiringWorkspace = [
             'get_FileTree', 'get_file_content', 'get_folder_content',
-            'get_entire_codebase', 'search_workspace', 'get_active_file_info',
+            'get_entire_codebase', 'search_workspace', 'get_active_file_info', 'get_workspace_details',
             'get_open_files', 'get_filter_info', 'list_folder_contents', 'get_workspace_problems',
             'get_contents_for_files'
         ];
@@ -472,9 +473,9 @@ export class IPCServer {
         }
 
         // If primary and this is a request from CE that requires aggregation
-        if (this.isPrimary && commandsRequiringWorkspace.includes(command) && !client.windowId) {
+        if (this.isPrimary && commandsRequiringWorkspace.includes(command) && !client.windowId && this.secondaryClients.size > 0) {
             // This is from CE, need to broadcast to secondaries
-            this.broadcastToSecondaries(parsedMessage, client);
+            this.broadcastToSecondaries(parsedMessage as IPCMessageRequest, client);
             // Also process locally
         }
 
@@ -553,7 +554,8 @@ export class IPCServer {
     private broadcastToSecondaries(originalRequest: IPCMessageRequest, originalRequester: Client): void {
         const secondaryCount = this.secondaryClients.size;
         if (secondaryCount === 0) {
-            // No secondaries, just process locally
+            // No secondaries, so no broadcasting or aggregation needed.
+            // The request will be processed locally by the normal flow in handleMessage.
             return;
         }
 
@@ -567,7 +569,7 @@ export class IPCServer {
         this.pendingAggregatedResponses.set(aggregationId, {
             originalRequester: originalRequester.ws,
             responses: [],
-            expectedResponses: secondaryCount + 1, // secondaries + primary
+            expectedResponses: secondaryCount + 1, // +1 for the primary's own response
             timeout,
             originalMessageId: originalRequest.message_id,
             originalCommand: originalRequest.command
@@ -588,59 +590,26 @@ export class IPCServer {
                 this.logger.debug(`Forwarded request to secondary ${windowId}`);
             }
         }
-
-        // Store primary's response when it's ready
-        const originalSendMessage = this.sendMessage.bind(this);
-        const interceptOnce = (ws: any, type: any, command: any, payload: any, message_id?: string) => {
-            if (message_id === originalRequest.message_id && ws === originalRequester.ws) {
-                // This is the primary's response
-                // Restore the original sendMessage function immediately after interception.
-                this.sendMessage = originalSendMessage;
-
-                const aggregation = this.pendingAggregatedResponses.get(aggregationId);
-                if (aggregation) {
-                    aggregation.responses.push({ windowId: this.windowId, payload });
-                    if (aggregation.responses.length >= aggregation.expectedResponses) {
-                        this.completeAggregation(aggregationId);
-                    }
-                }
-                // Don't send yet, wait for aggregation
-            } else {
-                // This is a different message. Send it normally using the original function.
-                originalSendMessage(ws, type, command, payload, message_id);
-            }
-        };
-        // Temporarily replace sendMessage with our interceptor
-        this.sendMessage = interceptOnce;
     }
 
     /**
      * Handles forwarded responses from secondary VSCE instances.
      */
-    private handleForwardedResponse(payload: { originalMessageId: string; responsePayload: any }): void {
-        // Find the pending aggregation by iterating, as was the original (inefficient but working) design.
-        for (const [aggregationId, aggregation] of this.pendingAggregatedResponses) {
-            if (aggregation.originalMessageId === payload.originalMessageId) {
-                // The responsePayload from the secondary is the full payload of the response message.
-                // We need to extract the windowId from it. It's usually in `payload.responsePayload.data.windowId`.
-                const secondaryWindowId = payload.responsePayload?.data?.windowId;
+    private handleForwardedResponse(payload: { originalMessageId: string; responsePayload: any; secondaryWindowId: string }): void {
+        // The originalMessageId from the payload is now the aggregationId, allowing for a direct lookup.
+        const aggregationId = payload.originalMessageId;
+        const aggregation = this.pendingAggregatedResponses.get(aggregationId);
 
-                if (!secondaryWindowId) {
-                    this.logger.error(`CRITICAL: Could not find windowId in forwarded response for command ${aggregation.originalCommand}. Aggregation may fail.`);
-                }
+        if (aggregation) {
+            const wrappedResponse = {
+                windowId: payload.secondaryWindowId,
+                payload: payload.responsePayload
+            };
 
-                // Construct the same structure as the primary's response to ensure data consistency for aggregation.
-                const wrappedResponse = {
-                    windowId: secondaryWindowId || 'unknown-secondary',
-                    payload: payload.responsePayload
-                };
+            aggregation.responses.push(wrappedResponse);
 
-                aggregation.responses.push(wrappedResponse);
-
-                if (aggregation.responses.length >= aggregation.expectedResponses) {
-                    this.completeAggregation(aggregationId);
-                }
-                break; // Found the matching aggregation, stop iterating.
+            if (aggregation.responses.length >= aggregation.expectedResponses) {
+                this.completeAggregation(aggregationId);
             }
         }
     }
@@ -650,10 +619,15 @@ export class IPCServer {
      */
     private completeAggregation(aggregationId: string): void {
         const aggregation = this.pendingAggregatedResponses.get(aggregationId);
-        if (!aggregation) return;
+        if (!aggregation || aggregation.completed) return;
 
+        // Mark as completed to prevent race conditions where the timeout fires
+        // before the primary's own response is processed.
+        aggregation.completed = true;
         clearTimeout(aggregation.timeout);
-        this.pendingAggregatedResponses.delete(aggregationId);
+
+        // Defer deletion to allow any late-arriving primary responses to be gracefully dropped.
+        setTimeout(() => this.pendingAggregatedResponses.delete(aggregationId), 2000);
 
         // Aggregate responses based on command type
         // TODO: Replace 'any' with a specific aggregated payload type based on the command.
@@ -664,14 +638,23 @@ export class IPCServer {
             case 'search_workspace': {
                 // Combine search results
                 const allResults: CWSearchResult[] = [];
+                const allErrors: { windowId: string, error: string, errorCode?: string }[] = [];
                 for (const response of aggregation.responses) {
-                    if (response.payload?.data?.results) {
-                        allResults.push(...response.payload.data.results);
+                    // response.payload is a SearchWorkspaceResponsePayload or ErrorResponsePayload
+                    const payload = response.payload as CWSearchWorkspaceResponsePayload | ErrorResponsePayload;
+                    if (payload.success && 'data' in payload && payload.data?.results) {
+                        allResults.push(...payload.data.results);
+                    } else if (!payload.success) {
+                        allErrors.push({
+                            windowId: response.windowId,
+                            error: payload.error || 'Unknown error from secondary',
+                            errorCode: payload.errorCode
+                        });
                     }
                 }
                 aggregatedPayload = {
-                    success: true,
-                    data: { results: allResults },
+                    success: allErrors.length === 0,
+                    data: { results: allResults, windowId: this.windowId, errors: allErrors.length > 0 ? allErrors : undefined },
                     error: null
                 };
                 break;
@@ -735,13 +718,16 @@ export class IPCServer {
             }
 
             // Add more aggregation logic for other commands as needed
-            default:
-                // For commands that don't need special aggregation, just use primary's response
-                aggregatedPayload = aggregation.responses[0]?.payload || { success: false, error: 'No responses received' };
+            default: {
+                // For commands that don't need special aggregation, prioritize the primary's response.
+                // This avoids non-deterministic behavior where a secondary's response might be used.
+                const primaryResponse = aggregation.responses.find(r => r.windowId === this.windowId);
+                aggregatedPayload = primaryResponse?.payload || aggregation.responses[0]?.payload || { success: false, error: 'No responses received' };
+            }
         }
 
         // Send aggregated response
-        this.sendMessage(aggregation.originalRequester, 'response' as any, `response_${command}` as any, aggregatedPayload, aggregation.originalMessageId);
+        this.sendMessage(aggregation.originalRequester, 'response' as any, `response_${command}` as any, aggregatedPayload, aggregation.originalMessageId, true);
     }
 
     /**
@@ -837,8 +823,35 @@ export class IPCServer {
         type: IPCMessageResponse['type'], // Should always be 'response' for this method
         command: IPCMessageResponse['command'], // Specific response command
         payload: TResponsePayload, // Typed payload
-        message_id?: string
+        message_id?: string,
+        bypassAggregation?: boolean
     ): void {
+        // If this is the primary server, check if this message is its own response to an aggregated request.
+        if (this.isPrimary && message_id && !bypassAggregation) {
+            // Find an aggregation that is waiting for a response with this message_id
+            const aggregationEntry = Array.from(this.pendingAggregatedResponses.entries())
+                .find(([, agg]) => agg.originalMessageId === message_id);
+
+            if (aggregationEntry) {
+                const [aggregationId, aggregation] = aggregationEntry;
+                // Ensure the response is for the original requester (the CE client)
+                if (ws === aggregation.originalRequester) {
+                    // If aggregation was already completed (e.g., by timeout), drop this late response.
+                    if (aggregation.completed) {
+                        this.logger.warn(`Aggregation for ${aggregation.originalCommand} (ID: ${aggregationId}) already completed. Dropping late primary response.`);
+                        return;
+                    }
+
+                    this.logger.debug(`Capturing primary's local response for aggregation ID ${aggregationId}.`);
+                    aggregation.responses.push({ windowId: this.windowId, payload });
+                    if (aggregation.responses.length >= aggregation.expectedResponses) {
+                        this.completeAggregation(aggregationId);
+                    }
+                    return; // Do not send the individual response to the client.
+                }
+            }
+        }
+
         const message: IPCBaseMessage & { type: typeof type, command: typeof command, payload: TResponsePayload } = {
             protocol_version: '1.0',
             message_id: message_id || uuidv4(),
@@ -1293,7 +1306,7 @@ export class IPCServer {
                 unique_block_id: uuidv4(),
                 content_source_id: `${targetWorkspaceFolder.uri.toString()}::entire_codebase`,
                 type: 'codebase_content',
-                label: `${targetWorkspaceFolder.name} Codebase`,
+                label: targetWorkspaceFolder.name,
                 workspaceFolderUri: targetWorkspaceFolder.uri.toString(),
                 workspaceFolderName: targetWorkspaceFolder.name,
                 windowId: this.windowId
@@ -1586,7 +1599,7 @@ export class IPCServer {
                 unique_block_id: uuidv4(),
                 content_source_id: `${targetWorkspaceFolder.uri.toString()}::Problems`,
                 type: 'WorkspaceProblems',
-                label: `Problems (${targetWorkspaceFolder.name})`,
+                label: targetWorkspaceFolder.name,
                 workspaceFolderUri: targetWorkspaceFolder.uri.toString(),
                 workspaceFolderName: targetWorkspaceFolder.name,
                 windowId: this.windowId

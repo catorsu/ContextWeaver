@@ -33,7 +33,7 @@ export interface RegisterActiveTargetRequestPayload {
 
 /**
  * Payload for requesting the file tree of a workspace folder.
- * @property {string | null} workspaceFolderUri - The URI of the workspace folder to get the file tree for. Null for all workspace folders.
+ * @property {string | null} workspaceFolderUri - The URI of the workspace folder to get the file tree for. If null, the VSCE will attempt to use the single active workspace.
  */
 export interface GetFileTreeRequestPayload {
     workspaceFolderUri: string | null;
@@ -59,7 +59,7 @@ export interface GetFolderContentRequestPayload {
 
 /**
  * Payload for requesting the entire codebase content of a workspace folder.
- * @property {string | null} workspaceFolderUri - The URI of the workspace folder to get the codebase for. Null for all workspace folders.
+ * @property {string | null} workspaceFolderUri - The URI of the workspace folder to get the codebase for. If null, the VSCE will attempt to use the single active workspace.
  */
 export interface GetContentsForFilesRequestPayload {
     fileUris: string[];
@@ -219,8 +219,8 @@ export interface FolderContentResponsePayload {
  */
 export interface ContentsForFilesResponsePayload {
     success: boolean;
-    data: FileContentResponseData[] | null;
-    errors: Array<{ uri: string; error: string; errorCode?: string }> | null;
+    data: FileContentResponseData[];
+    errors: Array<{ uri: string; error: string; errorCode?: string }>;
     error: string | null;
     errorCode?: string;
 }
@@ -327,6 +327,7 @@ export interface OpenFilesResponsePayload {
  */
 export interface SearchWorkspaceResponseData {
     results: SearchResult[];
+    errors?: { windowId: string, error: string, errorCode?: string }[];
     windowId: string;
 }
 /**
@@ -545,7 +546,7 @@ export type IPCResponse =
  */
 export type IPCPush =
     | { command: "push_snippet"; payload: PushSnippetPayload }
-    | { command: "forward_response_to_primary"; payload: { originalMessageId: string; responsePayload: any } }
+    | { command: "forward_response_to_primary"; payload: { originalMessageId: string; responsePayload: any; secondaryWindowId: string; } }
     | { command: "forward_push_to_primary"; payload: { originalPushPayload: PushSnippetPayload } };
 
 /** A complete IPC request message, combining the base structure with a specific request type. */
