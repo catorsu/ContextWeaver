@@ -1450,7 +1450,7 @@ function renderWorkspaceFolders(workspaceFolders: any[], targetContentArea: Docu
       id: `${LOCAL_CSS_PREFIX}btn-file-tree-${folder.uri.replace(/[^a-zA-Z0-9]/g, '_')}`,
       onClick: async (e) => {
         await processContentInsertion({
-          name: `🌲 File Tree - ${folder.name}`,
+          name: `File Tree - ${folder.name}`,
           contentSourceId: `${folder.uri}::FileTree`,
           type: 'FileTree',
           workspaceFolderUri: folder.uri
@@ -1463,7 +1463,7 @@ function renderWorkspaceFolders(workspaceFolders: any[], targetContentArea: Docu
       id: `${LOCAL_CSS_PREFIX}btn-full-codebase-${folder.uri.replace(/[^a-zA-Z0-9]/g, '_')}`,
       onClick: async (e) => {
         await processContentInsertion({
-          name: `📚 Codebase - ${folder.name}`,
+          name: `Codebase - ${folder.name}`,
           contentSourceId: `${folder.uri}::codebase`,
           type: 'codebase_content',
           workspaceFolderUri: folder.uri
@@ -1476,7 +1476,7 @@ function renderWorkspaceFolders(workspaceFolders: any[], targetContentArea: Docu
       id: `${LOCAL_CSS_PREFIX}btn-problems-${folder.uri.replace(/[^a-zA-Z0-9]/g, '_')}`,
       onClick: async (e) => {
         await processContentInsertion({
-          name: `❗ Problems - ${folder.name}`,
+          name: `Problems - ${folder.name}`,
           contentSourceId: `${folder.uri}::Problems`,
           type: 'WorkspaceProblems',
           workspaceFolderUri: folder.uri

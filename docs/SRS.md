@@ -141,11 +141,13 @@ The target users are software developers and other technical users who:
 *   **FR-CE-008: Action - Insert Searched File Content:**
     *   When a file is selected from the search results in the floating UI, the CE shall initiate the unified content insertion process (as per FR-CE-019) with metadata specifying type "file", the file URI, and appropriate content source ID.
 
-*   **FR-CE-009: Action - Insert Searched Folder Content:**
-    *   When a folder is selected from the search results in the floating UI, the CE shall always transition the UI to a hierarchical browse view of that folder's contents.
-    *   The CE shall request a listing of all contents (files and subfolders recursively) of the specified folder from the VSCE using the `list_folder_contents` IPC command.
-    *   The floating UI shall transition to a browse view displaying these items in a hierarchical tree structure with checkboxes, allowing the user to select individual files or folders for insertion.
-    *   When selecting files/subfolders for insertion from this browse view, the CE shall initiate the unified content insertion process (as per FR-CE-019) for each selected item with appropriate metadata (type "file" or "folder", URI, and content source ID).
+*   **FR-CE-009: Action - Folder Insertion (Browse View):**
+    *   When a folder is clicked in search results, the CE shall open a hierarchical, recursive "browse view" that displays the folder's contents in a tree structure.
+    *   The CE shall request a flat recursive list of all contents (files and subfolders) of the specified folder from the VSCE using the `list_folder_contents` IPC command.
+    *   The CE shall be responsible for building the hierarchical tree structure from the flat list provided by the backend, organizing items by their parent-child relationships.
+    *   The browse view shall display items in a hierarchical tree structure with checkboxes, allowing the user to select multiple files and folders for insertion.
+    *   The browse view shall support cascading selection where selecting a folder automatically selects all its descendants.
+    *   When items are selected for insertion from this browse view, the CE shall initiate the unified content insertion process (as per FR-CE-019) for each selected item with appropriate metadata (type "file" or "folder", URI, and content source ID).
 
 *   **FR-CE-010: Content Insertion:**
     *   The CE shall insert the prepared text content directly into the LLM chat input field, replacing any existing `@` trigger text.
@@ -163,7 +165,8 @@ The target users are software developers and other technical users who:
 
 *   **FR-CE-013: Snippet Insertion from VS Code:**
     *   The CE service worker shall listen for snippet data pushed from the VSCE.
-    *   Upon receiving a `push_snippet` message, the CE service worker shall broadcast it to all open tabs that match the supported LLM host permissions (e.g., `chat.deepseek.com`). Each content script will then handle the insertion if it has a valid input target.
+    *   Upon receiving a `push_snippet` message, the CE service worker shall broadcast the snippet to all open tabs that match the supported LLM host permissions (e.g., `chat.deepseek.com`), not just a single target tab.
+    *   Each content script in matching tabs will receive the broadcast and handle the insertion if it has a valid input target.
     *   Snippet insertions are exempt from duplicate content checks. Each snippet sent from VS Code is intended to create a new, distinct context block and indicator.
 
 *   **FR-CE-014: Context Block Indicator Display:**
@@ -173,7 +176,7 @@ The target users are software developers and other technical users who:
         *   An icon visually representing the type of content (e.g., a generic tree icon for file tree, folder icon, file icon, snippet icon, problems icon).
         *   A label:
             *   For "Insert Project File Directory Structure": "[WorkspaceFolderName]" (where [WorkspaceFolderName] is the name of the relevant workspace folder)
-            *   For "Insert Entire Codebase Content": "[WorkspaceFolderName]" (where [WorkspaceFolderName] is the name of the relevant workspace folder)
+            *   For "Insert Entire Codebase Content": "[WorkspaceFolderName] Codebase"
             *   For "Insert Active File's Content": The file name with extension (e.g., `auth.py`).
             *   For "Insert Content of Currently Open Files": One indicator per inserted file if multiple are selected from "Open Files".
             *   For "Insert Searched File Content": The file name with extension (e.g., `utils.js`).
@@ -234,6 +237,7 @@ The target users are software developers and other technical users who:
     *   The order of file concatenation shall be consistent.
     *   The content, along with metadata for its indicator (type: "codebase_content", label: `"[folder name]"` (where `[folder name]` is the name of the specified workspace folder), unique_block_id, `content_source_id`: `specified_workspaceFolderUri.toString() + "::codebase"`), shall be provided to the CE.
     *   This operation is triggered by an IPC request that includes the URI of the target workspace folder.
+    *   ...label: `"[folder name] Codebase"` (where `[folder name]` is the name of the specified workspace folder), unique_block_id, `content_source_id`: `specified_workspaceFolderUri.toString() + "::entire_codebase"`), shall be provided to the CE.
 
 *   **FR-VSCE-005: Filtering Logic:**
     *   The VSCE shall attempt to read and parse the `.gitignore` file from the root of each workspace folder.
@@ -276,7 +280,7 @@ The target users are software developers and other technical users who:
     *   The service shall retrieve diagnostics from VS Code's language services using `vscode.languages.getDiagnostics()`.
     *   The service shall filter diagnostics to include only those belonging to files within the specified workspace folder.
     *   The service shall format each diagnostic with severity level, file path (relative to workspace), line and character position, diagnostic message, source, and code.
-    *   The formatted problems list, along with metadata for its indicator (type: "workspace_problems", label: "Problems ([WorkspaceFolderName])", unique_block_id, `content_source_id`: workspace URI + "::problems"), shall be provided to the CE.
+    *   The formatted problems list, along with metadata for its indicator (type: "WorkspaceProblems", label: "Problems ([WorkspaceFolderName])", unique_block_id, `content_source_id`: workspace URI + "::problems"), shall be provided to the CE.
 
 ##### 3.1.3. Inter-Plugin Communication (IPC)
 
@@ -308,10 +312,11 @@ The target users are software developers and other technical users who:
         *   **[NEW-MOD]** Metadata for each data block intended for insertion (conforming to the `ContextBlockMetadata` interface defined in `packages/shared/src/data-models.ts`), including:
             *   `unique_block_id`: `string` - A unique identifier (UUID) for this specific *instance* of inserted content. Generated by VSCE. Used by CE to identify and remove specific blocks from LLM input.
             *   `content_source_id`: `string` - A canonical identifier for the *source* of the content (e.g., normalized file/folder URI, special ID like `workspace_uri::FileTree`). Used by CE for duplicate checking (except for snippets).
-            *   `type`: `"FileTree" | "file_content" | "folder_content" | "codebase_content" | "CodeSnippet"` - A string indicating the type of content.
+            *   `type`: `"FileTree" | "file_content" | "folder_content" | "codebase_content" | "CodeSnippet" | "WorkspaceProblems"` - A string indicating the type of content.
             *   `label`: `string` - A user-friendly label for the context indicator displayed in the CE.
             *   `workspaceFolderUri`: `string | null` - The URI of the workspace folder this content belongs to. Null if not applicable (e.g., for a loose file not in a workspace) or if the context is global to the VS Code instance.
             *   `workspaceFolderName`: `string | null` - The name of the workspace folder. Null if not applicable.
+            *   `windowId`: `string` - The unique identifier for the source VS Code window, crucial for multi-window environments.
     *   Status messages.
     *   Error messages.
     *   Pushing selected code snippet data (including its metadata) to the registered active target.
@@ -343,7 +348,8 @@ The floating UI should use a standardized loading indicator (CSS spinner and mes
 *   The CE UI shall clearly indicate if default filtering rules are in use by VSCE (e.g., when a `.gitignore` file is not found or is unparsable), based on information from VSCE. This is currently implemented for the "Browse Files" view by displaying a text message like "(Using default ignore rules for this listing)".
 
 *   **UI-CE-004: Multi-Project and Multi-Window Display:**
-    *   When displaying lists of items (e.g., search results, open files), the floating UI shall always use group headers for consistency, even for single-workspace results. Each window group shall display a header with the window identifier (e.g., "Window: 12345678") when multiple windows are detected.
+    *   When displaying lists of items (e.g., search results, open files), the floating UI shall group results first by window, then by workspace within each window.
+    *   Each window group shall display a header with the window identifier (e.g., "Window: 12345678") when multiple windows are detected.
     *   Within each window group, items shall be further grouped by workspace folder name when multiple workspace folders are present within that window.
     *   For single-window scenarios, the UI shall still use workspace folder grouping headers for consistency.
     *   If items do not belong to any known workspace, they will be grouped under a generic header like 'Unknown Workspace'.
@@ -387,12 +393,12 @@ The content inserted into the LLM chat input shall be wrapped in specific XML-li
     ```
 
 *   **3.3.2. File, Folder, or Codebase Content Format:**
-    When inserting content from a single file, multiple files (e.g., from a folder), or the entire codebase, the content shall be wrapped in a single `<FileContents>` tag that includes a unique `id`.
+    When inserting content, each logical unit (a single file, a folder's contents, a codebase's contents) is wrapped in its own tag (e.g., `<FileContents>`). When a user selects multiple items from a list (like the "Browse" or "Open Files" view), a separate content block and corresponding indicator will be created for each selected item.
     Within this tag, each file's content is represented by:
     1.  A `File: <full_path_to_file>` line.
     2.  The actual file content, enclosed in a Markdown code block with its determined language identifier (e.g., `javascript`, `python`, `plaintext`).
 
-    For multiple files (representing a folder or an entire codebase), these `File: ... ```<language_id> ... ``` ` blocks are concatenated sequentially within the single `<FileContents>` tag.
+    For a single folder or codebase action, the contents of all contained files are concatenated within a single `<FileContents>` tag.
 
     Example (representing content from a single file):
     ```text
@@ -523,17 +529,6 @@ The content inserted into the LLM chat input shall be wrapped in specific XML-li
 *   **ERR-004: File Read Errors:** If the VSCE fails to read a specific file (e.g., it's binary or a read error occurs, via `FILE_BINARY_OR_READ_ERROR` code), the CE shall display a message in the floating UI's standardized error panel (e.g., "Error: File is binary or could not be read: [filename]").
 *   **ERR-005: IPC Communication Failure:** If IPC fails during an operation, the CE should indicate this in the floating UI's standardized error panel (e.g., "Communication Error: Communication with VS Code lost. Operation may not have completed.").
 *   **ERR-006: Binary File Handling:** Binary files encountered during "entire codebase" or "folder content" operations shall be silently skipped by the VSCE.
-
----
-
-### 4. Future Considerations / Out of Scope for V1
-*   Support for `.gitignore` files in subdirectories.
-*   Advanced search capabilities (e.g., content search, regex search).
-*   More sophisticated IPC discovery mechanisms.
-*   Support for selecting specific functions/classes via LSP integration.
-*   Automatic chunking of content that exceeds LLM input limits.
-*   Support for multiple, separate VS Code windows.
-*   Displaying actual token counts for files/folders in the Chrome UI.
 
 ---
 

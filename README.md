@@ -6,48 +6,59 @@ ContextWeaver is a VS Code and Chrome extension pair designed to help users easi
 
 The primary goal of ContextWeaver is to streamline the process of providing relevant code snippets, file contents, and project structure information to LLMs, making it more convenient and efficient for developers to leverage AI assistance for coding tasks.
 
-## Planned Features (from SRS)
+## Features
 
 ### VS Code Extension (VSCE)
 
-*   **FR-VSCE-001 (Data Provider - File System Structure):** Shall be able to traverse the active workspace folder(s) and generate a textual representation of the file and folder hierarchy.
-*   **FR-VSCE-002 (Data Provider - File Content):** Shall be able to read and provide the full UTF-8 text content of any specified file within the active workspace(s).
-*   **FR-VSCE-003 (Data Provider - Folder Content):** Shall be able to read and concatenate the content of all text files within a specified folder (and its subfolders), respecting filters.
-*   **FR-VSCE-004 (Data Provider - Entire Codebase Content):** Shall be able to read and concatenate the content of all text files within a specified active workspace folder, respecting filters.
-*   **FR-VSCE-005 (Filtering Logic):** Shall apply `.gitignore` rules from the root of each workspace folder and default exclusion patterns.
-*   **FR-VSCE-006 (Search Service):** Shall provide a search service for file and folder names within trusted workspace folders.
-*   **FR-VSCE-007 (Snippet Sending):** Shall contribute a context menu item to extract selected text and its metadata, and send it to the CE.
-*   **FR-VSCE-008 (Handling Multiple Workspace Folders):** Shall support multi-root workspaces, associating data with its originating workspace folder.
-*   **FR-VSCE-009 (Workspace Trust):** Shall only perform file system operations within trusted workspace folders.
-*   *(Related IPC Requirement FR-IPC-001 & FR-IPC-002): Hosts a local IPC server (WebSocket) with port fallback.*
+*   **File System Structure:** Traverses active workspace folder(s) and generates textual representations of file and folder hierarchies.
+*   **File Content Access:** Reads and provides full UTF-8 text content of any specified file within active workspace(s).
+*   **Folder Content Aggregation:** Reads and concatenates content of all text files within specified folders (including subfolders), respecting filters.
+*   **Entire Codebase Content:** Reads and concatenates content of all text files within workspace folders, respecting filters.
+*   **Smart Filtering:** Applies `.gitignore` rules from workspace roots plus default exclusion patterns (node_modules, .git, etc.).
+*   **Search Service:** Provides real-time search for file and folder names within trusted workspace folders.
+*   **Code Snippet Sending:** Context menu integration to extract selected text with metadata and send to Chrome Extension.
+*   **Multi-Root Workspace Support:** Handles multiple workspace folders, associating data with originating workspace.
+*   **Workspace Trust Integration:** Respects VS Code's workspace trust feature for security.
+*   **Multi-Window Support:** Aggregates context from multiple VS Code windows using primary/secondary server architecture.
+*   **Workspace Problems:** Collects and formats all workspace diagnostics (errors, warnings, info, hints) from VS Code's language services.
+*   **Local IPC Server:** Hosts WebSocket server on localhost with automatic port fallback for Chrome Extension communication.
 
 ### Chrome Extension (CE)
 
-*   **FR-CE-001 (Trigger Activation):** Shall detect `@` trigger in LLM chat inputs and display a floating UI.
-*   **FR-CE-002 (Floating UI - Basic Options):** Shall present options like "Insert Active File's Content" and "Insert Content of Currently Open Files".
-*   **FR-CE-003 (Floating UI - Search Functionality):** Shall interpret `@<query>` for real-time search, sending queries to VSCE and displaying results.
-*   **FR-CE-004 to FR-CE-009 (Content Actions):** Shall allow insertion of various content types (file tree, entire codebase, active file, open files, searched file/folder content, browsed folder content), including duplicate checks and context indicator creation. (Refer to SRS for detailed breakdown of FR-CE-004 through FR-CE-009).
-    *   **Insert Searched Folder Content:** When clicking a folder in search results, opens an interactive, hierarchical "browse" view that allows for fine-grained selection of files and subfolders for insertion.
-*   **FR-CE-010 (Content Insertion):** Shall insert content into LLM input, replacing trigger text, with identifiable blocks.
-*   **FR-CE-011 (UI Dismissal):** Floating UI shall be dismissible.
-*   **FR-CE-012 (Handling Multiple VS Code Projects):** UI shall group options/results by workspace if multiple are present.
-*   **FR-CE-013 (Snippet Insertion):** Shall listen for and insert pushed snippets from VSCE.
-*   **FR-CE-014 & FR-CE-015 (Context Block Indicators):** Shall display and manage visual indicators for inserted content, allowing removal.
-*   **FR-CE-016 (Duplicate Content Prevention):** Shall prevent re-insertion of identical content sources (except snippets).
-*   **FR-CE-017 (Manual IPC Reconnection):** Shall provide a UI option for manual reconnection.
-*   **Multi-window support:** Aggregates context from multiple open VS Code windows.
-*   **Workspace Problems:** Insert a list of all current workspace problems (errors/warnings).
-*   *(Related IPC Requirement FR-IPC-001): Acts as an IPC client to the VSCE.*
+*   **@ Trigger Activation:** Detects `@` trigger in LLM chat inputs and displays contextual floating UI.
+*   **Quick Access Options:** Presents immediate options like "Insert Active File's Content" and "Insert Content of Currently Open Files".
+*   **Real-Time Search:** Interprets `@<query>` for instant search, sending queries to VS Code and displaying live results.
+*   **Content Insertion Actions:** Supports insertion of various content types:
+    *   File tree structures for workspace overview
+    *   Entire codebase content (filtered by .gitignore rules)
+    *   Individual file contents
+    *   Multiple selected files from open tabs
+    *   Search result files and folders
+    *   **Interactive Browse View:** When clicking folders in search results, opens hierarchical tree interface for fine-grained file/subfolder selection
+*   **Smart Content Management:** Inserts content into LLM input with identifiable blocks, replacing trigger text seamlessly.
+*   **Intuitive UI Controls:** Floating UI dismissible via Escape key or clicking outside; auto-dismisses after content insertion.
+*   **Multi-Project Organization:** Groups options and results by workspace when multiple VS Code projects are open.
+*   **Code Snippet Integration:** Receives and inserts code snippets sent from VS Code context menu.
+*   **Visual Context Indicators:** Displays removable indicators above chat input showing what context has been added, with click-to-inspect functionality.
+*   **Duplicate Prevention:** Prevents re-insertion of identical content sources (code snippets exempt for flexibility).
+*   **Connection Management:** Provides manual IPC reconnection option with status feedback.
+*   **Multi-Window Support:** Aggregates and displays context from multiple open VS Code windows.
+*   **Workspace Problems Integration:** Inserts formatted list of current workspace diagnostics (errors, warnings, info, hints).
+*   **Theme Awareness:** Automatically adapts to browser's light/dark theme preferences.
 
 ### Inter-Plugin Communication (IPC)
 
-*   **FR-COM-001:** Define and implement a clear and versioned IPC protocol between VSCE and CE.
-    *   The detailed IPC protocol has been designed and is documented in [`docs/IPC_Protocol_Design.md`](docs/IPC_Protocol_Design.md).
+*   **Versioned Protocol:** Implements a clear, versioned IPC protocol for reliable communication between VS Code and Chrome extensions.
+*   **WebSocket Communication:** Uses WebSocket connections for real-time, bidirectional data exchange.
+*   **Automatic Port Discovery:** VS Code extension attempts multiple ports (30001+) with automatic fallback; Chrome extension scans the same range.
+*   **Multi-Window Architecture:** Primary/secondary server model enables multiple VS Code windows to share context seamlessly.
+*   **Detailed Documentation:** Complete protocol specification available in [`docs/IPC_Protocol_Design.md`](docs/IPC_Protocol_Design.md).
 
 ### Security
 
-*   **SEC-001:** The VSCE IPC server is designed to bind only to `localhost` for security. Token-based authentication has been removed.
-*   **SEC-002:** VSCE must respect VS Code's Workspace Trust feature.
+*   **Localhost-Only Binding:** IPC server binds exclusively to `localhost` (127.0.0.1) for security isolation.
+*   **Workspace Trust Integration:** Respects VS Code's Workspace Trust feature, only operating on trusted workspace folders.
+*   **No External Network Access:** All communication occurs locally between browser and VS Code on the same machine.
 
 ## Setup and Usage
 

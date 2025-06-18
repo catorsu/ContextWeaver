@@ -1586,7 +1586,7 @@ export class IPCServer {
                 unique_block_id: uuidv4(),
                 content_source_id: `${targetWorkspaceFolder.uri.toString()}::Problems`,
                 type: 'WorkspaceProblems',
-                label: targetWorkspaceFolder.name,
+                label: `Problems (${targetWorkspaceFolder.name})`,
                 workspaceFolderUri: targetWorkspaceFolder.uri.toString(),
                 workspaceFolderName: targetWorkspaceFolder.name,
                 windowId: this.windowId

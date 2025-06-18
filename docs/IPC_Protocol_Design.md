@@ -26,6 +26,7 @@ All messages exchanged between the VSCE and CE will adhere to a base JSON struct
   "message_id": "string",    // Unique UUID for requests, echoed in responses. Optional for pushes.
   "type": "request | response | push | error_response" // Category of the message
   // "command" and "payload" are specific to each message type and command combination.
+  // (Note: In this document, a type like `"string | null"` for an optional field generally corresponds to an optional property (`key?: type`) in the TypeScript definitions, meaning the key may be omitted from the JSON payload if it has no value.)
 }
 ```
 
@@ -189,11 +190,28 @@ Requests a listing of immediate files and subdirectories within a specified fold
       "workspaceFolderUri": "string | null" // URI of the workspace folder this folderUri belongs to (for context, filtering). Null if not applicable or single root.
     }
     ```
-*   **VSCE Response**: `response_list_folder_contents` (see 3.2.12)
+*   **VSCE Response**: `response_list_folder_contents` (see 3.2.13)
 
 ---
 
-#### 3.1.12. `register_secondary`
+#### 3.1.12. `get_contents_for_files`
+Requests the content of multiple specific files.
+
+*   *(Note: Within the Chrome Extension, this IPC command is initiated by an internal `GET_CONTENTS_FOR_SELECTED_OPEN_FILES` message sent to the service worker.)*
+
+*   **`type`**: `"request"`
+*   **`command`**: `"get_contents_for_files"`
+*   **`payload`**:
+    ```json
+    {
+      "fileUris": ["string"] // Array of URI strings of the files to retrieve
+    }
+    ```
+*   **VSCE Response**: `response_contents_for_files` (see 3.2.12)
+
+---
+
+#### 3.1.13. `register_secondary`
 Registers a secondary VSCE instance with the primary VSCE for multi-window support.
 
 *   **`type`**: `"request"`
@@ -209,7 +227,7 @@ Registers a secondary VSCE instance with the primary VSCE for multi-window suppo
 
 ---
 
-#### 3.1.13. `forward_request_to_secondaries`
+#### 3.1.14. `forward_request_to_secondaries`
 Used by the primary VSCE to forward requests from the Chrome Extension to secondary VSCE instances.
 
 *   **`type`**: `"request"`
@@ -230,7 +248,7 @@ Used by the primary VSCE to forward requests from the Chrome Extension to second
 
 ---
 
-#### 3.1.14. `get_workspace_problems`
+#### 3.1.15. `get_workspace_problems`
 Requests all diagnostics (errors, warnings, information, and hints) for a specified workspace folder.
 
 *   **`type`**: `"request"`
@@ -241,7 +259,22 @@ Requests all diagnostics (errors, warnings, information, and hints) for a specif
       "workspaceFolderUri": "string" // URI of the workspace folder to get problems for
     }
     ```
-*   **VSCE Response**: `response_workspace_problems` (see 3.2.13)
+*   **VSCE Response**: `response_workspace_problems` (see 3.2.14)
+
+---
+
+#### 3.1.16. `unregister_secondary`
+Unregisters a secondary VSCE instance from the primary VSCE.
+
+*   **`type`**: `"request"`
+*   **`command`**: `"unregister_secondary"`
+*   **`payload`**:
+    ```json
+    {
+      "windowId": "string" // Unique identifier for the secondary VS Code window instance to unregister
+    }
+    ```
+*   **VSCE Response**: `response_unregister_secondary_ack` (see 3.2.15)
 
 ---
 
@@ -281,7 +314,7 @@ Response to `get_FileTree`.
           "unique_block_id": "string",
           "content_source_id": "string", // e.g., "workspace_uri::FileTree"
           "type": "FileTree",
-          "label": "File Tree",
+          "label": "string", // e.g., "MyProject" (the name of the workspace folder)
           "workspaceFolderUri": "string | null",
           "workspaceFolderName": "string | null",
           "windowId": "string" // Unique identifier for the VS Code window instance
@@ -363,8 +396,8 @@ Response to `get_folder_content`.
   "error": "string | null", // Present if success is false
   "errorCode": "string | null", // Optional error code
   "folderPath": "string", // Original requested folder path
-  "filterType": "'gitignore' | 'default' | 'none' | 'not_applicable'", // Updated to include 'not_applicable'
-  "workspaceFolderUri": "string | null" // Added from ipcServer.ts implementation
+  "filterType": "'gitignore' | 'default' | 'none' | 'not_applicable'",
+  "workspaceFolderUri": "string" // URI of the workspace folder this folderPath belongs to.
 }
     ```
 
@@ -391,9 +424,9 @@ Response to `get_entire_codebase`.
         // "fileTreeString": "string", // Optional: Textual representation of the file tree. Currently not sent by default.
         "metadata": { // ContextBlockMetadata object
           "unique_block_id": "string",
-          "content_source_id": "string", // e.g., "uri_of_specified_workspace_folder::codebase"
+          "content_source_id": "string", // e.g., "uri_of_specified_workspace_folder::entire_codebase"
           "type": "codebase_content",
-          "label": "string", // e.g., "Entire Codebase - [folder_name]"
+          "label": "string", // e.g., "[folder_name] Codebase"
           "workspaceFolderUri": "string | null", // URI of the processed workspace folder
           "workspaceFolderName": "string | null", // Name of the processed workspace folder
           "windowId": "string" // Unique identifier for the VS Code window instance
@@ -562,7 +595,51 @@ A generic error response if a more specific one isn't suitable, or for unhandled
 
 ---
 
-#### 3.2.12. `response_list_folder_contents`
+#### 3.2.12. `response_contents_for_files`
+Response to `get_contents_for_files`.
+
+*   **`type`**: `"response"`
+*   **`command`**: `"response_contents_for_files"`
+*   **`payload`**:
+    ```json
+    {
+      "success": "boolean",
+      "data": [ // Array of successful file data responses, present if success is true
+        {
+          "fileData": { // Object containing file details
+            "fullPath": "string", // Normalized, absolute path to the file
+            "content": "string", // File content
+            "languageId": "string" // Language ID of the file
+          },
+          "metadata": { // ContextBlockMetadata object
+            "unique_block_id": "string",
+            "content_source_id": "string", // Normalized file URI/path
+            "type": "file_content",
+            "label": "string", // filename.ext
+            "workspaceFolderUri": "string | null",
+            "workspaceFolderName": "string | null",
+            "windowId": "string" // Unique identifier for the VS Code window instance
+          },
+          "windowId": "string" // Unique identifier for the VS Code window instance
+        }
+        // ... more successful files
+      ] | null,
+      "errors": [ // Array of errors for files that failed, present if some files failed
+        {
+          "uri": "string", // URI of the file that failed
+          "error": "string", // Error message
+          "errorCode": "string | null" // Optional error code
+        }
+        // ... more errors
+      ] | null,
+      "error": "string | null", // Present if the entire operation failed
+      "errorCode": "string | null" // Optional error code for the entire operation
+    }
+    ```
+
+---
+
+#### 3.2.13. `response_list_folder_contents`
 Response to `list_folder_contents`.
 
 The `entries` array contains a **flat list of all recursive descendants** (all files and folders within the target folder and all its subfolders) that are not ignored by filters. The client-side (`contentScript.ts`) is responsible for building the hierarchical tree view from this flat list.
@@ -595,7 +672,7 @@ The `entries` array contains a **flat list of all recursive descendants** (all f
 
 ---
 
-#### 3.2.13. `response_workspace_problems`
+#### 3.2.14. `response_workspace_problems`
 Response to `get_workspace_problems`.
 
 *   **`type`**: `"response"`
@@ -610,16 +687,32 @@ Response to `get_workspace_problems`.
         "metadata": { // ContextBlockMetadata object
           "unique_block_id": "string",
           "content_source_id": "string", // e.g., "workspace_uri::problems"
-          "type": "workspace_problems",
+          "type": "WorkspaceProblems",
           "label": "string", // e.g., "Problems (WorkspaceName)"
           "workspaceFolderUri": "string | null",
-          "workspaceFolderName": "string | null"
+          "workspaceFolderName": "string | null",
+          "windowId": "string" // Unique identifier for the VS Code window instance
         },
         "windowId": "string" // Unique identifier for the VS Code window instance
       } | null,
       "error": "string | null", // Present if success is false
       "errorCode": "string | null", // Optional error code
       "workspaceFolderUri": "string" // Echo back the requested workspace folder URI
+    }
+    ```
+
+---
+
+#### 3.2.15. `response_unregister_secondary_ack`
+Response to `unregister_secondary`.
+
+*   **`type`**: `"response"`
+*   **`command`**: `"response_unregister_secondary_ack"`
+*   **`payload`**:
+    ```json
+    {
+      "success": "boolean",
+      "message": "string | null" // Optional: message, e.g., "Secondary unregistered" or error details
     }
     ```
 
@@ -654,7 +747,7 @@ VSCE pushes a selected code snippet to the CE.
         "workspaceFolderName": "string | null",
         "windowId": "string" // Unique identifier for the VS Code window instance from which the snippet originated
       },
-      "targetTabId": "number", // The tabId registered by `register_active_target`
+      "targetTabId": "number", // DEPRECATED. This field is ignored by the service worker, which now broadcasts the snippet to all supported LLM tabs.
       "windowId": "string" // Unique identifier for the VS Code window instance that sent this snippet
     }
     ```

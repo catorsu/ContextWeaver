@@ -60,8 +60,6 @@ ContextWeaver/
 │   │   ├── popup.html
 │   │   ├── tsconfig.json
 │   │   ├── assets/
-│   │   │   ├── fonts/
-│   │   │   │   └── MaterialSymbols-Variable.woff2
 │   │   │   └── icons/
 │   │   │       ├── account_tree.svg
 │   │   │       ├── arrow_back.svg
@@ -80,6 +78,7 @@ ContextWeaver/
 │   │   │   ├── icon48.png
 │   │   │   └── icon128.png
 │   │   ├── src/
+│   │   │   ├── ceLogger.ts
 │   │   │   ├── contentScript.ts
 │   │   │   ├── popup.ts
 │   │   │   ├── serviceWorker.ts
@@ -89,14 +88,14 @@ ContextWeaver/
 │   │   └── tests/
 │   │       ├── contentScript.test.ts
 │   │       └── setup.js
-│   ├── native-host/
 │   ├── shared/
 │   │   ├── package.json
 │   │   ├── tsconfig.json
 │   │   └── src/
 │   │       ├── data-models.ts
 │   │       ├── index.ts
-│   │       └── ipc-types.ts
+│   │       ├── ipc-types.ts
+│   │       └── logger.ts
 │   └── vscode-extension/
 │       ├── .eslintrc.json
 │       ├── .vscodeignore
@@ -106,11 +105,12 @@ ContextWeaver/
 │       ├── src/
 │       │   ├── diagnosticsService.ts
 │       │   ├── extension.ts
-│   │       ├── fileSystemService.ts
-│   │       ├── ipcServer.ts
-│   │       ├── searchService.ts
-│   │       ├── snippetService.ts
-│   │       └── workspaceService.ts
+│       │   ├── fileSystemService.ts
+│       │   ├── ipcServer.ts
+│       │   ├── searchService.ts
+│       │   ├── snippetService.ts
+│       │   ├── vsceLogger.ts
+│       │   └── workspaceService.ts
 │       └── tests/
 │           └── unit/
 │               ├── fileSystemService.test.ts
@@ -143,8 +143,8 @@ Accurate and current structural documentation is mandatory for project integrity
     *   **Snippet Handling:** Capturing selected code snippets and pushing them to the CE.
     *   **Workspace Management:** Handling multi-root workspaces and respecting VS Code's Workspace Trust feature.
 *   **Key Modules (Planned/Conceptual):**
-    *   `ipcServer.ts`: Manages the WebSocket server, connection handling (client registration), and message deserialization/serialization. Implements the primary/secondary architecture for multi-window support, including leader election, secondary VSCE registration, request forwarding to secondary instances, and response aggregation. (Note: Token-based authentication has been removed).
-    *   `fileSystemService.ts`: Handles all interactions with the file system (reading files, listing directories, traversing structures). It also includes logic for `.gitignore` parsing and applying default/gitignore-based filtering rules.
+    *   `ipcServer.ts`: Manages the WebSocket server, connection handling (client registration), and message deserialization/serialization. Implements the primary/secondary architecture for multi-window support through leader election - when starting, each VSCE instance attempts to connect to existing primary servers across a port range; if none found, it becomes primary and listens for connections. Secondary VSCEs register with the primary, which forwards requests to appropriate secondary instances and aggregates responses before sending back to the Chrome Extension. This enables seamless data aggregation from multiple VS Code windows. (Note: Token-based authentication has been removed).
+    *   `fileSystemService.ts`: Handles all interactions with the file system (reading files, listing directories, traversing structures). It also includes logic for `.gitignore` parsing and applying default/gitignore-based filtering rules. Provides a flat, recursive list of directory entries rather than a hierarchical structure, offloading tree construction to the client for more flexible rendering.
     *   `searchService.ts`: Provides file/folder search capabilities within the workspace.
     *   `workspaceService.ts`: Centralizes logic for interacting with the VS Code workspace. It provides information about open workspace folders (including multi-root scenarios), their URIs, names, and the overall workspace trust state. It's used by other services to ensure operations are performed on trusted and valid workspaces.
     *   `snippetService.ts`: Responsible for preparing snippet data (selected text, file path, line numbers, language ID, and associated metadata) when triggered by the user. It does not directly handle IPC sending but provides the data to `extension.ts` for dispatch.
@@ -164,12 +164,12 @@ Accurate and current structural documentation is mandatory for project integrity
     *   **IPC Client:** Connecting to the VSCE server, sending requests, and handling responses.
     *   **State Management:** Managing the state of active context blocks and duplicate content prevention.
 *   **Key Modules (Planned/Conceptual):**
-    *   `contentScript.ts`: Injected into LLM web pages. Responsible for detecting user triggers (`@`), orchestrating UI interactions by utilizing `UIManager`, managing application state via `StateManager`, and delegating communication with the service worker to `ServiceWorkerClient`.
+    *   `contentScript.ts`: Injected into LLM web pages. Responsible for detecting user triggers (`@`), orchestrating UI interactions by utilizing `UIManager`, managing application state via `StateManager`, and delegating communication with the service worker to `ServiceWorkerClient`. Also responsible for building hierarchical tree views from the flat lists of directory entries provided by the backend services, using client-side logic to construct the tree structure for rendering.
     *   `serviceWorker.ts`: Manages the IPC client connection to the VSCE. Handles messages from `contentScript.ts`, relays requests to VSCE, and forwards VSCE responses and push messages.
-    *   `uiManager.ts`: Encapsulates all logic related to the floating UI panel and context indicators. Provides methods for creating UI elements, managing display state, and handling notifications (toasts) and loading overlays.
+    *   `uiManager.ts`: Encapsulates all logic related to the floating UI panel and context indicators. Provides methods for creating UI elements, managing display state, and handling notifications (toasts) and loading overlays. Uses SVG icons with CSS masking for theme-aware, scalable iconography instead of icon fonts.
     *   `stateManager.ts`: Centralizes the management of client-side state for `contentScript.ts`, including active context blocks, search state, and the target LLM input element.
     *   `serviceWorkerClient.ts`: Acts as an abstraction layer (API client) for `contentScript.ts` to communicate with `serviceWorker.ts`.
-    *   `popup.ts`: Handles the logic for the browser action popup (`popup.html`), which now contains all user-facing settings (IPC port) and connection management controls.
+    *   `popup.ts`: Handles the logic for the browser action popup (`popup.html`), which displays the current IPC connection status and provides a manual reconnection control.
     *   **Technology Stack:**
     *   TypeScript/JavaScript
     *   Chrome Extension APIs (Content Scripts, Service Workers, Storage, etc.)
@@ -211,8 +211,8 @@ Refer to these TypeScript files for the authoritative definitions of these struc
     *   **Rationale:** Simplifies management of shared code (e.g., IPC type definitions), versioning, and coordinated development and issue tracking between the VS Code Extension and Chrome Extension components.
 *   **[2025-05-28] Decision:** Removed token-based authentication for IPC.
     *   **Rationale:** Simplified user setup and reduced friction. Security relies on the VSCE server binding exclusively to `localhost`, mitigating external access risks. The risk from other local malicious software was deemed acceptable for V1 given the nature of data exchanged. (See `TROUBLESHOOTING_AND_LESSONS_LEARNED.md` entry `[2025-05-28] - IPC Simplification...`)
-*   **[2025-06-02] Decision:** Use `chrome.tabs.sendMessage(targetTabId, ...)` for forwarding `push_snippet` messages from CE Service Worker to Content Script.
-    *   **Rationale:** Resolved "Receiving end does not exist" errors encountered when using `chrome.runtime.sendMessage`. Targeting the specific content script via its known `targetTabId` (provided in the snippet payload) proved more reliable for this push mechanism. (See `TROUBLESHOOTING_AND_LESSONS_LEARNED.md` entry `[2025-06-02] - Snippet Push from VSCE Not Received by CE Content Script`)
+*   **[2025-06-02] Decision:** Use `chrome.tabs.sendMessage` to broadcast `push_snippet` messages from the CE Service Worker to all matching Content Scripts.
+    *   **Rationale:** Resolved "Receiving end does not exist" errors by actively querying for all supported LLM tabs and sending the message to each one. This broadcast approach is more robust than relying on a single `targetTabId` and aligns with the multi-window architecture where a snippet from any VS Code window should be available to any active LLM tab. (See `TROUBLESHOOTING_AND_LESSONS_LEARNED.md` entry `[2025-06-02] - Snippet Push from VSCE Not Received by CE Content Script`)
 *   **[June 05, 2025] Decision:** Introduced a `packages/shared/src` module for defining common TypeScript types for IPC and data models.
     *   **Rationale:** To enforce type safety, ensure consistency between the Chrome Extension (CE) and VS Code Extension (VSCE), improve maintainability, and adhere to DRY (Don't Repeat Yourself) principles for the IPC contract. This makes the communication protocol explicit and verifiable at compile-time.
 *   **[June 05, 2025] Decision:** Modularized the main Chrome Extension content script (`contentScript.ts`) by extracting responsibilities into `UIManager.ts` (UI rendering and DOM utilities), `StateManager.ts` (client-side state management), and `ServiceWorkerClient.ts` (abstraction for communication with the service worker).
@@ -221,18 +221,12 @@ Refer to these TypeScript files for the authoritative definitions of these struc
     *   **Rationale:** To improve the stability and predictability of the WebSocket connection and retry mechanisms. Using shared types ensures robust, type-safe communication between the browser and VS Code components.
 *   **[June 05, 2025] Decision:** Aligned the return types of core VS Code Extension services (`fileSystemService.ts`, `searchService.ts`) with the shared types.
     *   **Rationale:** To reduce the need for data transformation or casting within `ipcServer.ts`, making the data flow from services to IPC responses more direct and type-safe.
-*   **[2025-06-XX] Decision:** Implemented Primary/Secondary architecture for multi-window VS Code support.
-    *   **Rationale:** To enable the Chrome Extension to aggregate data (search results, open files, etc.) from multiple VS Code windows simultaneously. The primary/secondary model provides a scalable solution where one VSCE instance acts as a coordinator, forwarding requests to other VS Code windows and aggregating their responses. This approach avoids the complexity of the Chrome Extension managing multiple direct connections while ensuring all open VS Code windows can contribute data to the LLM context. The leader election mechanism ensures automatic failover if the primary window is closed.
-*   **Decision:** Use client-side logic to build hierarchical tree views from a flat list of file entries provided by the VSCE.
-    *   **Rationale:** Simplifies the backend (VSCE) logic by having it provide a simple, flat list of all recursive descendants. This offloads the view-specific task of rendering a tree to the client (CE), making the API more generic and reducing the complexity of the data sent over IPC. (Reflected in `contentScript.ts`'s `buildTreeStructure` function).
-*   **Decision:** Implement UI icons using SVG files with CSS masking for coloring.
-    *   **Rationale:** Provides high-quality, scalable icons without relying on external font libraries. Using CSS `mask-image` and `background-color` allows for easy, dynamic theme-aware coloring (light/dark mode) with a single set of SVG assets. (Reflected in `uiManager.ts`'s `createIcon` method).
 *   **[2025-06-16] Decision:** Primary/Secondary Architecture.
-    *   **Rationale:** To provide robust multi-window support for VS Code, enabling the Chrome Extension to aggregate data from multiple VS Code instances. This design centralizes coordination in a primary VSCE instance, simplifying client-side logic and ensuring data consistency across windows.
+    *   **Rationale:** To provide robust multi-window support for VS Code, enabling the Chrome Extension to aggregate data from multiple VS Code instances. This design centralizes coordination in a primary VSCE instance through leader election - each VSCE instance attempts to connect to existing primary servers across a port range, becoming primary if none found. The primary forwards requests to secondary instances and aggregates responses, simplifying client-side logic while ensuring data consistency across windows. The leader election mechanism ensures automatic failover if the primary window is closed. When a secondary window is closed, it unregisters itself from the primary using the `unregister_secondary` command, allowing the primary to maintain an accurate list of active secondary instances for request routing.
 *   **[2025-06-16] Decision:** Client-Side Tree Building.
-    *   **Rationale:** To offload view-specific logic from the VS Code Extension to the Chrome Extension. The VSCE provides a flat list of file entries, and the CE constructs the hierarchical tree view, making the backend API simpler and more generic, and reducing IPC payload complexity.
+    *   **Rationale:** To offload view-specific logic from the VS Code Extension to the Chrome Extension. The VSCE provides a flat, recursive list of directory entries, and the CE constructs the hierarchical tree view using client-side logic (reflected in `contentScript.ts`'s `buildTreeStructure` function). This makes the backend API simpler and more generic, reduces IPC payload complexity, and allows for more flexible rendering on the client side.
 *   **[2025-06-16] Decision:** SVG Icons with CSS Masking.
-    *   **Rationale:** To achieve high-quality, scalable, and theme-aware icons without relying on external font libraries. SVG assets combined with CSS `mask-image` and `background-color` allow for dynamic coloring based on the UI theme (light/dark mode) using a single set of assets.
+    *   **Rationale:** To achieve high-quality, scalable, and theme-aware icons without relying on external font libraries. SVG assets combined with CSS `mask-image` and `background-color` allow for dynamic coloring based on the UI theme (light/dark mode) using a single set of assets. This approach is implemented in `uiManager.ts`'s `createIcon` method, providing consistent iconography across the extension's UI.
 
 ## 7. Security Considerations
 
@@ -243,9 +237,9 @@ Refer to these TypeScript files for the authoritative definitions of these struc
 
 ## 8. Future Architectural Considerations (Post V1)
 
-*   Support for multiple VS Code windows.
 *   More sophisticated IPC discovery (beyond fixed port range).
 *   Potential for abstracting data providers in VSCE if other IDEs were to be supported (highly speculative).
+*   Enhanced diagnostics aggregation across multiple workspace folders.
 
 ## 9. Diagrams
 
