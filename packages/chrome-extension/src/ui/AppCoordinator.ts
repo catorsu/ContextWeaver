@@ -9,7 +9,7 @@ import { TextInsertionService } from './services/TextInsertionService';
 import { InputHandler } from './handlers/InputHandler';
 import { MessageHandler } from './handlers/MessageHandler';
 import { ViewManager } from './view/ViewManager';
-import { Logger, PushSnippetPayload, ContextBlockMetadata, SearchResult, FileContentResponsePayload, FolderContentResponsePayload, FileTreeResponsePayload, WorkspaceProblemsResponsePayload } from '@contextweaver/shared';
+import { Logger, PushSnippetPayload, ContextBlockMetadata, SearchResult, FileContentResponsePayload, FolderContentResponsePayload, FileTreeResponsePayload, WorkspaceProblemsResponsePayload, EntireCodebaseResponsePayload } from '@contextweaver/shared';
 import { debounce } from './utils/domUtils';
 import { formatFileContentsForLLM } from './utils/formatters';
 
@@ -86,9 +86,10 @@ export class AppCoordinator {
             } else {
                 this.uiManager.showToast('Connection Issue: Could not retrieve workspace details.', 'error');
             }
-        } catch (error: any) {
+        } catch (error) {
             this.logger.error('Error requesting workspace details:', error);
-            this.uiManager.showToast(`Communication Error: ${error.message}`, 'error');
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            this.uiManager.showToast(`Communication Error: ${errorMessage}`, 'error');
         } finally {
             this.uiManager.hideLoading();
         }
@@ -100,13 +101,14 @@ export class AppCoordinator {
             const response = await this.apiService.searchWorkspace(query, null);
             this.stateManager.setSearchResponse(response);
             this.viewManager.showSearchResults(response, query);
-        } catch (error: any) {
+        } catch (error) {
             this.logger.error('Error during search:', error);
-            this.uiManager.showToast(`Search Error: ${error.message}`, 'error');
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            this.uiManager.showToast(`Search Error: ${errorMessage}`, 'error');
         }
     }
 
-    public async handleContentInsertionRequest(itemMetadata: any, itemDivForFeedback?: HTMLElement | null, hideOnSuccess: boolean = true): Promise<void> {
+    public async handleContentInsertionRequest(itemMetadata: { type: string; name: string; contentSourceId: string; uri?: string; workspaceFolderUri?: string | null }, itemDivForFeedback?: HTMLElement | null, hideOnSuccess: boolean = true): Promise<void> {
         const targetElementForThisOperation = this.stateManager.getCurrentTargetElementForPanel();
         if (this.stateManager.isDuplicateContentSource(itemMetadata.contentSourceId)) {
             this.uiManager.showError('Content Already Added', `Content from '${itemMetadata.name}' is already added.`);
@@ -119,7 +121,7 @@ export class AppCoordinator {
         }
         this.uiManager.showLoading(`Loading ${itemMetadata.name}...`, 'Fetching content...');
         try {
-            let responsePayload: any;
+            let responsePayload: FileContentResponsePayload | FolderContentResponsePayload | FileTreeResponsePayload | EntireCodebaseResponsePayload | WorkspaceProblemsResponsePayload;
             let contentTag: 'FileContents' | 'FileTree' | 'WorkspaceProblems' = 'FileContents';
             if (itemMetadata.type === 'file') responsePayload = await this.apiService.getFileContent(itemMetadata.uri!);
             else if (itemMetadata.type === 'folder') responsePayload = await this.apiService.getFolderContent(itemMetadata.uri!, itemMetadata.workspaceFolderUri || null);
@@ -129,7 +131,7 @@ export class AppCoordinator {
             else throw new Error(`Unsupported item type: ${itemMetadata.type}`);
 
             if (responsePayload.success && responsePayload.data) {
-                if (itemMetadata.type === 'WorkspaceProblems' && (responsePayload.data as any).problemCount === 0) {
+                if (itemMetadata.type === 'WorkspaceProblems' && 'problemCount' in responsePayload.data && responsePayload.data.problemCount === 0) {
                     this.uiManager.showToast('No problems found in this workspace.', 'info');
                     return;
                 }
@@ -275,8 +277,9 @@ ${payload.snippet}
         }
     }
 
-    public handleExtensionError(payload: any): void {
-        this.uiManager.showToast(`Extension Error: ${payload.message || 'Unknown error'}`, 'error');
+    public handleExtensionError(payload: unknown): void {
+        const errorMessage = payload && typeof payload === 'object' && 'message' in payload ? String(payload.message) : 'Unknown error';
+        this.uiManager.showToast(`Extension Error: ${errorMessage}`, 'error');
     }
 
     public async handleActiveFileSelect(): Promise<void> {
@@ -288,6 +291,7 @@ ${payload.snippet}
                     await this.handleContentInsertionRequest({ 
                         type: 'file', 
                         name: response.data.activeFileLabel,
+                        contentSourceId: response.data.activeFilePath,
                         uri: response.data.activeFilePath,
                         workspaceFolderUri: response.data.workspaceFolderUri
                     });
@@ -318,7 +322,7 @@ ${payload.snippet}
         this.handleContentInsertionRequest({ type: 'WorkspaceProblems', name, contentSourceId, workspaceFolderUri });
     }
 
-    private async _batchInsert(items: any[], loadingTitle: string): Promise<void> {
+    private async _batchInsert(items: Array<{ type: string; name: string; contentSourceId: string; uri?: string; workspaceFolderUri?: string | null }>, loadingTitle: string): Promise<void> {
         this.logger.info(`Batch inserting ${items.length} items.`);
         if (items.length === 0) {
             this.uiManager.showToast('No items selected.', 'info');
@@ -334,11 +338,11 @@ ${payload.snippet}
         }
     }
 
-    public async handleInsertSelectedFiles(selectedFiles: any[]): Promise<void> {
+    public async handleInsertSelectedFiles(selectedFiles: Array<{ type: string; name: string; contentSourceId: string; uri?: string; workspaceFolderUri?: string | null }>): Promise<void> {
         await this._batchInsert(selectedFiles, 'Inserting Files...');
     }
 
-    public async handleInsertSelectedBrowseItems(selectedItems: any[]): Promise<void> {
+    public async handleInsertSelectedBrowseItems(selectedItems: Array<{ type: string; name: string; contentSourceId: string; uri?: string; workspaceFolderUri?: string | null }>): Promise<void> {
         await this._batchInsert(selectedItems, 'Inserting Items...');
     }
 }

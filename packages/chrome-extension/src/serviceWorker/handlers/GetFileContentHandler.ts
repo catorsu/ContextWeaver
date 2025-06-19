@@ -4,15 +4,15 @@
  * @module ContextWeaver/CE
  */
 
-import { GetFileContentRequestPayload, FileContentResponsePayload } from '@contextweaver/shared';
+import { GetFileContentRequestPayload, FileContentResponsePayload, extractErrorInfo } from '@contextweaver/shared';
 import { Logger } from '@contextweaver/shared';
-import { IMessageHandler } from './IMessageHandler';
+import { IMessageHandler, HandlerResponse } from './IMessageHandler';
 import { IPCClient } from '../ipcClient';
 
 /**
  * Handles GET_FILE_CONTENT messages by requesting file content from VSCE.
  */
-export class GetFileContentHandler implements IMessageHandler {
+export class GetFileContentHandler implements IMessageHandler<GetFileContentRequestPayload, HandlerResponse<FileContentResponsePayload['data']>> {
     private readonly logger = new Logger('GetFileContentHandler');
 
     /**
@@ -21,7 +21,7 @@ export class GetFileContentHandler implements IMessageHandler {
      * @param ipcClient The IPC client for communicating with VSCE.
      * @returns Promise resolving to the file content response.
      */
-    async handle(payload: GetFileContentRequestPayload, ipcClient: IPCClient): Promise<any> {
+    async handle(payload: GetFileContentRequestPayload, ipcClient: IPCClient): Promise<HandlerResponse<FileContentResponsePayload['data']>> {
         this.logger.debug(`Handling GET_FILE_CONTENT for path: ${payload.filePath}`);
         
         try {
@@ -36,7 +36,8 @@ export class GetFileContentHandler implements IMessageHandler {
             }
         } catch (error) {
             this.logger.error('Error in get_file_content IPC call:', error);
-            return { success: false, error: (error as Error).message || 'IPC call failed for get_file_content.' };
+            const errorInfo = extractErrorInfo(error);
+            return { success: false, error: errorInfo.message || 'IPC call failed for get_file_content.' };
         }
     }
 }

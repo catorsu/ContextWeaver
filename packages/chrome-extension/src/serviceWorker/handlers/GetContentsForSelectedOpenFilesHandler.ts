@@ -4,15 +4,19 @@
  * @module ContextWeaver/CE
  */
 
-import { ContentsForFilesResponsePayload } from '@contextweaver/shared';
+import { ContentsForFilesResponsePayload, FileContentResponseData, extractErrorInfo } from '@contextweaver/shared';
 import { Logger } from '@contextweaver/shared';
-import { IMessageHandler } from './IMessageHandler';
+import { IMessageHandler, HandlerResponse } from './IMessageHandler';
 import { IPCClient } from '../ipcClient';
 
 /**
  * Handles GET_CONTENTS_FOR_SELECTED_OPEN_FILES messages by requesting content for multiple files from VSCE.
  */
-export class GetContentsForSelectedOpenFilesHandler implements IMessageHandler {
+interface ContentsForFilesHandlerResponse extends HandlerResponse<FileContentResponseData[]> {
+    errors?: Array<{ uri: string; error: string; errorCode?: string }>;
+}
+
+export class GetContentsForSelectedOpenFilesHandler implements IMessageHandler<{ fileUris: string[] }, ContentsForFilesHandlerResponse> {
     private readonly logger = new Logger('GetContentsForSelectedOpenFilesHandler');
 
     /**
@@ -21,7 +25,7 @@ export class GetContentsForSelectedOpenFilesHandler implements IMessageHandler {
      * @param ipcClient The IPC client for communicating with VSCE.
      * @returns Promise resolving to the contents response.
      */
-    async handle(payload: { fileUris: string[] }, ipcClient: IPCClient): Promise<any> {
+    async handle(payload: { fileUris: string[] }, ipcClient: IPCClient): Promise<ContentsForFilesHandlerResponse> {
         const fileUris = payload.fileUris;
         this.logger.debug(`Handling GET_CONTENTS_FOR_SELECTED_OPEN_FILES for ${fileUris.length} URIs`);
 
@@ -36,9 +40,10 @@ export class GetContentsForSelectedOpenFilesHandler implements IMessageHandler {
                 return { success: false, error: response?.error || 'Failed to get contents for files.' };
             }
 
-            const successfulFilesData = response.data?.map((item: any) => ({
+            const successfulFilesData = response.data?.map((item) => ({
                 fileData: item.fileData,
-                metadata: item.metadata
+                metadata: item.metadata,
+                windowId: item.windowId
             })) || [];
 
             const erroredFiles = response.errors || [];
@@ -50,7 +55,8 @@ export class GetContentsForSelectedOpenFilesHandler implements IMessageHandler {
             };
         } catch (error) {
             this.logger.error('Error in getContentsForFiles IPC call:', error);
-            return { success: false, error: (error as Error).message || 'Failed to process multiple file content requests.' };
+            const errorInfo = extractErrorInfo(error);
+            return { success: false, error: errorInfo.message || 'Failed to process multiple file content requests.' };
         }
     }
 }

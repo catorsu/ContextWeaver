@@ -213,25 +213,27 @@ Refer to these TypeScript files for the authoritative definitions of these struc
 
 ## 7. Key Design Decisions & Rationale
 
-*   **[YYYY-MM-DD] Decision:** Chose WebSockets for IPC.
+*This section logs key architectural decisions using stable, sequential identifiers (e.g., `[D-001]`) for permanent referencing.*
+
+*   **[D-001] Decision:** Chose WebSockets for IPC.
     *   **Rationale:** Allows for bidirectional communication, efficient for pushing snippets from VSCE to CE, and well-supported in both Node.js (VSCE) and browser environments (CE).
-*   **[YYYY-MM-DD] Decision:** Root `.gitignore` only for V1.
+*   **[D-002] Decision:** Root `.gitignore` only for V1.
     *   **Rationale:** Simplifies initial implementation complexity, aligning with SRS 1.2. Future versions may support subdirectory `.gitignore` files.
-*   **[YYYY-MM-DD] Decision:** Adopt a monorepo structure.
+*   **[D-003] Decision:** Adopt a monorepo structure.
     *   **Rationale:** Simplifies management of shared code (e.g., IPC type definitions), versioning, and coordinated development and issue tracking between the VS Code Extension and Chrome Extension components.
-*   **[2025-05-28] Decision:** Removed token-based authentication for IPC.
+*   **[D-004] Decision:** Removed token-based authentication for IPC.
     *   **Rationale:** Simplified user setup and reduced friction. Security relies on the VSCE server binding exclusively to `localhost`, mitigating external access risks. The risk from other local malicious software was deemed acceptable for V1 given the nature of data exchanged.
-*   **[2025-06-02] Decision:** Use `chrome.tabs.sendMessage` to broadcast `push_snippet` messages from the CE Service Worker to all matching Content Scripts.
+*   **[D-005] Decision:** Use `chrome.tabs.sendMessage` to broadcast `push_snippet` messages from the CE Service Worker to all matching Content Scripts.
     *   **Rationale:** Resolved "Receiving end does not exist" errors by actively querying for all supported LLM tabs and sending the message to each one. This broadcast approach is more robust than relying on a single `targetTabId` and aligns with the multi-window architecture where a snippet from any VS Code window should be available to any active LLM tab.
-*   **[June 05, 2025] Decision:** Introduced a `packages/shared/src` module for defining common TypeScript types for IPC and data models.
+*   **[D-006] Decision:** Introduced a `packages/shared/src` module for defining common TypeScript types for IPC and data models.
     *   **Rationale:** To enforce type safety, ensure consistency between the Chrome Extension (CE) and VS Code Extension (VSCE), improve maintainability, and adhere to DRY (Don't Repeat Yourself) principles for the IPC contract. This makes the communication protocol explicit and verifiable at compile-time.
-*   **[June 05, 2025] Decision:** Refactored the main Chrome Extension content script into a modular architecture using an `AppCoordinator` and specialized services/handlers.
+*   **[D-007] Decision:** Refactored the main Chrome Extension content script into a modular architecture using an `AppCoordinator` and specialized services/handlers.
     *   **Rationale:** To improve separation of concerns, reduce the complexity of a single file, enhance readability, maintainability, and testability, adhering to the Single Responsibility Principle (SRP).
-*   **[2025-06-16] Decision:** Implemented a Primary/Secondary Architecture for multi-window support.
+*   **[D-008] Decision:** Implemented a Primary/Secondary Architecture for multi-window support.
     *   **Rationale:** To provide robust multi-window support for VS Code, enabling the Chrome Extension to aggregate data from multiple VS Code instances. This design centralizes coordination in a primary VSCE instance through leader election. The primary forwards requests to secondary instances and aggregates responses, simplifying client-side logic while ensuring data consistency across windows.
-*   **[2025-06-16] Decision:** Implemented client-side tree building for the "Browse" view.
+*   **[D-009] Decision:** Implemented client-side tree building for the "Browse" view.
     *   **Rationale:** To offload view-specific logic from the VS Code Extension to the Chrome Extension. The VSCE provides a flat, recursive list of directory entries, and the CE constructs the hierarchical tree view. This makes the backend API simpler and more generic, reduces IPC payload complexity, and allows for more flexible rendering on the client side.
-*   **[2025-06-16] Decision:** Adopted SVG icons with CSS masking for UI elements.
+*   **[D-010] Decision:** Adopted SVG icons with CSS masking for UI elements.
     *   **Rationale:** To achieve high-quality, scalable, and theme-aware icons without relying on external font libraries. SVG assets combined with CSS `mask-image` and `background-color` allow for dynamic coloring based on the UI theme (light/dark mode) using a single set of assets.
 
 ## 8. Security Considerations

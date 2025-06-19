@@ -6,7 +6,6 @@
 
 // Mock vscode module before importing
 const mockReadDirectory = jest.fn();
-const mockReadFile = jest.fn();
 
 // Custom FileSystemError for testing
 class MockFileSystemError extends Error {
@@ -34,7 +33,6 @@ jest.mock('vscode', () => ({
   workspace: {
     fs: {
       readDirectory: async (...args: any[]) => mockReadDirectory(...args),
-      readFile: async (...args: any[]) => mockReadFile(...args),
     },
   },
   FileSystemError: MockFileSystemError
@@ -43,8 +41,8 @@ jest.mock('vscode', () => ({
 // Now import modules that use vscode
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { getDirectoryListing, getPathIgnoreInfo } from '../../src/fileSystemService'; // Import getPathIgnoreInfo
-import { DirectoryEntry } from '@contextweaver/shared';
+import { getDirectoryListing } from '../../src/fileSystemService';
+import { DirectoryEntry, FilterType } from '@contextweaver/shared';
 import ignore, { Ignore } from 'ignore'; // Import Ignore type
 
 describe('getDirectoryListing', () => {
@@ -62,6 +60,22 @@ describe('getDirectoryListing', () => {
     toString: () => 'file:///workspace/root/src',
   } as vscode.Uri;
 
+  // Mock filter objects for testing
+  const mockGitignoreFilter = {
+    filter: ignore(),
+    type: 'gitignore' as FilterType
+  };
+
+  const mockDefaultFilter = {
+    filter: ignore().add(['node_modules/', '.git/', '*.log', '*.exe', '*.zip']),
+    type: 'default' as FilterType
+  };
+
+  const mockEmptyFilter = {
+    filter: ignore(),
+    type: 'none' as FilterType
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
   });
@@ -76,9 +90,7 @@ describe('getDirectoryListing', () => {
     // Mock the recursive read for 'subfolder' to return an empty array
     mockReadDirectory.mockResolvedValueOnce([]);
 
-    mockReadFile.mockResolvedValueOnce(Buffer.from('')); // Empty .gitignore
-
-    const result = await getDirectoryListing(mockFolderUri, mockWorkspaceFolder);
+    const result = await getDirectoryListing(mockFolderUri, mockWorkspaceFolder, mockGitignoreFilter);
 
     expect(result.entries).toHaveLength(3);
     expect(result.entries).toEqual([
@@ -115,9 +127,7 @@ describe('getDirectoryListing', () => {
       ['.git', vscode.FileType.Directory],
     ]);
 
-    mockReadFile.mockRejectedValueOnce(new MockFileSystemError('File not found')); // No .gitignore
-
-    const result = await getDirectoryListing(mockFolderUri, mockWorkspaceFolder);
+    const result = await getDirectoryListing(mockFolderUri, mockWorkspaceFolder, mockDefaultFilter);
 
     expect(result.entries).toHaveLength(1);
     expect(result.entries[0]).toEqual({
@@ -136,10 +146,13 @@ describe('getDirectoryListing', () => {
       ['ignored-folder', vscode.FileType.Directory],
       ['ignored-file.txt', vscode.FileType.File],
     ]);
+    
+    const gitignoreFilter = {
+      filter: ignore().add(['ignored-folder/', 'ignored-file.txt']),
+      type: 'gitignore' as FilterType
+    };
 
-    mockReadFile.mockResolvedValueOnce(Buffer.from('ignored-folder/\nignored-file.txt')); // .gitignore content
-
-    const result = await getDirectoryListing(mockFolderUri, mockWorkspaceFolder);
+    const result = await getDirectoryListing(mockFolderUri, mockWorkspaceFolder, gitignoreFilter);
 
     expect(result.entries).toHaveLength(1);
     expect(result.entries[0]).toEqual({
@@ -154,73 +167,9 @@ describe('getDirectoryListing', () => {
 
   it('should throw error for non-existent directory', async () => {
     mockReadDirectory.mockRejectedValueOnce(new MockFileSystemError('Directory not found'));
-    mockReadFile.mockResolvedValueOnce(Buffer.from('')); // Empty .gitignore
 
-    await expect(getDirectoryListing(mockFolderUri, mockWorkspaceFolder))
+    await expect(getDirectoryListing(mockFolderUri, mockWorkspaceFolder, mockEmptyFilter))
       .rejects
       .toThrow('Directory not found');
-  });
-});
-
-describe('getPathIgnoreInfo', () => {
-  const defaultIgnorePatterns = [
-    'node_modules/', '.git/', '*.log', '*.exe', '*.zip',
-  ];
-  const defaultIgnoreFilter = ignore().add(defaultIgnorePatterns);
-
-  it('should ignore files by default patterns', () => {
-    const info = getPathIgnoreInfo('path/to/file.log', false, null, defaultIgnoreFilter);
-    expect(info).toEqual({ ignored: true, filterSource: 'default' });
-  });
-
-  it('should ignore folders by default patterns', () => {
-    const info = getPathIgnoreInfo('path/to/node_modules', true, null, defaultIgnoreFilter);
-    expect(info).toEqual({ ignored: true, filterSource: 'default' });
-  });
-
-  it('should not ignore files not matching default patterns', () => {
-    const info = getPathIgnoreInfo('path/to/file.txt', false, null, defaultIgnoreFilter);
-    expect(info).toEqual({ ignored: false, filterSource: 'none' });
-  });
-
-  it('should ignore files by gitignore patterns', () => {
-    const gitignoreFilter = ignore().add('custom-ignored.txt');
-    const info = getPathIgnoreInfo('path/to/custom-ignored.txt', false, gitignoreFilter, defaultIgnoreFilter);
-    expect(info).toEqual({ ignored: true, filterSource: 'gitignore' });
-  });
-
-  it('should ignore folders by gitignore patterns', () => {
-    const gitignoreFilter = ignore().add('custom-ignored-folder/');
-    const info = getPathIgnoreInfo('path/to/custom-ignored-folder', true, gitignoreFilter, defaultIgnoreFilter);
-    expect(info).toEqual({ ignored: true, filterSource: 'gitignore' });
-  });
-
-  it('should prioritize default ignore over gitignore if both match (though current implementation checks default first)', () => {
-    const gitignoreFilter = ignore().add('node_modules/'); // Also in default
-    const info = getPathIgnoreInfo('path/to/node_modules', true, gitignoreFilter, defaultIgnoreFilter);
-    expect(info).toEqual({ ignored: true, filterSource: 'default' });
-  });
-
-  it('should handle nested paths correctly for default patterns', () => {
-    const info = getPathIgnoreInfo('nested/folder/node_modules/sub', true, null, defaultIgnoreFilter);
-    expect(info).toEqual({ ignored: true, filterSource: 'default' });
-  });
-
-  it('should handle nested paths correctly for gitignore patterns', () => {
-    const gitignoreFilter = ignore().add('nested/folder/temp/');
-    const info = getPathIgnoreInfo('nested/folder/temp/file.txt', false, gitignoreFilter, defaultIgnoreFilter);
-    expect(info).toEqual({ ignored: true, filterSource: 'gitignore' });
-  });
-
-  it('should correctly handle files within ignored folders', () => {
-    const gitignoreFilter = ignore().add('build/');
-    const info = getPathIgnoreInfo('build/output/app.js', false, gitignoreFilter, defaultIgnoreFilter);
-    expect(info).toEqual({ ignored: true, filterSource: 'gitignore' });
-  });
-
-  it('should return none if no filters match', () => {
-    const gitignoreFilter = ignore(); // Empty gitignore
-    const info = getPathIgnoreInfo('src/main.ts', false, gitignoreFilter, defaultIgnoreFilter);
-    expect(info).toEqual({ ignored: false, filterSource: 'none' });
   });
 });

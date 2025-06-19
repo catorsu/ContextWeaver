@@ -6,11 +6,11 @@
 
 import * as vscode from 'vscode';
 import path from 'path';
-import ignore, { Ignore } from 'ignore';
-import { parseGitignore, getPathIgnoreInfo } from './fileSystemService';
+import { Ignore } from 'ignore';
 import { Logger } from '@contextweaver/shared';
 import { WorkspaceService } from './workspaceService';
 import { FilterType } from '@contextweaver/shared';
+import { IFilterService } from './core/ports/IFilterService';
 
 // Local type for search results without windowId (which is added later in ipcServer)
 type LocalSearchResult = {
@@ -26,19 +26,6 @@ type LocalSearchResult = {
 };
 
 
-// Default ignore patterns (can be kept or potentially centralized if WorkspaceService provides them)
-// Default patterns for files and folders to ignore during search operations.
-const LOCAL_IGNORE_PATTERNS_DEFAULT = [
-  'node_modules/', '.git/', '.vscode/', 'dist/', 'dist_test/', 'build/', '*.log',
-  '__pycache__/', '.DS_Store', '*.pyc', '*.pyo', '*.swp', '*.bak', '*.tmp',
-  '.gitignore',
-  '*.zip', '*.tar.gz', '*.rar', '*.7z', '*.exe', '*.dll', '*.obj', '*.o',
-  '*.a', '*.lib', '*.so', '*.dylib', '*.ncb', '*.sdf', '*.suo', '*.pdb',
-  '*.idb', '*.class', '*.jar', '*.mp3', '*.wav', '*.ogg', '*.mp4', '*.avi',
-  '*.mov', '*.wmv', '*.flv', '*.mkv', '*.webm', '*.jpg', '*.jpeg', '*.png',
-  '*.gif', '*.bmp', '*.tiff', '*.ico', '*.pdf', '*.doc', '*.docx', '*.ppt',
-  '*.pptx', '*.xls', '*.xlsx', '*.odt', '*.ods', '*.odp',
-];
 
 /**
  * Provides search functionality for files and folders within the VS Code workspace.
@@ -46,14 +33,17 @@ const LOCAL_IGNORE_PATTERNS_DEFAULT = [
  */
 export class SearchService {
   private workspaceService: WorkspaceService;
+  private filterService: IFilterService;
   private readonly logger = new Logger('SearchService');
 
   /**
    * Creates an instance of SearchService.
    * @param workspaceService The WorkspaceService instance for accessing workspace information.
+   * @param filterService The FilterService instance for creating workspace filters.
    */
-  constructor(workspaceService: WorkspaceService) {
+  constructor(workspaceService: WorkspaceService, filterService: IFilterService) {
     this.workspaceService = workspaceService;
+    this.filterService = filterService;
     this.logger.info('Initialized');
   }
  
@@ -98,12 +88,12 @@ export class SearchService {
     for (const folder of foldersToSearch) {
       this.logger.trace(`Searching in folder: ${folder.name} (${folder.uri.fsPath})`);
       try {
-        const gitignoreFilter = await parseGitignore(folder);
-        const defaultIgnoreFilter = ignore().add(LOCAL_IGNORE_PATTERNS_DEFAULT);
-        const folderResults = await this.findInDirectoryRecursive(folder.uri, query, folder, gitignoreFilter, defaultIgnoreFilter);
+        const { filter: combinedFilter, type: filterType } = await this.filterService.createFilterForWorkspace(folder);
+        const folderResults = await this.findInDirectoryRecursive(folder.uri, query, folder, combinedFilter, filterType);
         allResults.push(...folderResults);
-      } catch (error: any) {
-        this.logger.error(`Error searching in directory ${folder.uri.fsPath}: ${error.message}`, error);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.logger.error(`Error searching in directory ${folder.uri.fsPath}: ${errorMessage}`, error);
       }
     }
     this.logger.info(`Found ${allResults.length} results for query '${query}' after filtering.`);
@@ -124,8 +114,8 @@ export class SearchService {
     dirUri: vscode.Uri,
     query: string,
     baseWorkspaceFolder: vscode.WorkspaceFolder,
-    gitignoreFilter: Ignore | null,
-    defaultIgnoreFilter: Ignore
+    filter: Ignore,
+    filterType: FilterType
   ): Promise<LocalSearchResult[]> {
     let results: LocalSearchResult[] = [];
     const lowerCaseQuery = query.toLowerCase();
@@ -136,14 +126,10 @@ export class SearchService {
         const entryUri = vscode.Uri.joinPath(dirUri, name);
         const relativePath = path.relative(baseWorkspaceFolder.uri.fsPath, entryUri.fsPath).replace(/\\/g, '/');
  
-        const ignoreInfo = getPathIgnoreInfo(
-          relativePath,
-          (type === vscode.FileType.Directory),
-          gitignoreFilter,
-          defaultIgnoreFilter
-        );
+        const pathToCheck = (type === vscode.FileType.Directory && !relativePath.endsWith('/')) ? `${relativePath}/` : relativePath;
+        const isIgnored = filter.ignores(pathToCheck);
  
-        if (ignoreInfo.ignored) {
+        if (isIgnored) {
           continue;
         }
  
@@ -159,17 +145,18 @@ export class SearchService {
             workspaceFolderUri: baseWorkspaceFolder.uri.toString(),
             workspaceFolderName: baseWorkspaceFolder.name,
             relativePath: relativePath,
-            filterTypeApplied: ignoreInfo.filterSource
+            filterTypeApplied: filterType
           });
         }
  
         if (type === vscode.FileType.Directory) {
-          const subDirResults = await this.findInDirectoryRecursive(entryUri, query, baseWorkspaceFolder, gitignoreFilter, defaultIgnoreFilter);
+          const subDirResults = await this.findInDirectoryRecursive(entryUri, query, baseWorkspaceFolder, filter, filterType);
           results = results.concat(subDirResults);
         }
       }
-    } catch (error: any) {
-      this.logger.warn(`Failed to read directory ${dirUri.fsPath}: ${error.message}`);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Failed to read directory ${dirUri.fsPath}: ${errorMessage}`);
     }
     return results;
   }

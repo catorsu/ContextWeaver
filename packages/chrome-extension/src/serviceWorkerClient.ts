@@ -11,7 +11,8 @@ import {
     GetFileTreeRequestPayload, FileTreeResponsePayload,     ActiveFileInfoResponsePayload,
     GetFileContentRequestPayload, FileContentResponsePayload, GetContentsForFilesRequestPayload, ContentsForFilesResponsePayload,     GetEntireCodebaseRequestPayload, EntireCodebaseResponsePayload,     OpenFilesResponsePayload,
     GetFolderContentRequestPayload, FolderContentResponsePayload,     ListFolderContentsRequestPayload, ListFolderContentsResponsePayload,
-    GetWorkspaceProblemsRequestPayload, WorkspaceProblemsResponsePayload
+    GetWorkspaceProblemsRequestPayload, WorkspaceProblemsResponsePayload,
+    ContextWeaverError
 } from '@contextweaver/shared';
 import { Logger } from '@contextweaver/shared';
 
@@ -23,8 +24,7 @@ const logger = new Logger('SWClient');
  */
 interface SWApiRequestMessage {
     type: string; // e.g., 'SEARCH_WORKSPACE', 'GET_FILE_CONTENT'
-    // TODO: This could be typed more strictly using a discriminated union of all possible request payloads.
-    payload?: any;
+    payload?: unknown;
 }
 
 /**
@@ -46,9 +46,8 @@ logger.trace('Message payload:', message.payload);
         }
         if (response && response.success === false) { // Check for business logic errors from SW/VSCE
             logger.error(`Service worker reported failure for ${message.type}:`, { error: response.error, code: response.errorCode });
-            const error = new Error(response.error || `Operation ${message.type} failed.`);
-            (error as any).errorCode = response.errorCode; // Attach errorCode if present
-            throw error;
+            const errorCode = response.errorCode as string | undefined;
+            throw new ContextWeaverError(response.error || `Operation ${message.type} failed.`, errorCode);
         }
         logger.trace(`Response from SW for ${message.type}:`, response);
         return response as TResponsePayload; // The caller expects the full response payload

@@ -4,6 +4,9 @@
  * @module ContextWeaver/VSCE
  */
 
+import { IPCMessageRequest } from '@contextweaver/shared';
+import { WebSocket } from 'ws';
+
 /**
  * Interface for IPC server functionality with event handling and message transmission.
  * Provides a contract for managing IPC communication lifecycle and message routing.
@@ -26,12 +29,12 @@ export interface IpcServer {
      * @param listener - The callback function to invoke when the event occurs
      * @returns This instance for method chaining
      */
-    on(event: 'message', listener: (data: any, sender: any) => void): this;
+    on(event: 'message', listener: (data: IPCMessageRequest, sender: WebSocket) => void): this;
 
     /**
      * Sends a message to the specified target.
      * @param target - The target recipient for the message
      * @param message - The message payload to send
      */
-    send(target: any, message: any): void;
+    send(target: WebSocket, message: string): void;
 }

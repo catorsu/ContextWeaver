@@ -4,15 +4,15 @@
  * @module ContextWeaver/CE
  */
 
-import { SearchWorkspaceRequestPayload, SearchWorkspaceResponsePayload } from '@contextweaver/shared';
+import { SearchWorkspaceRequestPayload, SearchWorkspaceResponsePayload, extractErrorInfo } from '@contextweaver/shared';
 import { Logger } from '@contextweaver/shared';
-import { IMessageHandler } from './IMessageHandler';
+import { IMessageHandler, HandlerResponse } from './IMessageHandler';
 import { IPCClient } from '../ipcClient';
 
 /**
  * Handles SEARCH_WORKSPACE messages by performing workspace search via VSCE.
  */
-export class SearchWorkspaceHandler implements IMessageHandler {
+export class SearchWorkspaceHandler implements IMessageHandler<SearchWorkspaceRequestPayload, HandlerResponse<SearchWorkspaceResponsePayload['data']>> {
     private readonly logger = new Logger('SearchWorkspaceHandler');
 
     /**
@@ -21,7 +21,7 @@ export class SearchWorkspaceHandler implements IMessageHandler {
      * @param ipcClient The IPC client for communicating with VSCE.
      * @returns Promise resolving to the search results response.
      */
-    async handle(payload: SearchWorkspaceRequestPayload, ipcClient: IPCClient): Promise<any> {
+    async handle(payload: SearchWorkspaceRequestPayload, ipcClient: IPCClient): Promise<HandlerResponse<SearchWorkspaceResponsePayload['data']>> {
         this.logger.debug(`Handling SEARCH_WORKSPACE for query (length: ${payload.query.length}), folder: ${payload.workspaceFolderUri}`);
         
         try {
@@ -36,7 +36,8 @@ export class SearchWorkspaceHandler implements IMessageHandler {
             }
         } catch (error) {
             this.logger.error('Error in search_workspace IPC call:', error);
-            return { success: false, error: (error as Error).message || 'IPC call failed for search_workspace.' };
+            const errorInfo = extractErrorInfo(error);
+            return { success: false, error: errorInfo.message || 'IPC call failed for search_workspace.' };
         }
     }
 }

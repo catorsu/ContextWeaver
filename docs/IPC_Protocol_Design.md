@@ -1,7 +1,6 @@
 # ContextWeaver: Inter-Plugin Communication (IPC) Protocol Design
 
 **Version:** 1.1.0
-**Date:** June 16, 2025
 
 **Important Note:** This document provides a human-readable overview of the IPC protocol. For the definitive and normative specification of all message structures, request/response payloads, and shared data models, please refer to the TypeScript interfaces defined in the `packages/shared/src/` directory, primarily within `ipc-types.ts` and `data-models.ts`. In case of any discrepancy, the TypeScript definitions are authoritative.
 
@@ -843,9 +842,9 @@ This object is included in VSCE responses when providing data that will be inser
 
 ## 6. Version History
 
-*   **1.0 (2025-05-26):** Initial design.
-*   **1.0.1 (2025-06-02):** Added `list_folder_contents` command and `response_list_folder_contents` for browsing folder contents.
-*   **1.1.0 (2025-06-16):** Added multi-window support via Primary/Secondary architecture:
+*   **1.0:** Initial design.
+*   **1.0.1:** Added `list_folder_contents` command and `response_list_folder_contents` for browsing folder contents.
+*   **1.1.0:** Added multi-window support via Primary/Secondary architecture:
     *   Added `windowId` field to `ContextBlockMetadata`, `SearchResult`, and `DirectoryEntry` data models.
     *   Added new IPC commands: `register_secondary`, `forward_request_to_secondaries`.
     *   Added new push commands: `forward_response_to_primary`, `forward_push_to_primary`.

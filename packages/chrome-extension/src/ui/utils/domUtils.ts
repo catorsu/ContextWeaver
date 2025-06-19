@@ -4,9 +4,10 @@
  * @param waitFor The number of milliseconds to wait after the last call before invoking the function.
  * @returns A new debounced function that returns a Promise resolving with the result of the original function.
  */
-export function debounce<F extends (...args: any[]) => any>(func: F, waitFor: number) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function debounce<T extends (...args: any[]) => any>(func: T, waitFor: number) {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    return (...args: Parameters<F>): Promise<Awaited<ReturnType<F>>> =>
+    return (...args: Parameters<T>): Promise<Awaited<ReturnType<T>>> =>
         new Promise(resolve => {
             if (timeoutId) {
                 clearTimeout(timeoutId);
@@ -24,7 +25,7 @@ export function debounce<F extends (...args: any[]) => any>(func: F, waitFor: nu
 export interface WorkspaceGroupable {
     workspaceFolderUri?: string | null;
     workspaceFolderName?: string | null;
-    [key: string]: any;
+    [key: string]: unknown;
 }
 
 /**
@@ -66,7 +67,7 @@ export function groupItemsByWorkspace<T extends WorkspaceGroupable>(
  */
 export interface WindowGroupable {
     windowId?: string;
-    [key: string]: any;
+    [key: string]: unknown;
 }
 
 /**

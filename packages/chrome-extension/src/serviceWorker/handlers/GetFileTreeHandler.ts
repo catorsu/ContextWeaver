@@ -4,15 +4,21 @@
  * @module ContextWeaver/CE
  */
 
-import { GetFileTreeRequestPayload, FileTreeResponsePayload } from '@contextweaver/shared';
+import { GetFileTreeRequestPayload, FileTreeResponsePayload, FileTreeResponseData, extractErrorInfo } from '@contextweaver/shared';
 import { Logger } from '@contextweaver/shared';
-import { IMessageHandler } from './IMessageHandler';
+import { IMessageHandler, HandlerResponse } from './IMessageHandler';
 import { IPCClient } from '../ipcClient';
 
 /**
  * Handles GET_FileTree messages by requesting file tree data from VSCE.
  */
-export class GetFileTreeHandler implements IMessageHandler {
+interface FileTreeHandlerResponse extends HandlerResponse<FileTreeResponseData | null> {
+    workspaceFolderName?: string;
+    filterType?: string;
+    workspaceFolderUri?: string | null | undefined;
+}
+
+export class GetFileTreeHandler implements IMessageHandler<GetFileTreeRequestPayload, FileTreeHandlerResponse> {
     private readonly logger = new Logger('GetFileTreeHandler');
 
     /**
@@ -21,7 +27,7 @@ export class GetFileTreeHandler implements IMessageHandler {
      * @param ipcClient The IPC client for communicating with VSCE.
      * @returns Promise resolving to the file tree response.
      */
-    async handle(payload: GetFileTreeRequestPayload, ipcClient: IPCClient): Promise<any> {
+    async handle(payload: GetFileTreeRequestPayload, ipcClient: IPCClient): Promise<FileTreeHandlerResponse> {
         this.logger.debug(`Handling GET_FileTree for URI: ${payload.workspaceFolderUri}`);
         
         try {
@@ -36,18 +42,20 @@ export class GetFileTreeHandler implements IMessageHandler {
                     success: true,
                     data: {
                         fileTreeString: responsePayload.data.fileTreeString,
-                        metadata: responsePayload.data.metadata
+                        metadata: responsePayload.data.metadata,
+                        windowId: responsePayload.data.windowId
                     },
-                    workspaceFolderName: responsePayload.data.metadata?.workspaceFolderName,
+                    workspaceFolderName: responsePayload.data.metadata?.workspaceFolderName ?? undefined,
                     filterType: responsePayload.filterType,
-                    workspaceFolderUri: responsePayload.workspaceFolderUri
+                    workspaceFolderUri: responsePayload.workspaceFolderUri ?? undefined
                 };
             } else {
                 return { success: false, error: 'Invalid file tree data from VSCE (missing data object or fileTreeString).' };
             }
         } catch (error) {
             this.logger.error('Error in get_FileTree IPC call:', error);
-            return { success: false, error: (error as Error).message || 'IPC call failed for get_FileTree.' };
+            const errorInfo = extractErrorInfo(error);
+            return { success: false, error: errorInfo.message || 'IPC call failed for get_FileTree.' };
         }
     }
 }

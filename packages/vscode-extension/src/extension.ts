@@ -14,6 +14,24 @@ import { SnippetService } from './snippetService';
 import { WorkspaceService } from './workspaceService';
 import { DiagnosticsService } from './diagnosticsService';
 import { VSCodeOutputChannelLogger } from './vsceLogger';
+import { FilterService } from './core/services/FilterService';
+import { AggregationService } from './core/services/AggregationService';
+import { CommandRegistry } from './adapters/primary/ipc/CommandRegistry';
+
+// Import all command handlers
+import { GetFileTreeHandler } from './adapters/primary/ipc/handlers/GetFileTreeHandler';
+import { SearchWorkspaceHandler } from './adapters/primary/ipc/handlers/SearchWorkspaceHandler';
+import { GetFileContentHandler } from './adapters/primary/ipc/handlers/GetFileContentHandler';
+import { GetWorkspaceDetailsHandler } from './adapters/primary/ipc/handlers/GetWorkspaceDetailsHandler';
+import { RegisterActiveTargetHandler } from './adapters/primary/ipc/handlers/RegisterActiveTargetHandler';
+import { GetActiveFileInfoHandler } from './adapters/primary/ipc/handlers/GetActiveFileInfoHandler';
+import { GetOpenFilesHandler } from './adapters/primary/ipc/handlers/GetOpenFilesHandler';
+import { GetContentsForFilesHandler } from './adapters/primary/ipc/handlers/GetContentsForFilesHandler';
+import { GetFolderContentHandler } from './adapters/primary/ipc/handlers/GetFolderContentHandler';
+import { GetEntireCodebaseHandler } from './adapters/primary/ipc/handlers/GetEntireCodebaseHandler';
+import { GetFilterInfoHandler } from './adapters/primary/ipc/handlers/GetFilterInfoHandler';
+import { ListFolderContentsHandler } from './adapters/primary/ipc/handlers/ListFolderContentsHandler';
+import { GetWorkspaceProblemsHandler } from './adapters/primary/ipc/handlers/GetWorkspaceProblemsHandler';
 
 let outputChannel: vscode.OutputChannel;
 let ipcServer: IPCServer | null = null;
@@ -27,9 +45,9 @@ let diagnosticsService: DiagnosticsService;
  * allowing command logic to be tested without a full VS Code environment.
  */
 interface VSCodeWindowSubset {
-    showErrorMessage: (message: string, ...items: any[]) => Thenable<string | undefined>;
-    showWarningMessage: (message: string, ...items: any[]) => Thenable<string | undefined>;
-    showInformationMessage: (message: string, ...items: any[]) => Thenable<string | undefined>;
+    showErrorMessage: (message: string, ...items: string[]) => Thenable<string | undefined>;
+    showWarningMessage: (message: string, ...items: string[]) => Thenable<string | undefined>;
+    showInformationMessage: (message: string, ...items: string[]) => Thenable<string | undefined>;
 }
 
 /**
@@ -93,10 +111,46 @@ export function activate(context: vscode.ExtensionContext) {
     // Initialize services
     workspaceService = new WorkspaceService();
     diagnosticsService = new DiagnosticsService();
-    const searchService = new SearchService(workspaceService);
+    const filterService = new FilterService();
+    const searchService = new SearchService(workspaceService, filterService);
+    const aggregationService = new AggregationService(windowId);
 
+    // Initialize command registry and handlers
+    const commandRegistry = new CommandRegistry();
+
+    // Create and register all command handlers
+    const getFileTreeHandler = new GetFileTreeHandler(filterService, workspaceService, windowId);
+    const searchWorkspaceHandler = new SearchWorkspaceHandler(searchService, windowId);
+    const getFileContentHandler = new GetFileContentHandler(workspaceService, windowId);
+    const getWorkspaceDetailsHandler = new GetWorkspaceDetailsHandler(workspaceService);
+    const registerActiveTargetHandler = new RegisterActiveTargetHandler();
+    const getActiveFileInfoHandler = new GetActiveFileInfoHandler(workspaceService, windowId);
+    const getOpenFilesHandler = new GetOpenFilesHandler(workspaceService, windowId);
+    const getContentsForFilesHandler = new GetContentsForFilesHandler(workspaceService, windowId);
+    const getFolderContentHandler = new GetFolderContentHandler(filterService, workspaceService, windowId);
+    const getEntireCodebaseHandler = new GetEntireCodebaseHandler(filterService, workspaceService, windowId);
+    const getFilterInfoHandler = new GetFilterInfoHandler(workspaceService);
+    const listFolderContentsHandler = new ListFolderContentsHandler(filterService, workspaceService, windowId);
+    const getWorkspaceProblemsHandler = new GetWorkspaceProblemsHandler(workspaceService, diagnosticsService, windowId);
+
+    // Register all handlers with the command registry
+    commandRegistry.register('get_FileTree', getFileTreeHandler);
+    commandRegistry.register('search_workspace', searchWorkspaceHandler);
+    commandRegistry.register('get_file_content', getFileContentHandler);
+    commandRegistry.register('get_workspace_details', getWorkspaceDetailsHandler);
+    commandRegistry.register('register_active_target', registerActiveTargetHandler);
+    commandRegistry.register('get_active_file_info', getActiveFileInfoHandler);
+    commandRegistry.register('get_open_files', getOpenFilesHandler);
+    commandRegistry.register('get_contents_for_files', getContentsForFilesHandler);
+    commandRegistry.register('get_folder_content', getFolderContentHandler);
+    commandRegistry.register('get_entire_codebase', getEntireCodebaseHandler);
+    commandRegistry.register('get_filter_info', getFilterInfoHandler);
+    commandRegistry.register('list_folder_contents', listFolderContentsHandler);
+    commandRegistry.register('get_workspace_problems', getWorkspaceProblemsHandler);
+
+    // Initialize IPC server with the new services
     // Rationale: Port is now determined automatically by the server. Pass a placeholder.
-    ipcServer = new IPCServer(0, windowId, context, outputChannel, searchService, workspaceService, diagnosticsService);
+    ipcServer = new IPCServer(0, windowId, context, outputChannel, searchService, workspaceService, diagnosticsService, filterService, commandRegistry, aggregationService);
 
     ipcServer.start();
 

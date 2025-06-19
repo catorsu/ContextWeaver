@@ -39,7 +39,7 @@ const SUPPORTED_LLM_HOST_SUFFIXES = [
  */
 interface SWApiRequestMessage {
     type: string; // e.g., 'SEARCH_WORKSPACE', 'GET_FILE_CONTENT'
-    payload?: any; // Payload type will be refined in each handler
+    payload?: unknown; // Payload type will be refined in each handler
 }
 
 /**
@@ -48,7 +48,7 @@ interface SWApiRequestMessage {
  */
 interface OptionsPageMessage {
     action: 'settingsUpdated' | 'reconnectIPC' | 'getIPCConnectionStatus';
-    payload?: any; // Specific payload for each action
+    payload?: unknown; // Specific payload for each action
     status?: string; // For getIPCConnectionStatus response
     port?: number; // For getIPCConnectionStatus response
     message?: string; // For getIPCConnectionStatus response
@@ -57,7 +57,7 @@ interface OptionsPageMessage {
 type IncomingRuntimeMessage = SWApiRequestMessage | OptionsPageMessage | IPCMessagePush; // Added IPCMessagePush for direct pushes from VSCE
 
 chrome.runtime.onMessage.addListener((message: IncomingRuntimeMessage, sender, sendResponse) => {
-    logger.debug(`Message received in service worker. Type: ${(message as any).type || (message as any).action}, FromTab: ${sender?.tab?.id}`);
+    logger.debug(`Message received in service worker. Type: ${('type' in message ? message.type : 'action' in message ? message.action : 'unknown')}, FromTab: ${sender?.tab?.id}`);
 
     if ('type' in message) { // Handle messages from contentScript (via serviceWorkerClient) or direct IPC pushes
         const typedMessage = message as SWApiRequestMessage | IPCMessagePush; // Type assertion for this block
@@ -65,7 +65,8 @@ chrome.runtime.onMessage.addListener((message: IncomingRuntimeMessage, sender, s
         // Determine the message type and command for push messages
         let messageType = typedMessage.type;
         if (typedMessage.type === 'push' && (typedMessage as IPCMessagePush).command) {
-            messageType = (typedMessage as IPCMessagePush).command;
+            const pushMessage = typedMessage as IPCMessagePush;
+            messageType = pushMessage.command;
         }
 
         // Get the appropriate handler

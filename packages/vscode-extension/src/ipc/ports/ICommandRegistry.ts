@@ -16,12 +16,12 @@ export interface ICommandRegistry {
      * @param command - The command string to register the handler for
      * @param handler - The command handler to associate with the command
      */
-    register(command: string, handler: ICommandHandler<any, any>): void;
+    register(command: string, handler: ICommandHandler<unknown, unknown>): void;
 
     /**
      * Retrieves the registered handler for the specified command.
      * @param command - The command string to look up
      * @returns The associated command handler, or undefined if not found
      */
-    getHandler(command: string): ICommandHandler<any, any> | undefined;
+    getHandler(command: string): ICommandHandler<unknown, unknown> | undefined;
 }

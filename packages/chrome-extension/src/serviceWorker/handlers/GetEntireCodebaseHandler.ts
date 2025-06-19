@@ -4,15 +4,22 @@
  * @module ContextWeaver/CE
  */
 
-import { GetEntireCodebaseRequestPayload, EntireCodebaseResponsePayload } from '@contextweaver/shared';
+import { GetEntireCodebaseRequestPayload, EntireCodebaseResponsePayload, EntireCodebaseResponseData, extractErrorInfo } from '@contextweaver/shared';
 import { Logger } from '@contextweaver/shared';
-import { IMessageHandler } from './IMessageHandler';
+import { IMessageHandler, HandlerResponse } from './IMessageHandler';
 import { IPCClient } from '../ipcClient';
 
 /**
  * Handles GET_ENTIRE_CODEBASE messages by requesting entire codebase data from VSCE.
  */
-export class GetEntireCodebaseHandler implements IMessageHandler {
+interface EntireCodebaseHandlerResponse extends HandlerResponse<EntireCodebaseResponseData | null> {
+    workspaceFolderName?: string;
+    filterType?: string;
+    projectPath?: string;
+    workspaceFolderUri?: string | null | undefined;
+}
+
+export class GetEntireCodebaseHandler implements IMessageHandler<GetEntireCodebaseRequestPayload, EntireCodebaseHandlerResponse> {
     private readonly logger = new Logger('GetEntireCodebaseHandler');
 
     /**
@@ -21,7 +28,7 @@ export class GetEntireCodebaseHandler implements IMessageHandler {
      * @param ipcClient The IPC client for communicating with VSCE.
      * @returns Promise resolving to the entire codebase response.
      */
-    async handle(payload: GetEntireCodebaseRequestPayload, ipcClient: IPCClient): Promise<any> {
+    async handle(payload: GetEntireCodebaseRequestPayload, ipcClient: IPCClient): Promise<EntireCodebaseHandlerResponse> {
         this.logger.debug(`Handling GET_ENTIRE_CODEBASE for URI: ${payload.workspaceFolderUri}`);
         
         try {
@@ -36,19 +43,21 @@ export class GetEntireCodebaseHandler implements IMessageHandler {
                     success: true,
                     data: {
                         filesData: responsePayload.data.filesData,
-                        metadata: responsePayload.data.metadata
+                        metadata: responsePayload.data.metadata,
+                        windowId: responsePayload.data.windowId
                     },
-                    workspaceFolderName: responsePayload.data.metadata?.workspaceFolderName,
+                    workspaceFolderName: responsePayload.data.metadata?.workspaceFolderName ?? undefined,
                     filterType: responsePayload.filterType,
                     projectPath: responsePayload.projectPath,
-                    workspaceFolderUri: responsePayload.workspaceFolderUri
+                    workspaceFolderUri: responsePayload.workspaceFolderUri ?? undefined
                 };
             } else {
                 return { success: false, error: 'Invalid codebase data from VSCE (missing data.filesData array).' };
             }
         } catch (error) {
             this.logger.error('Error in get_entire_codebase IPC call:', error);
-            return { success: false, error: (error as Error).message || 'IPC call failed for get_entire_codebase.' };
+            const errorInfo = extractErrorInfo(error);
+            return { success: false, error: errorInfo.message || 'IPC call failed for get_entire_codebase.' };
         }
     }
 }

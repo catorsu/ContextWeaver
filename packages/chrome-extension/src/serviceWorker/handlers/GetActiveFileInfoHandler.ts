@@ -4,15 +4,15 @@
  * @module ContextWeaver/CE
  */
 
-import { ActiveFileInfoResponsePayload } from '@contextweaver/shared';
+import { ActiveFileInfoResponsePayload, extractErrorInfo } from '@contextweaver/shared';
 import { Logger } from '@contextweaver/shared';
-import { IMessageHandler } from './IMessageHandler';
+import { IMessageHandler, HandlerResponse } from './IMessageHandler';
 import { IPCClient } from '../ipcClient';
 
 /**
  * Handles GET_ACTIVE_FILE_INFO messages by requesting active file information from VSCE.
  */
-export class GetActiveFileInfoHandler implements IMessageHandler {
+export class GetActiveFileInfoHandler implements IMessageHandler<unknown, HandlerResponse<ActiveFileInfoResponsePayload['data']>> {
     private readonly logger = new Logger('GetActiveFileInfoHandler');
 
     /**
@@ -21,7 +21,7 @@ export class GetActiveFileInfoHandler implements IMessageHandler {
      * @param ipcClient The IPC client for communicating with VSCE.
      * @returns Promise resolving to the active file info response.
      */
-    async handle(payload: any, ipcClient: IPCClient): Promise<any> {
+    async handle(payload: unknown, ipcClient: IPCClient): Promise<HandlerResponse<ActiveFileInfoResponsePayload['data']>> {
         this.logger.debug('Handling GET_ACTIVE_FILE_INFO');
         
         try {
@@ -36,7 +36,8 @@ export class GetActiveFileInfoHandler implements IMessageHandler {
             }
         } catch (error) {
             this.logger.error('Error in get_active_file_info IPC call:', error);
-            return { success: false, error: (error as Error).message || 'IPC call failed for get_active_file_info.' };
+            const errorInfo = extractErrorInfo(error);
+            return { success: false, error: errorInfo.message || 'IPC call failed for get_active_file_info.' };
         }
     }
 }

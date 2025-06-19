@@ -176,7 +176,7 @@ The target users are software developers and other technical users who:
         *   An icon visually representing the type of content (e.g., a generic tree icon for file tree, folder icon, file icon, snippet icon, problems icon).
         *   A label:
             *   For "Insert Project File Directory Structure": "[WorkspaceFolderName]" (where [WorkspaceFolderName] is the name of the relevant workspace folder)
-            *   For "Insert Entire Codebase Content": "[WorkspaceFolderName] Codebase"
+            *   For "Insert Entire Codebase Content": "[WorkspaceFolderName]"
             *   For "Insert Active File's Content": The file name with extension (e.g., `auth.py`).
             *   For "Insert Content of Currently Open Files": One indicator per inserted file if multiple are selected from "Open Files".
             *   For "Insert Searched File Content": The file name with extension (e.g., `utils.js`).

@@ -17,7 +17,8 @@ import {
     FilterInfoResponsePayload, ListFolderContentsResponsePayload, WorkspaceProblemsResponsePayload, ErrorResponsePayload, ContentsForFilesResponsePayload,
     // Push Payloads
     // IPC Message Structure Types
-    IPCMessageRequest, IPCMessagePush, AnyIPCMessage, IPCBaseMessage
+    IPCMessageRequest, IPCMessagePush, AnyIPCMessage, IPCBaseMessage,
+    ContextWeaverError
 } from '@contextweaver/shared';
 import { Logger } from '@contextweaver/shared';
 import { IpcClient } from './ports/IpcClient';
@@ -36,12 +37,10 @@ export class IPCClient implements IpcClient {
     private readonly logger = new Logger('IPCClient');
     private connectionPromise: Promise<void> | null = null;
     private resolveConnectionPromise: (() => void) | null = null;
-    private rejectConnectionPromise: ((reason?: any) => void) | null = null;
+    private rejectConnectionPromise: ((reason?: unknown) => void) | null = null;
     public isIntentionalDisconnect: boolean = false;
-    // Correctly type the pendingRequests map
-    // TODO: Replace 'any' with generic types in the sendRequest method to ensure type-safe resolution.
-    // This will allow the Promise returned by sendRequest to be strongly typed.
-    private pendingRequests: Map<string, { resolve: (value: any) => void, reject: (reason?: any) => void }> = new Map();
+    // Map to store pending requests with their resolve/reject functions
+    private pendingRequests: Map<string, { resolve: (value: unknown) => void, reject: (reason?: unknown) => void }> = new Map();
 
 
     /**
@@ -239,7 +238,7 @@ export class IPCClient implements IpcClient {
                         const maxRetriesError = new Error('Max connection retries reached.');
                         this.logger.error(maxRetriesError.message);
                         // Type assertion to help TypeScript understand the property is not null after initializeConnectionPromise
-                        const rejectFn = this.rejectConnectionPromise as ((reason?: any) => void) | null;
+                        const rejectFn = this.rejectConnectionPromise;
                         if (rejectFn) { // Use the newly initialized promise's reject
                             rejectFn(maxRetriesError);
                         }
@@ -256,22 +255,21 @@ export class IPCClient implements IpcClient {
         tryConnect();
     }
 
-        private handleServerMessage(messageData: any): void {
+        private handleServerMessage(messageData: unknown): void {
         this.logger.trace('Raw data received from server.');
 
         try {
             const message = JSON.parse(messageData as string) as AnyIPCMessage; // Use shared umbrella type
-            this.logger.trace(`Parsed message from server. Type: ${message.type}, Command: ${(message as any).command}, ID: ${message.message_id}`);
+            this.logger.trace(`Parsed message from server. Type: ${message.type}, Command: ${'command' in message ? message.command : 'N/A'}, ID: ${message.message_id}`);
 
             if (message.type === 'response' || message.type === 'error_response') {
                 const requestState = this.pendingRequests.get(message.message_id);
                 if (requestState) {
-                    if (message.type === 'error_response' || (message.payload as any)?.success === false) {
+                    if (message.type === 'error_response' || (message.payload && typeof message.payload === 'object' && 'success' in message.payload && message.payload.success === false)) {
                         // Ensure payload is treated as ErrorResponsePayload or a success:false response
                         const errorPayload = message.payload as ErrorResponsePayload | { success: false, error: string, errorCode: string };
                         this.logger.warn(`Error response for message_id ${message.message_id}:`, errorPayload);
-                        const error = new Error(errorPayload.error);
-                        (error as any).errorCode = errorPayload.errorCode;
+                        const error = new ContextWeaverError(errorPayload.error, errorPayload.errorCode);
                         requestState.reject(error);
                     } else {
                         // The resolve function in pendingRequests now expects the specific TResPayload type
@@ -288,7 +286,7 @@ export class IPCClient implements IpcClient {
                 // Forward push messages to the service worker for handling
                 chrome.runtime.sendMessage(pushMessage).catch(e => this.logger.warn('Error forwarding push message:', e));
             } else {
-                this.logger.warn('handleServerMessage: Received unknown message type from server:', (message as any).type);
+                this.logger.warn('handleServerMessage: Received unknown message type from server:', (message as AnyIPCMessage).type);
             }
         } catch (error) {
             this.logger.error('handleServerMessage: Error processing server message:', error);
@@ -331,9 +329,9 @@ export class IPCClient implements IpcClient {
         };
 
         return new Promise<TResPayload>((resolve, reject) => {
-            // Correctly store the resolve and reject functions from the Promise constructor
+            // Store the resolve and reject functions from the Promise constructor
             this.pendingRequests.set(message_id, {
-                resolve: resolve,
+                resolve: (value: unknown) => resolve(value as TResPayload),
                 reject: reject
             });
             try {

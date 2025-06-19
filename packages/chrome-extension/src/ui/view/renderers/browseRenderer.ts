@@ -46,8 +46,14 @@ export function renderBrowseView(
     const allItems = response.data?.entries || [];
     const nodeMap = new Map();
 
+    // Define interface for tree nodes
+    interface TreeNode {
+        item: typeof allItems[0];
+        children: TreeNode[];
+    }
+
     // Build the tree structure from the flat list
-    const rootNodes: any[] = [];
+    const rootNodes: TreeNode[] = [];
     for (const item of allItems) {
         const node = { item, children: [] };
         nodeMap.set(item.uri, node);
@@ -61,7 +67,7 @@ export function renderBrowseView(
     }
 
     // Recursive function to render the tree
-    const renderNode = (node: any) => {
+    const renderNode = (node: TreeNode): HTMLElement => {
         const itemDiv = uiManager.getDOMFactory().createDiv({ classNames: [`${LOCAL_CSS_PREFIX}tree-node`] });
         const label = uiManager.getDOMFactory().createLabel('', undefined, { style: { display: 'flex', alignItems: 'center', cursor: 'pointer', padding: '3px 0' } });
         const checkbox = uiManager.getDOMFactory().createCheckbox({ checked: true, dataset: { uri: node.item.uri, type: node.item.type, name: node.item.name } });
@@ -84,12 +90,12 @@ export function renderBrowseView(
         if (node.children.length > 0) {
             const childrenContainer = uiManager.getDOMFactory().createDiv({ classNames: [`${LOCAL_CSS_PREFIX}tree-children`], style: { marginLeft: '20px' } });
             node.children
-                .sort((a: any, b: any) => {
+                .sort((a, b) => {
                     if (a.item.type === 'folder' && b.item.type !== 'folder') return -1;
                     if (a.item.type !== 'folder' && b.item.type === 'folder') return 1;
                     return a.item.name.localeCompare(b.item.name);
                 })
-                .forEach((childNode: any) => childrenContainer.appendChild(renderNode(childNode)));
+                .forEach((childNode) => childrenContainer.appendChild(renderNode(childNode)));
             itemDiv.appendChild(childrenContainer);
         }
         return itemDiv;

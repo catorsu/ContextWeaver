@@ -4,15 +4,15 @@
  * @module ContextWeaver/CE
  */
 
-import { ListFolderContentsRequestPayload, ListFolderContentsResponsePayload } from '@contextweaver/shared';
+import { ListFolderContentsRequestPayload, ListFolderContentsResponsePayload, extractErrorInfo } from '@contextweaver/shared';
 import { Logger } from '@contextweaver/shared';
-import { IMessageHandler } from './IMessageHandler';
+import { IMessageHandler, HandlerResponse } from './IMessageHandler';
 import { IPCClient } from '../ipcClient';
 
 /**
  * Handles LIST_FOLDER_CONTENTS messages by requesting folder contents listing from VSCE.
  */
-export class ListFolderContentsHandler implements IMessageHandler {
+export class ListFolderContentsHandler implements IMessageHandler<ListFolderContentsRequestPayload, HandlerResponse<ListFolderContentsResponsePayload['data']>> {
     private readonly logger = new Logger('ListFolderContentsHandler');
 
     /**
@@ -21,7 +21,7 @@ export class ListFolderContentsHandler implements IMessageHandler {
      * @param ipcClient The IPC client for communicating with VSCE.
      * @returns Promise resolving to the folder contents response.
      */
-    async handle(payload: ListFolderContentsRequestPayload, ipcClient: IPCClient): Promise<any> {
+    async handle(payload: ListFolderContentsRequestPayload, ipcClient: IPCClient): Promise<HandlerResponse<ListFolderContentsResponsePayload['data']>> {
         this.logger.debug(`Handling LIST_FOLDER_CONTENTS for URI: ${payload.folderUri}, Workspace: ${payload.workspaceFolderUri}`);
         
         try {
@@ -36,7 +36,8 @@ export class ListFolderContentsHandler implements IMessageHandler {
             }
         } catch (error) {
             this.logger.error('Error in list_folder_contents IPC call:', error);
-            return { success: false, error: (error as Error).message || 'IPC call failed for list_folder_contents.' };
+            const errorInfo = extractErrorInfo(error);
+            return { success: false, error: errorInfo.message || 'IPC call failed for list_folder_contents.' };
         }
     }
 }

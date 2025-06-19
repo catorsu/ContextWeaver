@@ -7,3 +7,4 @@
 export * from './data-models';
 export * from './ipc-types';
 export * from './logger';
+export * from './error-types';

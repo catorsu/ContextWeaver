@@ -6,7 +6,7 @@
 
 import { UIManager } from '../../../uiManager';
 import { SearchResult, SearchWorkspaceResponsePayload } from '@contextweaver/shared';
-import { groupItemsByWindow, groupItemsByWorkspace } from '../../utils/domUtils';
+import { groupItemsByWindow, groupItemsByWorkspace, WindowGroupable, WorkspaceGroupable } from '../../utils/domUtils';
 
 /**
  * @interface SearchActions
@@ -94,39 +94,39 @@ export function renderSearchResults(
     if (searchResults.length === 0) {
         searchResultsSection.appendChild(uiManager.getDOMFactory().createParagraph({ textContent: 'No results found.' }));
     } else {
-        const groupedByWindow = groupItemsByWindow(searchResults);
+        const groupedByWindow = groupItemsByWindow(searchResults as unknown as WindowGroupable[]);
 
         if (groupedByWindow.size > 1) {
             for (const [, windowGroupData] of groupedByWindow.entries()) {
                 const windowHeader = uiManager.getDOMFactory().createDiv({ classNames: ['cw-window-header'], textContent: windowGroupData.name, style: { fontWeight: 'bold', marginTop: '10px', marginBottom: '5px' } });
                 searchResultsSection.appendChild(windowHeader);
 
-                const groupedByWorkspace = groupItemsByWorkspace(windowGroupData.items);
+                const groupedByWorkspace = groupItemsByWorkspace(windowGroupData.items as unknown as WorkspaceGroupable[]);
                 if (groupedByWorkspace.size > 1) {
                     for (const [, workspaceGroupData] of groupedByWorkspace.entries()) {
                         const workspaceHeader = uiManager.getDOMFactory().createDiv({ classNames: ['cw-group-header'], textContent: `  ${workspaceGroupData.name}`, style: { marginLeft: '15px' } });
                         searchResultsSection.appendChild(workspaceHeader);
                         workspaceGroupData.items.forEach(result => {
-                            const resultItem = createSearchResultItemElement(uiManager, result, true, actions);
+                            const resultItem = createSearchResultItemElement(uiManager, result as unknown as SearchResult, true, actions);
                             resultItem.style.marginLeft = '30px';
                             searchResultsSection.appendChild(resultItem);
                         });
                     }
                 } else {
                     windowGroupData.items.forEach(result => {
-                        const resultItem = createSearchResultItemElement(uiManager, result, false, actions);
+                        const resultItem = createSearchResultItemElement(uiManager, result as unknown as SearchResult, false, actions);
                         resultItem.style.marginLeft = '15px';
                         searchResultsSection.appendChild(resultItem);
                     });
                 }
             }
         } else {
-            const groupedByWorkspace = groupItemsByWorkspace(searchResults);
+            const groupedByWorkspace = groupItemsByWorkspace(searchResults as unknown as WorkspaceGroupable[]);
             if (groupedByWorkspace.size > 1) {
                 for (const [, groupData] of groupedByWorkspace.entries()) {
                     const groupHeader = uiManager.getDOMFactory().createDiv({ classNames: ['cw-group-header'], textContent: groupData.name });
                     searchResultsSection.appendChild(groupHeader);
-                    groupData.items.forEach(result => searchResultsSection.appendChild(createSearchResultItemElement(uiManager, result, true, actions)));
+                    groupData.items.forEach(result => searchResultsSection.appendChild(createSearchResultItemElement(uiManager, result as unknown as SearchResult, true, actions)));
                 }
             } else {
                 searchResults.forEach(result => {
