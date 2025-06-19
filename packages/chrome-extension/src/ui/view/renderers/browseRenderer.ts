@@ -42,7 +42,7 @@ export function renderBrowseView(
     const folderName = parentFolderUri ? parentFolderUri.split('/').pop() || 'Folder' : 'Folder';
     uiManager.updateTitle(`Browsing: ${folderName}`);
 
-    const browseSection = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}browse-view`] });
+    const browseSection = uiManager.getDOMFactory().createDiv({ classNames: [`${LOCAL_CSS_PREFIX}browse-view`] });
     const allItems = response.data?.entries || [];
     const nodeMap = new Map();
 
@@ -62,11 +62,11 @@ export function renderBrowseView(
 
     // Recursive function to render the tree
     const renderNode = (node: any) => {
-        const itemDiv = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}tree-node`] });
-        const label = uiManager.createLabel('', undefined, { style: { display: 'flex', alignItems: 'center', cursor: 'pointer', padding: '3px 0' } });
-        const checkbox = uiManager.createCheckbox({ checked: true, dataset: { uri: node.item.uri, type: node.item.type, name: node.item.name } });
-        const icon = uiManager.createIcon(node.item.type === 'file' ? 'description' : 'folder');
-        const name = uiManager.createSpan({ textContent: node.item.name });
+        const itemDiv = uiManager.getDOMFactory().createDiv({ classNames: [`${LOCAL_CSS_PREFIX}tree-node`] });
+        const label = uiManager.getDOMFactory().createLabel('', undefined, { style: { display: 'flex', alignItems: 'center', cursor: 'pointer', padding: '3px 0' } });
+        const checkbox = uiManager.getDOMFactory().createCheckbox({ checked: true, dataset: { uri: node.item.uri, type: node.item.type, name: node.item.name } });
+        const icon = uiManager.getDOMFactory().createIcon(node.item.type === 'file' ? 'description' : 'folder');
+        const name = uiManager.getDOMFactory().createSpan({ textContent: node.item.name });
 
         label.appendChild(checkbox);
         label.appendChild(icon);
@@ -82,7 +82,7 @@ export function renderBrowseView(
         }
 
         if (node.children.length > 0) {
-            const childrenContainer = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}tree-children`], style: { marginLeft: '20px' } });
+            const childrenContainer = uiManager.getDOMFactory().createDiv({ classNames: [`${LOCAL_CSS_PREFIX}tree-children`], style: { marginLeft: '20px' } });
             node.children
                 .sort((a: any, b: any) => {
                     if (a.item.type === 'folder' && b.item.type !== 'folder') return -1;
@@ -95,7 +95,7 @@ export function renderBrowseView(
         return itemDiv;
     };
 
-    const treeContainer = uiManager.createDiv({ style: { maxHeight: '250px', overflowY: 'auto', marginBottom: '10px' } });
+    const treeContainer = uiManager.getDOMFactory().createDiv({ style: { maxHeight: '250px', overflowY: 'auto', marginBottom: '10px' } });
     rootNodes
         .sort((a, b) => {
             if (a.item.type === 'folder' && b.item.type !== 'folder') return -1;
@@ -105,7 +105,7 @@ export function renderBrowseView(
         .forEach(node => treeContainer.appendChild(renderNode(node)));
 
     // Buttons
-    const buttonContainer = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}button-row`], style: { marginTop: '10px' } });
+    const buttonContainer = uiManager.getDOMFactory().createDiv({ classNames: [`${LOCAL_CSS_PREFIX}button-row`], style: { marginTop: '10px' } });
 
     const collectSelectedItems = (container: HTMLElement): { type: string; name: string; uri: string; contentSourceId: string; workspaceFolderUri: string }[] => {
         const items: { type: string; name: string; uri: string; contentSourceId: string; workspaceFolderUri: string }[] = [];
@@ -135,7 +135,7 @@ export function renderBrowseView(
         return items;
     };
 
-    const insertButton = uiManager.createButton('Insert Selected', {
+    const insertButton = uiManager.getDOMFactory().createButton('Insert Selected', {
         onClick: async () => {
             const allCheckboxes = Array.from(treeContainer.querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[];
             const areAllChecked = allCheckboxes.every(cb => cb.checked);
@@ -164,12 +164,12 @@ export function renderBrowseView(
     });
     buttonContainer.appendChild(insertButton);
 
-    const backButton = uiManager.createButton('Back', { onClick: actions.onBack });
+    const backButton = uiManager.getDOMFactory().createButton('Back', { onClick: actions.onBack });
     buttonContainer.appendChild(backButton);
 
     if (allItems.length === 0) {
-        browseSection.appendChild(uiManager.createButton('Back', { onClick: actions.onBack }));
-        browseSection.appendChild(uiManager.createParagraph({ textContent: 'This folder is empty.', style: { marginTop: '10px' } }));
+        browseSection.appendChild(uiManager.getDOMFactory().createButton('Back', { onClick: actions.onBack }));
+        browseSection.appendChild(uiManager.getDOMFactory().createParagraph({ textContent: 'This folder is empty.', style: { marginTop: '10px' } }));
     } else {
         browseSection.appendChild(treeContainer);
         browseSection.appendChild(buttonContainer);

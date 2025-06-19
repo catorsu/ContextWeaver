@@ -45,6 +45,7 @@ The primary goal of ContextWeaver is to streamline the process of providing rele
 *   **Multi-Window Support:** Aggregates and displays context from multiple open VS Code windows.
 *   **Workspace Problems Integration:** Inserts formatted list of current workspace diagnostics (errors, warnings, info, hints).
 *   **Theme Awareness:** Automatically adapts to browser's light/dark theme preferences.
+*   **Modular UI Architecture:** Employs a robust, modular design using a `UIManager` Facade to orchestrate specialized components for styling (`StyleManager`), DOM creation (`DOMFactory`), notifications (`NotificationManager`), and UI elements (`FloatingPanel`, `IndicatorManager`). This ensures a clean separation of concerns and maintainability.
 
 ### Inter-Plugin Communication (IPC)
 

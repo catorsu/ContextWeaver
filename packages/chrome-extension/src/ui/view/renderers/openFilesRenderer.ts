@@ -6,7 +6,7 @@
 
 import { UIManager } from '../../../uiManager';
 import { groupItemsByWindow, groupItemsByWorkspace, GroupedWindowItems } from '../../utils/domUtils';
-import { StateManager } from '../../../stateManager'; // Need StateManager to check for duplicate content sources
+import { StateManager } from '../../stateManager'; // Need StateManager to check for duplicate content sources
 
 /**
  * @interface OpenFilesActions
@@ -40,14 +40,14 @@ function createOpenFilesListItem(
     file: { path: string; name: string; workspaceFolderUri: string | null; workspaceFolderName: string | null; windowId?: string },
     groupedOpenFilesMapSize: number
 ): HTMLDivElement {
-    const listItem = uiManager.createDiv({ style: { display: 'flex', alignItems: 'center', marginBottom: '5px', padding: '3px', borderBottom: '1px solid #3a3a3a' } });
+    const listItem = uiManager.getDOMFactory().createDiv({ style: { display: 'flex', alignItems: 'center', marginBottom: '5px', padding: '3px', borderBottom: '1px solid #3a3a3a' } });
     listItem.setAttribute('tabindex', '0'); // Make focusable for keyboard navigation
 
     const checkboxId = `${LOCAL_CSS_PREFIX}openfile-${file.path.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    const checkbox = uiManager.createCheckbox({ id: checkboxId, checked: true, dataset: { value: file.path } });
+    const checkbox = uiManager.getDOMFactory().createCheckbox({ id: checkboxId, checked: true, dataset: { value: file.path } });
 
     // Create and add the file icon
-    const iconElement = uiManager.createIcon('description', {
+    const iconElement = uiManager.getDOMFactory().createIcon('description', {
         classNames: [`${LOCAL_CSS_PREFIX}type-icon`]
     });
 
@@ -56,13 +56,13 @@ function createOpenFilesListItem(
     if (file.workspaceFolderName && (groupedOpenFilesMapSize === 0 || (groupedOpenFilesMapSize === 1 && groupItemsByWorkspace([file]).keys().next().value === 'unknown_workspace'))) {
         labelText += ` (${file.workspaceFolderName})`;
     }
-    const label = uiManager.createLabel(labelText, checkboxId, { style: { fontSize: '13px' } });
+    const label = uiManager.getDOMFactory().createLabel(labelText, checkboxId, { style: { fontSize: '13px' } });
 
     if (stateManager.isDuplicateContentSource(file.path)) {
         checkbox.disabled = true;
         label.style.textDecoration = 'line-through';
         label.title = 'This file has already been added to the context.';
-        const alreadyAddedSpan = uiManager.createSpan({ textContent: ' (already added)', style: { fontStyle: 'italic', color: '#888' } });
+        const alreadyAddedSpan = uiManager.getDOMFactory().createSpan({ textContent: ' (already added)', style: { fontStyle: 'italic', color: '#888' } });
         label.appendChild(alreadyAddedSpan);
     }
     listItem.appendChild(checkbox);
@@ -96,12 +96,12 @@ function createOpenFilesFormElements(
     actions: OpenFilesActions
 ): HTMLFormElement {
     const form = document.createElement('form');
-    const listContainer = uiManager.createDiv({ style: { maxHeight: '250px', overflowY: 'auto', marginBottom: '10px' } });
+    const listContainer = uiManager.getDOMFactory().createDiv({ style: { maxHeight: '250px', overflowY: 'auto', marginBottom: '10px' } });
 
     // If we have files from multiple windows, show window grouping
     if (groupedByWindow.size > 1) {
         for (const [, windowGroupData] of groupedByWindow.entries()) {
-            const windowHeader = uiManager.createDiv({
+            const windowHeader = uiManager.getDOMFactory().createDiv({
                 classNames: [`${LOCAL_CSS_PREFIX}window-header`],
                 textContent: windowGroupData.name,
                 style: { fontWeight: 'bold', marginTop: '10px', marginBottom: '5px' }
@@ -113,7 +113,7 @@ function createOpenFilesFormElements(
 
             if (groupedByWorkspace.size > 1) {
                 for (const [, workspaceGroupData] of groupedByWorkspace.entries()) {
-                    const workspaceHeader = uiManager.createDiv({
+                    const workspaceHeader = uiManager.getDOMFactory().createDiv({
                         classNames: [`${LOCAL_CSS_PREFIX}group-header`],
                         textContent: `  ${workspaceGroupData.name}`,
                         style: { marginLeft: '15px' }
@@ -139,7 +139,7 @@ function createOpenFilesFormElements(
 
         if (groupedByWorkspace.size > 1) {
             for (const [, groupData] of groupedByWorkspace.entries()) {
-                const groupHeader = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}group-header`], textContent: groupData.name });
+                const groupHeader = uiManager.getDOMFactory().createDiv({ classNames: [`${LOCAL_CSS_PREFIX}group-header`], textContent: groupData.name });
                 listContainer.appendChild(groupHeader);
                 groupData.items.forEach(file => {
                     const listItem = createOpenFilesListItem(uiManager, stateManager, file, groupedByWorkspace.size);
@@ -155,9 +155,9 @@ function createOpenFilesFormElements(
     }
     form.appendChild(listContainer);
 
-    const buttonContainer = uiManager.createDiv({ style: { marginTop: '10px', display: 'flex', gap: '10px' } });
+    const buttonContainer = uiManager.getDOMFactory().createDiv({ style: { marginTop: '10px', display: 'flex', gap: '10px' } });
 
-    const insertButton = uiManager.createButton('', {
+    const insertButton = uiManager.getDOMFactory().createButton('', {
         style: {
             fontSize: '16px',
             padding: '6px 12px'
@@ -167,7 +167,7 @@ function createOpenFilesFormElements(
                 .map(cb => cb.dataset.value!);
 
             if (selectedFilePaths.length === 0) {
-                const tempMsg = uiManager.createParagraph({ textContent: 'No new files selected.', style: { color: 'orange' } });
+                const tempMsg = uiManager.getDOMFactory().createParagraph({ textContent: 'No new files selected.', style: { color: 'orange' } });
                 form.appendChild(tempMsg);
                 setTimeout(() => { if (tempMsg.parentNode) tempMsg.parentNode.removeChild(tempMsg); }, 2000);
                 return;
@@ -175,7 +175,7 @@ function createOpenFilesFormElements(
 
             insertButton.disabled = true;
             insertButton.innerHTML = '';
-            insertButton.appendChild(uiManager.createIcon('progress_activity', { classNames: [`${LOCAL_CSS_PREFIX}spinning`] }));
+            insertButton.appendChild(uiManager.getDOMFactory().createIcon('progress_activity', { classNames: [`${LOCAL_CSS_PREFIX}spinning`] }));
 
             try {
             const selectedFilesData = openFilesList
@@ -193,20 +193,20 @@ function createOpenFilesFormElements(
                 if (document.getElementById(uiManager.getConstant('UI_PANEL_ID'))?.classList.contains(uiManager.getConstant('CSS_PREFIX') + 'visible')) {
                     insertButton.disabled = false;
                     insertButton.innerHTML = '';
-                    insertButton.appendChild(uiManager.createIcon('check_circle'));
+                    insertButton.appendChild(uiManager.getDOMFactory().createIcon('check_circle'));
                 }
             }
         }
     });
-    insertButton.appendChild(uiManager.createIcon('check_circle'));
+    insertButton.appendChild(uiManager.getDOMFactory().createIcon('check_circle'));
     insertButton.title = 'Insert Selected Files';
     buttonContainer.appendChild(insertButton);
 
-    const backButton = uiManager.createButton('', {
+    const backButton = uiManager.getDOMFactory().createButton('', {
         style: { fontSize: '16px', padding: '6px 12px' },
         onClick: actions.onBack
     });
-    backButton.appendChild(uiManager.createIcon('arrow_back'));
+    backButton.appendChild(uiManager.getDOMFactory().createIcon('arrow_back'));
     backButton.title = 'Back';
     buttonContainer.appendChild(backButton);
 
@@ -230,12 +230,12 @@ export function renderOpenFilesView(
     actions: OpenFilesActions
 ): void {
     uiManager.updateTitle('Select Open Files');
-    const selectorWrapper = uiManager.createDiv({ classNames: [`${LOCAL_CSS_PREFIX}open-files-selector`] });
+    const selectorWrapper = uiManager.getDOMFactory().createDiv({ classNames: [`${LOCAL_CSS_PREFIX}open-files-selector`] });
 
     if (openFilesList.length === 0) {
         uiManager.showToast('No Open Files: No open (saved) files found in trusted workspace(s).', 'info');
-        const backButton = uiManager.createButton('Back', { onClick: actions.onBack });
-        selectorWrapper.appendChild(uiManager.createParagraph({ textContent: 'No open (saved) files found in trusted workspace(s).' }));
+        const backButton = uiManager.getDOMFactory().createButton('Back', { onClick: actions.onBack });
+        selectorWrapper.appendChild(uiManager.getDOMFactory().createParagraph({ textContent: 'No open (saved) files found in trusted workspace(s).' }));
         selectorWrapper.appendChild(backButton);
         uiManager.updateContent(selectorWrapper);
         return;
@@ -247,7 +247,7 @@ export function renderOpenFilesView(
         const VISIBLE_ITEMS = 12; // Number of items visible at once
         const containerHeight = ITEM_HEIGHT * VISIBLE_ITEMS;
 
-        const scrollContainer = uiManager.createDiv({
+        const scrollContainer = uiManager.getDOMFactory().createDiv({
             style: {
                 height: `${containerHeight}px`,
                 overflowY: 'auto',
@@ -258,14 +258,14 @@ export function renderOpenFilesView(
             }
         });
 
-        const virtualHeight = uiManager.createDiv({
+        const virtualHeight = uiManager.getDOMFactory().createDiv({
             style: {
                 height: `${openFilesList.length * ITEM_HEIGHT}px`,
                 position: 'relative'
             }
         });
 
-        const itemContainer = uiManager.createDiv({
+        const itemContainer = uiManager.getDOMFactory().createDiv({
             style: {
                 position: 'absolute',
                 top: '0',
@@ -322,7 +322,7 @@ export function renderOpenFilesView(
             fileSelectionState.set(file.path, !stateManager.isDuplicateContentSource(file.path));
         });
 
-        const insertButton = uiManager.createButton('Insert Selected Files', {
+        const insertButton = uiManager.getDOMFactory().createButton('Insert Selected Files', {
             onClick: async () => {
                 // Collect all selected files from the selection state map
                 const selectedFiles: string[] = [];
@@ -358,7 +358,7 @@ export function renderOpenFilesView(
         });
         form.appendChild(insertButton);
 
-        const backButton = uiManager.createButton('Back', {
+        const backButton = uiManager.getDOMFactory().createButton('Back', {
             style: { marginLeft: '10px' },
             onClick: actions.onBack
         });

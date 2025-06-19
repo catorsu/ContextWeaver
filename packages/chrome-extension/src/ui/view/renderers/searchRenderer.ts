@@ -40,22 +40,22 @@ function createSearchResultItemElement(
     omitWorkspaceName: boolean,
     actions: SearchActions
 ): HTMLDivElement {
-    const itemDiv = uiManager.createDiv({ classNames: ['search-result-item'] });
+    const itemDiv = uiManager.getDOMFactory().createDiv({ classNames: ['search-result-item'] });
     itemDiv.setAttribute('tabindex', '0'); // Make focusable
 
-    const iconElement = uiManager.createIcon(result.type === 'file' ? 'description' : 'folder', {
+    const iconElement = uiManager.getDOMFactory().createIcon(result.type === 'file' ? 'description' : 'folder', {
         classNames: ['cw-type-icon']
     });
     itemDiv.appendChild(iconElement);
 
-    const nameSpan = uiManager.createSpan({ textContent: result.name });
+    const nameSpan = uiManager.getDOMFactory().createSpan({ textContent: result.name });
     itemDiv.appendChild(nameSpan);
 
     let pathText = result.path;
     if (result.type === 'file' && result.workspaceFolderName && !omitWorkspaceName) {
         pathText += ` (${result.workspaceFolderName})`;
     }
-    const pathSpan = uiManager.createSpan({ textContent: pathText, classNames: ['cw-search-result-path'] });
+    const pathSpan = uiManager.getDOMFactory().createSpan({ textContent: pathText, classNames: ['cw-search-result-path'] });
     itemDiv.appendChild(pathSpan);
 
     itemDiv.onclick = () => {
@@ -90,21 +90,21 @@ export function renderSearchResults(
     uiManager.updateTitle(`"@${query}"`);
     const searchResults = response.data?.results || [];
 
-    const searchResultsSection = uiManager.createDiv({ classNames: ['cw-search-results'] });
+    const searchResultsSection = uiManager.getDOMFactory().createDiv({ classNames: ['cw-search-results'] });
     if (searchResults.length === 0) {
-        searchResultsSection.appendChild(uiManager.createParagraph({ textContent: 'No results found.' }));
+        searchResultsSection.appendChild(uiManager.getDOMFactory().createParagraph({ textContent: 'No results found.' }));
     } else {
         const groupedByWindow = groupItemsByWindow(searchResults);
 
         if (groupedByWindow.size > 1) {
             for (const [, windowGroupData] of groupedByWindow.entries()) {
-                const windowHeader = uiManager.createDiv({ classNames: ['cw-window-header'], textContent: windowGroupData.name, style: { fontWeight: 'bold', marginTop: '10px', marginBottom: '5px' } });
+                const windowHeader = uiManager.getDOMFactory().createDiv({ classNames: ['cw-window-header'], textContent: windowGroupData.name, style: { fontWeight: 'bold', marginTop: '10px', marginBottom: '5px' } });
                 searchResultsSection.appendChild(windowHeader);
 
                 const groupedByWorkspace = groupItemsByWorkspace(windowGroupData.items);
                 if (groupedByWorkspace.size > 1) {
                     for (const [, workspaceGroupData] of groupedByWorkspace.entries()) {
-                        const workspaceHeader = uiManager.createDiv({ classNames: ['cw-group-header'], textContent: `  ${workspaceGroupData.name}`, style: { marginLeft: '15px' } });
+                        const workspaceHeader = uiManager.getDOMFactory().createDiv({ classNames: ['cw-group-header'], textContent: `  ${workspaceGroupData.name}`, style: { marginLeft: '15px' } });
                         searchResultsSection.appendChild(workspaceHeader);
                         workspaceGroupData.items.forEach(result => {
                             const resultItem = createSearchResultItemElement(uiManager, result, true, actions);
@@ -124,7 +124,7 @@ export function renderSearchResults(
             const groupedByWorkspace = groupItemsByWorkspace(searchResults);
             if (groupedByWorkspace.size > 1) {
                 for (const [, groupData] of groupedByWorkspace.entries()) {
-                    const groupHeader = uiManager.createDiv({ classNames: ['cw-group-header'], textContent: groupData.name });
+                    const groupHeader = uiManager.getDOMFactory().createDiv({ classNames: ['cw-group-header'], textContent: groupData.name });
                     searchResultsSection.appendChild(groupHeader);
                     groupData.items.forEach(result => searchResultsSection.appendChild(createSearchResultItemElement(uiManager, result, true, actions)));
                 }

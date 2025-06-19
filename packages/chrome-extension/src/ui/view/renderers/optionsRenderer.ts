@@ -68,19 +68,19 @@ function createOptionItem(
         onClick: (event: MouseEvent) => void;
     }
 ): HTMLDivElement {
-    const itemDiv = uiManager.createDiv({ classNames: ['search-result-item'] });
+    const itemDiv = uiManager.getDOMFactory().createDiv({ classNames: ['search-result-item'] });
     itemDiv.setAttribute('tabindex', '0'); // Make focusable
 
     if (options.id) {
         itemDiv.id = options.id;
     }
 
-    const iconElement = uiManager.createIcon(iconName, {
+    const iconElement = uiManager.getDOMFactory().createIcon(iconName, {
         classNames: ['cw-type-icon']
     });
     itemDiv.appendChild(iconElement);
 
-    const nameSpan = uiManager.createSpan({ textContent: label });
+    const nameSpan = uiManager.getDOMFactory().createSpan({ textContent: label });
     itemDiv.appendChild(nameSpan);
 
     itemDiv.onclick = options.onClick;
@@ -111,8 +111,8 @@ function renderWorkspaceFolders(
         let sectionContainer: DocumentFragment | HTMLDivElement = targetContentArea;
 
         if (showFolderGrouping) {
-            const folderSectionDiv = uiManager.createDiv({ classNames: ['cw-folder-section'] });
-            const folderTitleDiv = uiManager.createDiv({ classNames: ['cw-folder-title'], textContent: folder.name || 'Workspace Folder' });
+            const folderSectionDiv = uiManager.getDOMFactory().createDiv({ classNames: ['cw-folder-section'] });
+            const folderTitleDiv = uiManager.getDOMFactory().createDiv({ classNames: ['cw-folder-title'], textContent: folder.name || 'Workspace Folder' });
             folderSectionDiv.appendChild(folderTitleDiv);
             targetContentArea.appendChild(folderSectionDiv);
             sectionContainer = folderSectionDiv;

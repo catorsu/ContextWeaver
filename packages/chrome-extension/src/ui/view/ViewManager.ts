@@ -5,7 +5,7 @@
  */
 
 import { UIManager } from '../../uiManager';
-import { StateManager } from '../../stateManager';
+import { StateManager } from '../stateManager';
 import { AppCoordinator } from '../AppCoordinator';
 import * as searchRenderer from './renderers/searchRenderer';
 import * as browseRenderer from './renderers/browseRenderer';

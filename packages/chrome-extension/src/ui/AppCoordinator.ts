@@ -2,7 +2,7 @@
 // This is the final, complete version of the AppCoordinator.
 // (This file is a combination of all previous steps and is provided for completeness)
 import { UIManager } from '../uiManager';
-import { StateManager } from '../stateManager';
+import { StateManager } from '../ui/stateManager';
 import { ThemeService } from './services/ThemeService';
 import { ContextAPIService } from './services/ContextAPIService';
 import { TextInsertionService } from './services/TextInsertionService';
@@ -60,7 +60,7 @@ export class AppCoordinator {
             this.uiManager.show(targetElement, `"@${query}"`, null, onHideCallback);
             this.populateFloatingUiContent({ mode: 'search', query });
         } else {
-            this.uiManager.show(targetElement, 'ContextWeaver', this.uiManager.createParagraph({ classNames: ['cw-loading-text'], textContent: 'Loading options...' }), onHideCallback);
+            this.uiManager.show(targetElement, 'ContextWeaver', this.uiManager.getDOMFactory().createParagraph({ classNames: ['cw-loading-text'], textContent: 'Loading options...' }), onHideCallback);
             this.populateFloatingUiContent({ mode: 'general' });
         }
     }

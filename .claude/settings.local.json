@@ -11,7 +11,8 @@
       "Bash(npm run:*)",
       "Bash(npx tsc:*)",
       "Bash(find:*)",
-      "Bash(npm exec:*)"
+      "Bash(npm exec:*)",
+      "Bash(mkdir:*)"
     ],
     "deny": []
   }
