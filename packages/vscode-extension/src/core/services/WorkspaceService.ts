@@ -1,5 +1,5 @@
 /**
- * @file workspaceService.ts
+ * @file WorkspaceService.ts
  * @description Provides services for interacting with the VS Code workspace,
  * including workspace trust, folder information, and state.
  * @module ContextWeaver/VSCE

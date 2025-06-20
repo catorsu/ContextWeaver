@@ -78,32 +78,71 @@ The VS Code Extension acts as the backend data provider for the system. Its arch
 
 ```mermaid
 graph TD
-    subgraph "VSCode Extension"
+    subgraph "VSCode Extension - Hexagonal Architecture"
         direction TB
-        subgraph "Adapters (Infrastructure)"
-            A[ipcServer.ts]
-            B[CommandRegistry.ts]
-            C[Command Handlers]
+        
+        subgraph "Core Domain"
+            direction TB
+            subgraph "Entities"
+                E1[Client.ts]
+                E2[Aggregation.ts]
+            end
+            subgraph "Ports (Interfaces)"
+                P1[IAggregationService]
+                P2[IAggregationStrategy]
+                P3[IFilterService]
+            end
+            subgraph "Services (Business Logic)"
+                S1[AggregationService]
+                S2[MultiWindowService]
+                S3[FileSystemService]
+                S4[FilterService]
+                S5[SearchService]
+                S6[DiagnosticsService]
+                S7[SnippetService]
+                S8[WorkspaceService]
+            end
         end
-        subgraph "Core (Application Logic)"
-            D[WorkspaceService]
-            E[FileSystemService]
-            F[FilterService]
-            G[SearchService]
-            H[DiagnosticsService]
-            I[AggregationService]
-            J[SnippetService]
+        
+        subgraph "Primary Adapters (Driving)"
+            direction TB
+            A1[ipcServer.ts]
+            A2[ConnectionService.ts]
+            A3[CommandRegistry.ts]
+            subgraph "IPC Handlers"
+                H1[GetFileTreeHandler]
+                H2[SearchWorkspaceHandler]
+                H3[GetContentsForFilesHandler]
+                H4[...13 total handlers]
+            end
+            subgraph "Aggregation Strategies"
+                AS1[SearchAggregationStrategy]
+                AS2[GetContentsForFilesAggregationStrategy] 
+                AS3[DefaultAggregationStrategy]
+                AS4[GetWorkspaceDetailsAggregationStrategy]
+                ASF[AggregationStrategyFactory]
+            end
         end
-        K[extension.ts] -- Wires up --> A
-        K -- Wires up --> D & E & F & G & H & I & J
-        A -- Uses --> B
-        B -- Routes to --> C
-        C -- Uses --> D & E & F & G & H & I
+        
+        subgraph "Secondary Adapters (Driven)"
+            SA1[VSCodeOutputChannelLogger]
+        end
+        
+        EXT[extension.ts] -.-> |"Dependency Injection"| A1
+        EXT -.-> |"Wires Services"| S1 & S2 & S3 & S4 & S5 & S6 & S7 & S8
+        
+        A1 --> A2 & A3
+        A3 --> H1 & H2 & H3 & H4
+        H1 & H2 & H3 & H4 --> S3 & S4 & S5 & S6 & S7 & S8
+        S1 --> ASF
+        ASF --> AS1 & AS2 & AS3 & AS4
+        
+        S1 -.-> |implements| P1
+        AS1 & AS2 & AS3 & AS4 -.-> |implements| P2
+        S4 -.-> |implements| P3
     end
-
-    subgraph "External Communication"
-        L[Chrome Extension] -- WebSocket --> A
-    end
+    
+    CE[Chrome Extension] -.-> |WebSocket IPC| A1
 ```
 
 *   **Responsibilities:**
@@ -114,19 +153,27 @@ graph TD
     *   **Workspace Management:** Handling multi-root workspaces and respecting VS Code's Workspace Trust feature.
     *   **Multi-Window Aggregation:** Coordinating requests and aggregating responses from multiple open VS Code windows.
 *   **Key Modules:**
-    *   `extension.ts`: The main entry point for the VSCE, responsible for activating and coordinating all services and the IPC server. It also registers commands, such as the one for sending snippets.
-    *   `ipcServer.ts`: The primary adapter for external communication. It manages the WebSocket server, handles client connections, and contains the logic for the primary/secondary multi-window architecture.
-    *   `adapters/primary/ipc/`:
-        *   `CommandRegistry.ts`: Routes incoming IPC requests to the appropriate command handlers.
-        *   `handlers/`: Directory containing individual command handlers (e.g., `GetFileTreeHandler`, `SearchWorkspaceHandler`), each implementing the logic for a specific IPC command.
-    *   `core/services/`:
-        *   `AggregationService.ts`: Manages the aggregation of responses from multiple VS Code windows.
-        *   `FilterService.ts`: Manages `.gitignore` and default ignore patterns.
-    *   `workspaceService.ts`: Centralizes all logic for interacting with the VS Code workspace API.
-    *   `fileSystemService.ts`: Handles all direct interactions with the file system via the VS Code `fs` API.
-    *   `searchService.ts`: Provides file/folder search capabilities.
-    *   `diagnosticsService.ts`: Fetches and formats workspace diagnostics (problems).
-    *   `snippetService.ts`: Prepares snippet data for the `sendSnippet` command.
+    *   **Core Domain (`src/core/`):**
+        *   `entities/`: Core data structures (`Client.ts`, `Aggregation.ts`)
+        *   `ports/`: Service interfaces defining contracts (`IAggregationService.ts`, `IAggregationStrategy.ts`, `IFilterService.ts`)
+        *   `services/`: Pure business logic services:
+            *   `AggregationService.ts`: Manages response aggregation sessions using strategy pattern
+            *   `MultiWindowService.ts`: Handles primary/secondary window coordination
+            *   `FileSystemService.ts`: Unified file system operations with single traversal method
+            *   `FilterService.ts`: Manages `.gitignore` and default ignore patterns
+            *   `SearchService.ts`, `DiagnosticsService.ts`, `SnippetService.ts`, `WorkspaceService.ts`
+    *   **Primary Adapters (`src/adapters/primary/ipc/`):**
+        *   `ipcServer.ts`: Thin coordinator delegating to services
+        *   `ConnectionService.ts`: WebSocket server management and client connections
+        *   `CommandRegistry.ts`: Routes IPC requests to appropriate handlers
+        *   `handlers/`: 13 specific command handlers (e.g., `GetFileTreeHandler`, `SearchWorkspaceHandler`)
+        *   `aggregation/`: Strategy pattern implementation:
+            *   `AggregationStrategyFactory.ts`: Creates appropriate strategy for each command
+            *   Various strategy classes for different aggregation types
+    *   **Secondary Adapters (`src/adapters/secondary/logging/`):**
+        *   `VSCodeOutputChannelLogger.ts`: VS Code-specific logging implementation
+    *   **Entry Point:**
+        *   `extension.ts`: Dependency injection container, wires all services together
 *   **Technology Stack:**
     *   TypeScript
     *   VS Code API
@@ -388,45 +435,55 @@ For those needing a complete file-by-file view, the following structure is provi
 │       ├── package.json
 │       ├── src
 │       │   ├── adapters
-│       │   │   └── primary
-│       │   │       └── ipc
-│       │   │           ├── CommandRegistry.ts
-│       │   │           ├── ICommandHandler.ts
-│       │   │           ├── types.ts
-│       │   │           └── handlers
-│       │   │               ├── GetActiveFileInfoHandler.ts
-│       │   │               ├── GetContentsForFilesHandler.ts
-│       │   │               ├── GetEntireCodebaseHandler.ts
-│       │   │               ├── GetFileContentHandler.ts
-│       │   │               ├── GetFileTreeHandler.ts
-│       │   │               ├── GetFilterInfoHandler.ts
-│       │   │               ├── GetFolderContentHandler.ts
-│       │   │               ├── GetOpenFilesHandler.ts
-│       │   │               ├── GetWorkspaceDetailsHandler.ts
-│       │   │               ├── GetWorkspaceProblemsHandler.ts
-│       │   │               ├── ListFolderContentsHandler.ts
-│       │   │               ├── RegisterActiveTargetHandler.ts
-│       │   │               └── SearchWorkspaceHandler.ts
+│       │   │   ├── primary
+│       │   │   │   └── ipc
+│       │   │   │       ├── CommandRegistry.ts
+│       │   │   │       ├── ConnectionService.ts
+│       │   │   │       ├── ICommandHandler.ts
+│       │   │   │       ├── ipcServer.ts
+│       │   │   │       ├── types.ts
+│       │   │   │       ├── aggregation
+│       │   │   │       │   ├── AggregationStrategyFactory.ts
+│       │   │   │       │   ├── DefaultAggregationStrategy.ts
+│       │   │   │       │   ├── GetContentsForFilesAggregationStrategy.ts
+│       │   │   │       │   ├── GetOpenFilesAggregationStrategy.ts
+│       │   │   │       │   ├── GetWorkspaceDetailsAggregationStrategy.ts
+│       │   │   │       │   └── SearchAggregationStrategy.ts
+│       │   │   │       └── handlers
+│       │   │   │           ├── GetActiveFileInfoHandler.ts
+│       │   │   │           ├── GetContentsForFilesHandler.ts
+│       │   │   │           ├── GetEntireCodebaseHandler.ts
+│       │   │   │           ├── GetFileContentHandler.ts
+│       │   │   │           ├── GetFileTreeHandler.ts
+│       │   │   │           ├── GetFilterInfoHandler.ts
+│       │   │   │           ├── GetFolderContentHandler.ts
+│       │   │   │           ├── GetOpenFilesHandler.ts
+│       │   │   │           ├── GetWorkspaceDetailsHandler.ts
+│       │   │   │           ├── GetWorkspaceProblemsHandler.ts
+│       │   │   │           ├── ListFolderContentsHandler.ts
+│       │   │   │           ├── RegisterActiveTargetHandler.ts
+│       │   │   │           └── SearchWorkspaceHandler.ts
+│       │   │   └── secondary
+│       │   │       └── logging
+│       │   │           └── VSCodeOutputChannelLogger.ts
 │       │   ├── core
+│       │   │   ├── entities
+│       │   │   │   ├── Aggregation.ts
+│       │   │   │   └── Client.ts
 │       │   │   ├── ports
 │       │   │   │   ├── IAggregationService.ts
+│       │   │   │   ├── IAggregationStrategy.ts
 │       │   │   │   └── IFilterService.ts
 │       │   │   └── services
 │       │   │       ├── AggregationService.ts
-│       │   │       └── FilterService.ts
-│       │   ├── ipc
-│       │   │   └── ports
-│       │   │       ├── ICommandHandler.ts
-│       │   │       ├── ICommandRegistry.ts
-│       │   │       └── IpcServer.ts
-│       │   ├── diagnosticsService.ts
-│       │   ├── extension.ts
-│       │   ├── fileSystemService.ts
-│       │   ├── ipcServer.ts
-│       │   ├── searchService.ts
-│       │   ├── snippetService.ts
-│       │   ├── vsceLogger.ts
-│       │   └── workspaceService.ts
+│       │   │       ├── DiagnosticsService.ts
+│       │   │       ├── FileSystemService.ts
+│       │   │       ├── FilterService.ts
+│       │   │       ├── MultiWindowService.ts
+│       │   │       ├── SearchService.ts
+│       │   │       ├── SnippetService.ts
+│       │   │       └── WorkspaceService.ts
+│       │   └── extension.ts
 │       ├── tests
 │       │   └── unit
 │       │       ├── AggregationService.test.ts

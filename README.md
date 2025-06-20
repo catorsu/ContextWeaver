@@ -67,4 +67,32 @@ Detailed instructions on how to build, install, and use the extensions, includin
 
 ## Project Structure
 
-ContextWeaver is developed using a monorepo structure. For details on the directory layout and component locations, please refer to the [ARCHITECTURE.MD](docs/ARCHITECTURE.MD) document.
+ContextWeaver is developed using a monorepo structure with a clean **hexagonal (ports and adapters)** architecture:
+
+```
+packages/
+├── shared/                          # Shared TypeScript definitions
+│   └── src/
+│       ├── ipc-types.ts            # IPC message contracts
+│       ├── data-models.ts          # Core data structures
+│       └── logger.ts               # Unified logging interface
+├── vscode-extension/               # Backend data provider
+│   └── src/
+│       ├── core/                   # Application-agnostic business logic
+│       │   ├── entities/           # Core data structures (Client, Aggregation)
+│       │   ├── ports/              # Service interfaces (hexagonal ports)
+│       │   └── services/           # Core application services
+│       ├── adapters/               # Infrastructure-specific implementations
+│       │   ├── primary/ipc/        # IPC server, handlers, strategies
+│       │   └── secondary/logging/  # Output adapters (logging)
+│       └── extension.ts            # Dependency injection entry point
+└── chrome-extension/               # Frontend user interface
+    └── src/
+        ├── ui/                     # Content script modular architecture
+        └── serviceWorker/          # Background IPC client
+
+```
+
+This architecture separates core business logic from infrastructure concerns, making the system more maintainable, testable, and following clean architecture principles.
+
+For detailed component relationships and design decisions, please refer to the [ARCHITECTURE.md](docs/ARCHITECTURE.md) document.

@@ -11,8 +11,8 @@ import { Logger } from '@contextweaver/shared';
 
 import { ICommandHandler } from '../ICommandHandler';
 import { ClientContext } from '../types';
-import { WorkspaceService } from '../../../../workspaceService';
-import { getFileContentWithLanguageId } from '../../../../fileSystemService';
+import { WorkspaceService } from '../../../../core/services/WorkspaceService';
+import { FileSystemService } from '../../../../core/services/FileSystemService';
 import {
     GetFileContentRequestPayload,
     FileContentResponsePayload,
@@ -29,6 +29,7 @@ export class GetFileContentHandler implements ICommandHandler<GetFileContentRequ
 
     constructor(
         private readonly workspaceService: WorkspaceService,
+        private readonly fileSystemService: FileSystemService,
         private readonly windowId: string
     ) {}
 
@@ -61,7 +62,7 @@ export class GetFileContentHandler implements ICommandHandler<GetFileContentRequ
                 }
             }
 
-            const result = await getFileContentWithLanguageId(fileUri);
+            const result = await this.fileSystemService.getFileContentWithLanguageId(fileUri);
 
             if (!result) {
                 throw new Error('Failed to read file content.');

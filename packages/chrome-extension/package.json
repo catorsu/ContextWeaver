@@ -17,6 +17,7 @@
     "@jest/globals": "^29.7.0",
     "@types/chrome": "^0.0.268",
     "@types/jest": "^29.5.14",
+    "@types/jsdom": "^21.1.7",
     "@typescript-eslint/eslint-plugin": "^8.34.1",
     "@typescript-eslint/parser": "^8.34.1",
     "cpx": "^1.5.0",

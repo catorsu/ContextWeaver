@@ -1,5 +1,5 @@
 /**
- * @file snippetService.ts
+ * @file SnippetService.ts
  * @description Service for preparing code snippets to be sent to the Chrome Extension.
  * @module ContextWeaver/VSCE
  */

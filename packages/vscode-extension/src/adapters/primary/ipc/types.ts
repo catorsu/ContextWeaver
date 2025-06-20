@@ -20,5 +20,6 @@ export interface Client {
 
 /**
  * Context type for command handlers, providing client information and metadata.
+ * Alias for Client interface - keeping for compatibility.
  */
-export interface ClientContext extends Client {}
+export type ClientContext = Client;

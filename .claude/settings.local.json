@@ -12,7 +12,9 @@
       "Bash(npx tsc:*)",
       "Bash(find:*)",
       "Bash(npm exec:*)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(mv:*)",
+      "Bash(ls:*)"
     ],
     "deny": []
   }

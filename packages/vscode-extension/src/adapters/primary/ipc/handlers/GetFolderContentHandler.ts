@@ -12,8 +12,8 @@ import { Logger } from '@contextweaver/shared';
 import { ICommandHandler } from '../ICommandHandler';
 import { ClientContext } from '../types';
 import { IFilterService } from '../../../../core/ports/IFilterService';
-import { WorkspaceService } from '../../../../workspaceService';
-import { getFolderContentsForIPC } from '../../../../fileSystemService';
+import { WorkspaceService } from '../../../../core/services/WorkspaceService';
+import { FileSystemService } from '../../../../core/services/FileSystemService';
 import {
     GetFolderContentRequestPayload,
     FolderContentResponsePayload,
@@ -30,6 +30,7 @@ export class GetFolderContentHandler implements ICommandHandler<GetFolderContent
     constructor(
         private readonly filterService: IFilterService,
         private readonly workspaceService: WorkspaceService,
+        private readonly fileSystemService: FileSystemService,
         private readonly windowId: string
     ) {}
 
@@ -51,7 +52,7 @@ export class GetFolderContentHandler implements ICommandHandler<GetFolderContent
             const targetWorkspaceFolder = await this.getTargetWorkspaceFolder(workspaceFolderUri, 'get_folder_content');
 
             const filter = await this.filterService.createFilterForWorkspace(targetWorkspaceFolder);
-            const result = await getFolderContentsForIPC(folderUri, targetWorkspaceFolder, filter);
+            const result = await this.fileSystemService.getFolderContentsForIPC(folderUri, targetWorkspaceFolder, filter);
 
             if (!result || typeof result === 'string') {
                 throw new Error(typeof result === 'string' ? result : 'Failed to read folder contents.');

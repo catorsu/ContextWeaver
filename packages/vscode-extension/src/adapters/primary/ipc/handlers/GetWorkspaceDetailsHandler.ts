@@ -9,7 +9,7 @@ import { Logger } from '@contextweaver/shared';
 
 import { ICommandHandler } from '../ICommandHandler';
 import { ClientContext } from '../types';
-import { WorkspaceService, WorkspaceServiceError } from '../../../../workspaceService';
+import { WorkspaceService, WorkspaceServiceError } from '../../../../core/services/WorkspaceService';
 import {
     WorkspaceDetailsResponsePayload
 } from '@contextweaver/shared';

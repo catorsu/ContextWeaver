@@ -50,7 +50,7 @@ export class FilterService implements IFilterService {
         const combinedFilter = ignore().add(IGNORE_PATTERNS_DEFAULT).add(gitignoreContent);
         filterType = 'gitignore';
         return { filter: combinedFilter, type: filterType };
-      } catch (error) {
+      } catch {
         // Fall back to default if there's an error re-reading
         filterType = 'default';
         return { filter: defaultIgnoreFilter, type: filterType };

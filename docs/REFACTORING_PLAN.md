@@ -223,7 +223,7 @@ ARCHITECTURAL:
 TASKS:
 ========================
 
-===== TASK-001-STRUCT-001 ===== [ ]
+===== TASK-001-STRUCT-001 ===== [x]
 REQUIRES: none
 ENABLES: TASK-001-STRUCT-002
 COMPLEXITY: SIMPLE
@@ -245,7 +245,7 @@ VERIFY:
 - BEHAVIOR: DIRECTORY_EXISTS[src/core/entities, src/core/ports, src/core/services, src/adapters/primary/ipc/aggregation, src/adapters/primary/ipc/handlers, src/adapters/secondary/logging]
 ===== END TASK-001-STRUCT-001 =====
 
-===== TASK-001-STRUCT-002 ===== [ ]
+===== TASK-001-STRUCT-002 ===== [x]
 REQUIRES: TASK-001-STRUCT-001
 ENABLES: TASK-001-MOVE-001, TASK-001-MOVE-002, TASK-001-MOVE-003
 COMPLEXITY: SIMPLE
@@ -264,7 +264,7 @@ VERIFY:
 - BEHAVIOR: FILE_EXISTS[src/core/entities/Client.ts, src/core/entities/Aggregation.ts, src/core/ports/IAggregationStrategy.ts]
 ===== END TASK-001-STRUCT-002 =====
 
-===== TASK-001-MOVE-001 ===== [ ]
+===== TASK-001-MOVE-001 ===== [x]
 REQUIRES: TASK-001-STRUCT-002
 ENABLES: TASK-001-IMPORT-001
 COMPLEXITY: MODERATE
@@ -287,7 +287,7 @@ VERIFY:
 - BEHAVIOR: FILE_MOVED[src/fileSystemService.ts -> src/core/services/FileSystemService.ts] && FILE_MOVED[src/searchService.ts -> src/core/services/SearchService.ts]
 ===== END TASK-001-MOVE-001 =====
 
-===== TASK-001-MOVE-002 ===== [ ]
+===== TASK-001-MOVE-002 ===== [x]
 REQUIRES: TASK-001-STRUCT-002
 ENABLES: TASK-001-IMPORT-001
 COMPLEXITY: MODERATE
@@ -309,7 +309,7 @@ VERIFY:
 - BEHAVIOR: FILE_MOVED[src/ipcServer.ts -> src/adapters/primary/ipc/ipcServer.ts] && FILE_MOVED[src/core/services/AggregationService.ts -> src/core/services/AggregationService.ts]
 ===== END TASK-001-MOVE-002 =====
 
-===== TASK-001-MOVE-003 ===== [ ]
+===== TASK-001-MOVE-003 ===== [x]
 REQUIRES: TASK-001-STRUCT-002
 ENABLES: TASK-001-IMPORT-001
 COMPLEXITY: MODERATE
@@ -338,7 +338,7 @@ VERIFY:
 - BEHAVIOR: FILE_COUNT[src/adapters/primary/ipc/handlers/] == 13
 ===== END TASK-001-MOVE-003 =====
 
-===== TASK-001-MOVE-004 ===== [ ]
+===== TASK-001-MOVE-004 ===== [x]
 REQUIRES: TASK-001-STRUCT-002
 ENABLES: TASK-001-IMPORT-001
 COMPLEXITY: SIMPLE
@@ -355,7 +355,7 @@ VERIFY:
 - BEHAVIOR: FILE_MOVED[src/vsceLogger.ts -> src/adapters/secondary/logging/VSCodeOutputChannelLogger.ts]
 ===== END TASK-001-MOVE-004 =====
 
-===== TASK-001-IMPORT-001 ===== [ ]
+===== TASK-001-IMPORT-001 ===== [x]
 REQUIRES: TASK-001-MOVE-001, TASK-001-MOVE-002, TASK-001-MOVE-003, TASK-001-MOVE-004
 ENABLES: TASK-002-CONNSVC-001, TASK-002-MWINSVC-001
 COMPLEXITY: COMPLEX
@@ -376,7 +376,7 @@ VERIFY:
 - BEHAVIOR: No "module not found" errors during build or test execution.
 ===== END TASK-001-IMPORT-001 =====
 
-===== TASK-002-CONNSVC-001 ===== [ ]
+===== TASK-002-CONNSVC-001 ===== [x]
 REQUIRES: TASK-001-IMPORT-001
 ENABLES: TASK-002-IPCSVR-001
 COMPLEXITY: COMPLEX
@@ -396,7 +396,7 @@ VERIFY:
 - BEHAVIOR: The service can start a WebSocket server on an available port within the specified range.
 ===== END TASK-002-CONNSVC-001 =====
 
-===== TASK-002-MWINSVC-001 ===== [ ]
+===== TASK-002-MWINSVC-001 ===== [x]
 REQUIRES: TASK-001-IMPORT-001
 ENABLES: TASK-002-IPCSVR-001
 COMPLEXITY: COMPLEX
@@ -414,7 +414,7 @@ VERIFY:
 - BEHAVIOR: The service correctly identifies as primary or secondary based on port availability.
 ===== END TASK-002-MWINSVC-001 =====
 
-===== TASK-002-IPCSVR-001 ===== [ ]
+===== TASK-002-IPCSVR-001 ===== [x]
 REQUIRES: TASK-002-CONNSVC-001, TASK-002-MWINSVC-001
 ENABLES: TASK-004-EXT-001
 COMPLEXITY: COMPLEX
@@ -435,7 +435,7 @@ VERIFY:
 - BEHAVIOR: An incoming IPC message for `search_workspace` is correctly routed to the `SearchWorkspaceHandler`.
 ===== END TASK-002-IPCSVR-001 =====
 
-===== TASK-003-FSS-001 ===== [ ]
+===== TASK-003-FSS-001 ===== [x]
 REQUIRES: TASK-001-IMPORT-001
 ENABLES: TASK-003-FSS-002
 COMPLEXITY: COMPLEX
@@ -455,7 +455,7 @@ VERIFY:
 - BEHAVIOR: The internal method correctly traverses a mock directory structure and applies filters.
 ===== END TASK-003-FSS-001 =====
 
-===== TASK-003-FSS-002 ===== [ ]
+===== TASK-003-FSS-002 ===== [x]
 REQUIRES: TASK-003-FSS-001
 ENABLES: TASK-004-EXT-001
 COMPLEXITY: MODERATE
@@ -474,7 +474,7 @@ VERIFY:
 - BEHAVIOR: `getFileTree` produces the exact same output string for a given mock file system as before the refactor.
 ===== END TASK-003-FSS-002 =====
 
-===== TASK-003-AGGS-001 ===== [ ]
+===== TASK-003-AGGS-001 ===== [x]
 REQUIRES: TASK-001-IMPORT-001
 ENABLES: TASK-003-AGGS-002, TASK-003-AGGS-003, TASK-003-AGGS-004, TASK-003-AGGS-005
 COMPLEXITY: SIMPLE
@@ -494,7 +494,7 @@ VERIFY:
 - BEHAVIOR: `exports.IAggregationStrategy` is defined.
 ===== END TASK-003-AGGS-001 =====
 
-===== TASK-003-AGGS-002 ===== [ ]
+===== TASK-003-AGGS-002 ===== [x]
 REQUIRES: TASK-003-AGGS-001
 ENABLES: TASK-003-AGGS-006
 COMPLEXITY: SIMPLE
@@ -513,7 +513,7 @@ VERIFY:
 - BEHAVIOR: Given two response payloads, the strategy correctly merges their `results` arrays.
 ===== END TASK-003-AGGS-002 =====
 
-===== TASK-003-AGGS-003 ===== [ ]
+===== TASK-003-AGGS-003 ===== [x]
 REQUIRES: TASK-003-AGGS-001
 ENABLES: TASK-003-AGGS-006
 COMPLEXITY: SIMPLE
@@ -532,7 +532,7 @@ VERIFY:
 - BEHAVIOR: Correctly merges `data` and `errors` from multiple response payloads.
 ===== END TASK-003-AGGS-003 =====
 
-===== TASK-003-AGGS-004 ===== [ ]
+===== TASK-003-AGGS-004 ===== [x]
 REQUIRES: TASK-003-AGGS-001
 ENABLES: TASK-003-AGGS-006
 COMPLEXITY: SIMPLE
@@ -551,7 +551,7 @@ VERIFY:
 - BEHAVIOR: Returns the primary's payload when present.
 ===== END TASK-003-AGGS-004 =====
 
-===== TASK-003-AGGS-005 ===== [ ]
+===== TASK-003-AGGS-005 ===== [x]
 REQUIRES: TASK-003-AGGS-001
 ENABLES: TASK-003-AGGS-006
 COMPLEXITY: SIMPLE
@@ -570,7 +570,7 @@ VERIFY:
 - BEHAVIOR: Correctly merges `workspaceFolders` from multiple response payloads.
 ===== END TASK-003-AGGS-005 =====
 
-===== TASK-003-AGGS-006 ===== [ ]
+===== TASK-003-AGGS-006 ===== [x]
 REQUIRES: TASK-003-AGGS-002, TASK-003-AGGS-003, TASK-003-AGGS-004, TASK-003-AGGS-005
 ENABLES: TASK-003-AGGS-007
 COMPLEXITY: MODERATE
@@ -592,7 +592,7 @@ VERIFY:
 - BEHAVIOR: `createStrategy('search_workspace')` returns an instance of `SearchAggregationStrategy`.
 ===== END TASK-003-AGGS-006 =====
 
-===== TASK-003-AGGS-007 ===== [ ]
+===== TASK-003-AGGS-007 ===== [x]
 REQUIRES: TASK-003-AGGS-006
 ENABLES: TASK-004-EXT-001
 COMPLEXITY: COMPLEX
@@ -613,7 +613,7 @@ VERIFY:
 - BEHAVIOR: The service correctly delegates to the mock strategy returned by the mock factory.
 ===== END TASK-003-AGGS-007 =====
 
-===== TASK-004-EXT-001 ===== [ ]
+===== TASK-004-EXT-001 ===== [x]
 REQUIRES: TASK-002-IPCSVR-001, TASK-003-FSS-002, TASK-003-AGGS-007
 ENABLES: TASK-004-HNDLR-001
 COMPLEXITY: COMPLEX
@@ -635,7 +635,7 @@ VERIFY:
 - BEHAVIOR: The extension activates without errors. The `contextweaver.helloWorld` command still functions.
 ===== END TASK-004-EXT-001 =====
 
-===== TASK-004-HNDLR-001 ===== [ ]
+===== TASK-004-HNDLR-001 ===== [x]
 REQUIRES: TASK-004-EXT-001
 ENABLES: TASK-004-TESTS-001
 COMPLEXITY: MODERATE
@@ -654,7 +654,7 @@ VERIFY:
 - BEHAVIOR: All IPC commands function as before the refactor.
 ===== END TASK-004-HNDLR-001 =====
 
-===== TASK-004-TESTS-001 ===== [ ]
+===== TASK-004-TESTS-001 ===== [x]
 REQUIRES: TASK-004-HNDLR-001
 ENABLES: TASK-004-CLEANUP-001
 COMPLEXITY: MODERATE
@@ -673,7 +673,7 @@ VERIFY:
 - BEHAVIOR: Test coverage for refactored components is >= 90%.
 ===== END TASK-004-TESTS-001 =====
 
-===== TASK-004-CLEANUP-001 ===== [ ]
+===== TASK-004-CLEANUP-001 ===== [x]
 REQUIRES: TASK-004-TESTS-001
 ENABLES: TASK-004-CLEANUP-002
 COMPLEXITY: SIMPLE
@@ -692,7 +692,7 @@ VERIFY:
 - BEHAVIOR: Project is clean of dead code and unused files.
 ===== END TASK-004-CLEANUP-001 =====
 
-===== TASK-004-CLEANUP-002 ===== [ ]
+===== TASK-004-CLEANUP-002 ===== [x]
 REQUIRES: TASK-004-CLEANUP-001
 ENABLES: none
 COMPLEXITY: SIMPLE

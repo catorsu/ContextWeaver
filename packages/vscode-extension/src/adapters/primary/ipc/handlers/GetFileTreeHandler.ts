@@ -11,8 +11,8 @@ import { Logger } from '@contextweaver/shared';
 import { ICommandHandler } from '../ICommandHandler';
 import { ClientContext } from '../types';
 import { IFilterService } from '../../../../core/ports/IFilterService';
-import { WorkspaceService } from '../../../../workspaceService';
-import { getFileTree } from '../../../../fileSystemService';
+import { WorkspaceService } from '../../../../core/services/WorkspaceService';
+import { FileSystemService } from '../../../../core/services/FileSystemService';
 import {
     GetFileTreeRequestPayload,
     FileTreeResponsePayload,
@@ -29,6 +29,7 @@ export class GetFileTreeHandler implements ICommandHandler<GetFileTreeRequestPay
     constructor(
         private readonly filterService: IFilterService,
         private readonly workspaceService: WorkspaceService,
+        private readonly fileSystemService: FileSystemService,
         private readonly windowId: string
     ) {}
 
@@ -44,7 +45,7 @@ export class GetFileTreeHandler implements ICommandHandler<GetFileTreeRequestPay
         );
 
         const filter = await this.filterService.createFilterForWorkspace(targetWorkspaceFolder);
-        const result = await getFileTree(targetWorkspaceFolder, filter);
+        const result = await this.fileSystemService.getFileTree(targetWorkspaceFolder, filter);
 
         if (typeof result === 'string' && result.startsWith('Error:')) {
             throw new Error(result);

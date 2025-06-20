@@ -11,8 +11,8 @@ import { Logger } from '@contextweaver/shared';
 
 import { ICommandHandler } from '../ICommandHandler';
 import { ClientContext } from '../types';
-import { WorkspaceService } from '../../../../workspaceService';
-import { getFileContentWithLanguageId } from '../../../../fileSystemService';
+import { WorkspaceService } from '../../../../core/services/WorkspaceService';
+import { FileSystemService } from '../../../../core/services/FileSystemService';
 import {
     GetContentsForFilesRequestPayload,
     ContentsForFilesResponsePayload,
@@ -29,6 +29,7 @@ export class GetContentsForFilesHandler implements ICommandHandler<GetContentsFo
 
     constructor(
         private readonly workspaceService: WorkspaceService,
+        private readonly fileSystemService: FileSystemService,
         private readonly windowId: string
     ) {}
 
@@ -51,7 +52,7 @@ export class GetContentsForFilesHandler implements ICommandHandler<GetContentsFo
         for (const uriString of fileUris) {
             try {
                 const fileUri = vscode.Uri.parse(uriString, true);
-                const result = await getFileContentWithLanguageId(fileUri);
+                const result = await this.fileSystemService.getFileContentWithLanguageId(fileUri);
 
                 if (result) {
                     const associatedWorkspaceFolder = this.workspaceService.getWorkspaceFolder(fileUri);

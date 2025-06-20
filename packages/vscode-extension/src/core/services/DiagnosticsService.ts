@@ -1,5 +1,5 @@
 /**
- * @file diagnosticsService.ts
+ * @file DiagnosticsService.ts
  * @description Provides services for accessing and formatting workspace diagnostics.
  * @module ContextWeaver/VSCE
  */

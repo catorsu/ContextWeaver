@@ -41,7 +41,7 @@ jest.mock('vscode', () => ({
 // Now import modules that use vscode
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { getDirectoryListing } from '../../src/fileSystemService';
+import { getDirectoryListing } from '../../src/core/services/FileSystemService';
 import { DirectoryEntry, FilterType } from '@contextweaver/shared';
 import ignore, { Ignore } from 'ignore'; // Import Ignore type
 
@@ -81,7 +81,13 @@ describe('getDirectoryListing', () => {
   });
 
   it('should list files and folders correctly', async () => {
-    // Mock the top-level directory read
+    // Mock the initial directory existence check
+    mockReadDirectory.mockResolvedValueOnce([
+      ['file1.ts', vscode.FileType.File],
+      ['file2.js', vscode.FileType.File],
+      ['subfolder', vscode.FileType.Directory],
+    ]);
+    // Mock the top-level directory read in _traverseDirectoryRecursive
     mockReadDirectory.mockResolvedValueOnce([
       ['file1.ts', vscode.FileType.File],
       ['file2.js', vscode.FileType.File],
@@ -120,6 +126,14 @@ describe('getDirectoryListing', () => {
   });
 
   it('should apply default ignore patterns', async () => {
+    // Mock the initial directory existence check
+    mockReadDirectory.mockResolvedValueOnce([
+      ['file1.ts', vscode.FileType.File],
+      ['node_modules', vscode.FileType.Directory],
+      ['file.exe', vscode.FileType.File],
+      ['.git', vscode.FileType.Directory],
+    ]);
+    // Mock the top-level directory read in _traverseDirectoryRecursive
     mockReadDirectory.mockResolvedValueOnce([
       ['file1.ts', vscode.FileType.File],
       ['node_modules', vscode.FileType.Directory],
@@ -141,6 +155,13 @@ describe('getDirectoryListing', () => {
   });
 
   it('should apply .gitignore rules', async () => {
+    // Mock the initial directory existence check
+    mockReadDirectory.mockResolvedValueOnce([
+      ['file1.ts', vscode.FileType.File],
+      ['ignored-folder', vscode.FileType.Directory],
+      ['ignored-file.txt', vscode.FileType.File],
+    ]);
+    // Mock the top-level directory read in _traverseDirectoryRecursive
     mockReadDirectory.mockResolvedValueOnce([
       ['file1.ts', vscode.FileType.File],
       ['ignored-folder', vscode.FileType.Directory],

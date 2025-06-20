@@ -100,9 +100,9 @@ jest.mock('vscode', () => ({
 
 // Now import the modules that need the mocks
 import * as vscode from 'vscode';
-import { IPCServer } from '../../src/ipcServer';
-import { SearchService } from '../../src/searchService';
-import { WorkspaceService } from '../../src/workspaceService';
+import { IPCServer } from '../../src/adapters/primary/ipc/ipcServer';
+import { SearchService } from '../../src/core/services/SearchService';
+import { WorkspaceService } from '../../src/core/services/WorkspaceService';
 import { FilterService } from '../../src/core/services/FilterService';
 import {
     IPCMessageRequest
@@ -150,30 +150,48 @@ class MockOutputChannel implements vscode.OutputChannel {
 
 describe('IPCServer - Leader Election', () => {
     let mockOutputChannel: MockOutputChannel;
-    let mockSearchService: SearchService;
-    let mockWorkspaceService: WorkspaceService;
+    let mockWorkspaceService: any;
+    let mockConnectionService: any;
+    let mockMultiWindowService: any;
+    let mockCommandRegistry: any;
 
     beforeEach(() => {
         jest.clearAllMocks();
         createdWebSockets = [];
         mockOutputChannel = new MockOutputChannel();
-        mockSearchService = {
-            search: jest.fn().mockResolvedValue([])
-        } as any;
+        
         mockWorkspaceService = {
             getWorkspaceFolders: jest.fn().mockReturnValue([]),
             isWorkspaceTrusted: jest.fn().mockReturnValue(true),
-            getWorkspaceFolder: jest.fn()
-        } as any;
-        mockDiagnosticsService = { // Initialize in beforeEach
-            getProblemsForWorkspace: jest.fn().mockReturnValue({ problemsString: '', problemCount: 0 })
+            getWorkspaceFolder: jest.fn(),
+            ensureWorkspaceTrustedAndOpen: jest.fn().mockResolvedValue(undefined)
         };
-        mockFilterService = {
-            createFilterForWorkspace: jest.fn().mockResolvedValue({
-                filter: { ignores: jest.fn().mockReturnValue(false) },
-                type: 'default'
-            })
+        
+        mockConnectionService = {
+            startServer: jest.fn().mockResolvedValue(30001),
+            sendMessage: jest.fn(),
+            sendError: jest.fn(),
+            getClients: jest.fn().mockReturnValue(new Map()),
+            updateClient: jest.fn(),
+            stop: jest.fn()
         };
+        
+        mockMultiWindowService = {
+            start: jest.fn().mockResolvedValue(undefined),
+            getIsPrimary: jest.fn().mockReturnValue(true),
+            getSecondaryClients: jest.fn().mockReturnValue(new Map()),
+            handleRegisterSecondary: jest.fn(),
+            handleUnregisterSecondary: jest.fn(),
+            broadcastToSecondaries: jest.fn(),
+            handleForwardedResponse: jest.fn(),
+            handleForwardedPush: jest.fn(),
+            handleSnippetSendRequest: jest.fn(),
+            removeSecondaryClient: jest.fn(),
+            sendResponseToPrimary: jest.fn(),
+            stop: jest.fn(),
+            onForwardRequestReceived: undefined
+        };
+        
         mockCommandRegistry = {
             register: jest.fn(),
             getHandler: jest.fn().mockImplementation((command: string) => {
@@ -224,12 +242,6 @@ describe('IPCServer - Leader Election', () => {
                 }
                 return undefined;
             })
-        };
-        mockAggregationService = {
-            startAggregation: jest.fn(),
-            addResponse: jest.fn(),
-            addPrimaryResponse: jest.fn().mockReturnValue(false),
-            isMessagePartOfAggregation: jest.fn().mockReturnValue(false)
         };
     });
 
@@ -238,62 +250,54 @@ describe('IPCServer - Leader Election', () => {
     });
 
     test('should become primary when connection to primary port fails', async () => {
+        // Mock MultiWindowService to return primary state
+        mockMultiWindowService.getIsPrimary.mockReturnValue(true);
+        
         const server = new IPCServer(
-            30001,
             'test-window-id',
             mockContext,
             mockOutputChannel as any,
-            mockSearchService as any,
-            mockWorkspaceService as any,
-            mockDiagnosticsService as any,
-            mockFilterService as any,
-            mockCommandRegistry as any,
-            mockAggregationService as any
+            mockWorkspaceService,
+            mockConnectionService,
+            mockMultiWindowService,
+            mockCommandRegistry
         );
 
-        server.start();
+        await server.start();
 
-        // The mock now auto-emits errors, we just need to wait for the logic to complete
-        // findPrimaryAndInitialize has internal awaits, so we wait for the event loop to clear
-        await new Promise(resolve => process.nextTick(resolve));
-        await new Promise(resolve => setTimeout(resolve, 100)); // Add a small delay for async operations
-
-        expect((server as any).isPrimary).toBe(true);
+        // Verify that multiWindowService.start() was called and setup primary server was called
+        expect(mockMultiWindowService.start).toHaveBeenCalled();
+        expect(mockConnectionService.startServer).toHaveBeenCalled(); // Should be called when primary
     });
 
     test('should become secondary when connection to primary port succeeds', async () => {
+        // Mock MultiWindowService to return secondary state
+        mockMultiWindowService.getIsPrimary.mockReturnValue(false);
+        
         const server = new IPCServer(
-            30001,
             'test-window-id',
             mockContext,
             mockOutputChannel as any,
-            mockSearchService as any,
-            mockWorkspaceService as any,
-            mockDiagnosticsService as any,
-            mockFilterService as any,
-            mockCommandRegistry as any,
-            mockAggregationService as any
+            mockWorkspaceService,
+            mockConnectionService,
+            mockMultiWindowService,
+            mockCommandRegistry
         );
 
-        server.start();
+        await server.start();
 
-        await new Promise(resolve => setTimeout(resolve, 10));
-
-        const testClient = createdWebSockets[0];
-        expect(testClient).toBeDefined();
-        testClient.emit('open');
-
-        await new Promise(resolve => setTimeout(resolve, 50));
-
-        expect((server as any).isPrimary).toBe(false);
-        expect(testClient.close).toHaveBeenCalled();
+        // Verify that multiWindowService.start() was called and no primary server setup
+        expect(mockMultiWindowService.start).toHaveBeenCalled();
+        expect(mockConnectionService.startServer).not.toHaveBeenCalled(); // Should NOT be called when secondary
     });
 });
 
 describe('IPCServer - Primary Role', () => {
     let mockOutputChannel: MockOutputChannel;
-    let mockSearchService: SearchService;
-    let mockWorkspaceService: WorkspaceService;
+    let mockWorkspaceService: any;
+    let mockConnectionService: any;
+    let mockMultiWindowService: any;
+    let mockCommandRegistry: any;
     let server: IPCServer;
     let mockSecondaryWs: MockWebSocket;
     let mockCEWs: MockWebSocket;
@@ -301,9 +305,7 @@ describe('IPCServer - Primary Role', () => {
     beforeEach(() => {
         jest.clearAllMocks();
         mockOutputChannel = new MockOutputChannel();
-        mockSearchService = {
-            search: jest.fn().mockResolvedValue([])
-        } as any;
+        
         mockWorkspaceService = {
             getWorkspaceFolders: jest.fn().mockReturnValue([{
                 uri: vscode.Uri.parse('file:///workspace'),
@@ -312,17 +314,34 @@ describe('IPCServer - Primary Role', () => {
             }]),
             isWorkspaceTrusted: jest.fn().mockReturnValue(true),
             getWorkspaceFolder: jest.fn(),
-            ensureWorkspaceTrustedAndOpen: jest.fn().mockResolvedValue(undefined)  // Add this mock!
-        } as any;
-        mockDiagnosticsService = { // Initialize in beforeEach
-            getProblemsForWorkspace: jest.fn().mockReturnValue({ problemsString: '', problemCount: 0 })
+            ensureWorkspaceTrustedAndOpen: jest.fn().mockResolvedValue(undefined)
         };
-        mockFilterService = {
-            createFilterForWorkspace: jest.fn().mockResolvedValue({
-                filter: { ignores: jest.fn().mockReturnValue(false) },
-                type: 'default'
-            })
+        
+        mockConnectionService = {
+            startServer: jest.fn().mockResolvedValue(30001),
+            sendMessage: jest.fn(),
+            sendError: jest.fn(),
+            getClients: jest.fn().mockReturnValue(new Map()),
+            updateClient: jest.fn(),
+            stop: jest.fn()
         };
+        
+        mockMultiWindowService = {
+            start: jest.fn().mockResolvedValue(undefined),
+            getIsPrimary: jest.fn().mockReturnValue(true),
+            getSecondaryClients: jest.fn().mockReturnValue(new Map()),
+            handleRegisterSecondary: jest.fn(),
+            handleUnregisterSecondary: jest.fn(),
+            broadcastToSecondaries: jest.fn(),
+            handleForwardedResponse: jest.fn(),
+            handleForwardedPush: jest.fn(),
+            handleSnippetSendRequest: jest.fn(),
+            removeSecondaryClient: jest.fn(),
+            sendResponseToPrimary: jest.fn(),
+            stop: jest.fn(),
+            onForwardRequestReceived: undefined
+        };
+        
         mockCommandRegistry = {
             register: jest.fn(),
             getHandler: jest.fn().mockImplementation((command: string) => {
@@ -374,25 +393,16 @@ describe('IPCServer - Primary Role', () => {
                 return undefined;
             })
         };
-        mockAggregationService = {
-            startAggregation: jest.fn(),
-            addResponse: jest.fn(),
-            addPrimaryResponse: jest.fn().mockReturnValue(false),
-            isMessagePartOfAggregation: jest.fn().mockReturnValue(false)
-        };
 
         // Create server instance
         server = new IPCServer(
-            30001,
             'primary-window-id',
             mockContext,
             mockOutputChannel as any,
-            mockSearchService as any,
-            mockWorkspaceService as any,
-            mockDiagnosticsService as any,
-            mockFilterService as any,
-            mockCommandRegistry as any,
-            mockAggregationService as any
+            mockWorkspaceService,
+            mockConnectionService,
+            mockMultiWindowService,
+            mockCommandRegistry
         );
 
         // Manually set as primary
@@ -418,24 +428,21 @@ describe('IPCServer - Primary Role', () => {
             ip: '127.0.0.1'
         };
 
-        (server as any).clients.set(mockSecondaryWs, client);
+        // Mock the ConnectionService to return this client
+        mockConnectionService.getClients.mockReturnValue(new Map([[mockSecondaryWs, client]]));
 
         await (server as any).handleMessage(client, Buffer.from(JSON.stringify(message)));
 
-        expect((server as any).secondaryClients.has('secondary-window-id')).toBe(true);
-        expect((server as any).secondaryClients.get('secondary-window-id')).toBe(mockSecondaryWs);
-
-        expect(mockSecondaryWs.send).toHaveBeenCalled();
-        const response = JSON.parse(mockSecondaryWs.send.mock.calls[0][0]);
-        expect(response.type).toBe('response');
-        expect(response.command).toBe('response_generic_ack');
-        expect(response.payload.success).toBe(true);
+        // Verify the services were called correctly
+        expect(mockConnectionService.updateClient).toHaveBeenCalledWith(mockSecondaryWs, { windowId: "secondary-window-id" });
+        expect(mockMultiWindowService.handleRegisterSecondary).toHaveBeenCalledWith(client, { windowId: "secondary-window-id", port: 0 });
+        expect(mockConnectionService.sendMessage).toHaveBeenCalled();
     });
 
     test('should forward requests from CE to all secondaries', async () => {
-        // Setup: Register a secondary properly
+        // Setup: Mock MultiWindowService to return a secondary client
         const secondaryWindowId = 'secondary-window-id';
-        (server as any).secondaryClients.set(secondaryWindowId, mockSecondaryWs);
+        mockMultiWindowService.getSecondaryClients.mockReturnValue(new Map([[secondaryWindowId, mockSecondaryWs]]));
 
         // Ensure the mock WebSocket is in OPEN state
         mockSecondaryWs.readyState = MockWebSocket.OPEN;
@@ -447,7 +454,6 @@ describe('IPCServer - Primary Role', () => {
             ip: '192.168.1.100'
             // No windowId property - this is important for broadcast logic
         };
-        (server as any).clients.set(mockCEWs, ceClient);
 
         // Create search request from CE
         const searchRequest: IPCMessageRequest = {
@@ -458,27 +464,14 @@ describe('IPCServer - Primary Role', () => {
             payload: { query: "test", workspaceFolderUri: null }
         };
 
-        // Mock search results for primary
-        (mockSearchService.search as jest.Mock).mockResolvedValueOnce([{
-            path: '/workspace/test.js',
-            name: 'test.js',
-            type: 'file',
-            uri: 'file:///workspace/test.js',
-            content_source_id: 'file:///workspace/test.js',
-            workspaceFolderUri: 'file:///workspace',
-            workspaceFolderName: 'TestWorkspace',
-            relativePath: 'test.js'
-        }]);
+        // Mock command handlers are already set up in beforeEach
 
         await (server as any).handleMessage(ceClient, Buffer.from(JSON.stringify(searchRequest)));
 
         await new Promise(resolve => setTimeout(resolve, 50));
 
-        // Verify forward_request_to_secondaries was sent
-        expect(mockSecondaryWs.send).toHaveBeenCalled();
-        const forwardedMessage = JSON.parse(mockSecondaryWs.send.mock.calls[0][0]);
-        expect(forwardedMessage.command).toBe('forward_request_to_secondaries');
-        expect(forwardedMessage.payload.originalRequest.command).toBe('search_workspace');
+        // Verify broadcastToSecondaries was called
+        expect(mockMultiWindowService.broadcastToSecondaries).toHaveBeenCalledWith(searchRequest, mockCEWs);
     });
 
     test.skip('should aggregate responses correctly', async () => {
@@ -578,47 +571,17 @@ describe('IPCServer - Primary Role', () => {
             isAuthenticated: true,
             ip: '127.0.0.1'
         };
-        (server as any).clients.set(mockCEWs, client);
 
-        // Mock file system reads
-        (vscode.workspace.fs.readFile as jest.Mock)
-            .mockResolvedValueOnce(Buffer.from('console.log("file1");')) // file1.ts
-            .mockResolvedValueOnce(Buffer.from('console.log("file2");')) // file2.js
-            .mockRejectedValueOnce(new vscode.FileSystemError('File not found')); // nonexistent.txt
-
-        // Mock getWorkspaceFolder for file1.ts and file2.js
-        (mockWorkspaceService.getWorkspaceFolder as jest.Mock)
-            .mockReturnValueOnce({
-                uri: vscode.Uri.parse('file:///workspace'),
-                name: 'TestWorkspace',
-                index: 0
-            })
-            .mockReturnValueOnce({
-                uri: vscode.Uri.parse('file:///workspace'),
-                name: 'TestWorkspace',
-                index: 0
-            });
+        // Make sure there are no secondary clients so it doesn't try to broadcast
+        mockMultiWindowService.getSecondaryClients.mockReturnValue(new Map());
 
         await (server as any).handleMessage(client, Buffer.from(JSON.stringify(request)));
 
-        expect(mockCEWs.send).toHaveBeenCalledTimes(1);
-        const response = JSON.parse(mockCEWs.send.mock.calls[0][0]);
-
-        expect(response.type).toBe('response');
-        expect(response.command).toBe('response_contents_for_files');
-        expect(response.payload.success).toBe(true);
-        expect(response.payload.data).toHaveLength(2); // Two successful files
-        expect(response.payload.errors).toHaveLength(1); // One error
-
-        // Verify successful file data
-        expect(response.payload.data[0].fileData.fullPath).toContain('file1.ts');
-        expect(response.payload.data[0].fileData.content).toBe('console.log("file1");');
-        expect(response.payload.data[1].fileData.fullPath).toContain('file2.js');
-        expect(response.payload.data[1].fileData.content).toBe('console.log("file2");');
-
-        // Verify error data
-        expect(response.payload.errors[0].uri).toBe('file:///workspace/nonexistent.txt');
-        expect(response.payload.errors[0].errorCode).toBe('FILE_NOT_FOUND');
+        // Verify the command handler was called
+        expect(mockCommandRegistry.getHandler).toHaveBeenCalledWith('get_contents_for_files');
+        
+        // Verify the connection service was used to send the response
+        expect(mockConnectionService.sendMessage).toHaveBeenCalled();
     });
 
     test.skip('should use primary response for default aggregation case', async () => {
@@ -673,17 +636,17 @@ describe('IPCServer - Primary Role', () => {
 
 describe('IPCServer - Secondary Role', () => {
     let mockOutputChannel: MockOutputChannel;
-    let mockSearchService: SearchService;
-    let mockWorkspaceService: WorkspaceService;
+    let mockWorkspaceService: any;
+    let mockConnectionService: any;
+    let mockMultiWindowService: any;
+    let mockCommandRegistry: any;
     let server: IPCServer;
     let mockPrimaryWs: MockWebSocket;
 
     beforeEach(() => {
         jest.clearAllMocks();
         mockOutputChannel = new MockOutputChannel();
-        mockSearchService = {
-            search: jest.fn().mockResolvedValue([])
-        } as any;
+        
         mockWorkspaceService = {
             getWorkspaceFolders: jest.fn().mockReturnValue([{
                 uri: vscode.Uri.parse('file:///workspace2'),
@@ -692,17 +655,34 @@ describe('IPCServer - Secondary Role', () => {
             }]),
             isWorkspaceTrusted: jest.fn().mockReturnValue(true),
             getWorkspaceFolder: jest.fn(),
-            ensureWorkspaceTrustedAndOpen: jest.fn().mockResolvedValue(undefined)  // Add this mock!
-        } as any;
-        mockDiagnosticsService = { // Initialize in beforeEach
-            getProblemsForWorkspace: jest.fn().mockReturnValue({ problemsString: '', problemCount: 0 })
+            ensureWorkspaceTrustedAndOpen: jest.fn().mockResolvedValue(undefined)
         };
-        mockFilterService = {
-            createFilterForWorkspace: jest.fn().mockResolvedValue({
-                filter: { ignores: jest.fn().mockReturnValue(false) },
-                type: 'default'
-            })
+        
+        mockConnectionService = {
+            startServer: jest.fn().mockResolvedValue(30001),
+            sendMessage: jest.fn(),
+            sendError: jest.fn(),
+            getClients: jest.fn().mockReturnValue(new Map()),
+            updateClient: jest.fn(),
+            stop: jest.fn()
         };
+        
+        mockMultiWindowService = {
+            start: jest.fn().mockResolvedValue(undefined),
+            getIsPrimary: jest.fn().mockReturnValue(false), // Secondary
+            getSecondaryClients: jest.fn().mockReturnValue(new Map()),
+            handleRegisterSecondary: jest.fn(),
+            handleUnregisterSecondary: jest.fn(),
+            broadcastToSecondaries: jest.fn(),
+            handleForwardedResponse: jest.fn(),
+            handleForwardedPush: jest.fn(),
+            handleSnippetSendRequest: jest.fn(),
+            removeSecondaryClient: jest.fn(),
+            sendResponseToPrimary: jest.fn(),
+            stop: jest.fn(),
+            onForwardRequestReceived: undefined
+        };
+        
         mockCommandRegistry = {
             register: jest.fn(),
             getHandler: jest.fn().mockImplementation((command: string) => {
@@ -754,25 +734,16 @@ describe('IPCServer - Secondary Role', () => {
                 return undefined;
             })
         };
-        mockAggregationService = {
-            startAggregation: jest.fn(),
-            addResponse: jest.fn(),
-            addPrimaryResponse: jest.fn().mockReturnValue(false),
-            isMessagePartOfAggregation: jest.fn().mockReturnValue(false)
-        };
 
         // Create server instance
         server = new IPCServer(
-            30001,
             'secondary-window-id',
             mockContext,
             mockOutputChannel as any,
-            mockSearchService as any,
-            mockWorkspaceService as any,
-            mockDiagnosticsService as any,
-            mockFilterService as any,
-            mockCommandRegistry as any,
-            mockAggregationService as any
+            mockWorkspaceService,
+            mockConnectionService,
+            mockMultiWindowService,
+            mockCommandRegistry
         );
 
         // Manually set as secondary
@@ -806,29 +777,14 @@ describe('IPCServer - Secondary Role', () => {
         // Call handleSnippetSendRequest
         server.handleSnippetSendRequest(snippetData);
 
-        // Verify forward_push_to_primary was sent
-        expect(mockPrimaryWs.send).toHaveBeenCalledTimes(1);
-        const forwardedPush = JSON.parse(mockPrimaryWs.send.mock.calls[0][0]);
-        expect(forwardedPush.type).toBe('push');
-        expect(forwardedPush.command).toBe('forward_push_to_primary');
-        expect(forwardedPush.payload.originalPushPayload.snippet).toBe(snippetData.snippet);
-        expect(forwardedPush.payload.originalPushPayload.windowId).toBe('secondary-window-id');
-        expect(forwardedPush.payload.originalPushPayload.metadata.windowId).toBe('secondary-window-id');
+        // Verify MultiWindowService.handleSnippetSendRequest was called
+        expect(mockMultiWindowService.handleSnippetSendRequest).toHaveBeenCalledWith(
+            snippetData,
+            mockConnectionService
+        );
     });
 
     test('should handle forwarded request and send back response', async () => {
-        // Mock search results
-        (mockSearchService.search as jest.Mock).mockResolvedValueOnce([{
-            path: '/workspace2/secondary-file.js',
-            name: 'secondary-file.js',
-            type: 'file',
-            uri: 'file:///workspace2/secondary-file.js',
-            content_source_id: 'file:///workspace2/secondary-file.js',
-            workspaceFolderUri: 'file:///workspace2',
-            workspaceFolderName: 'Workspace2',
-            relativePath: 'secondary-file.js'
-        }]);
-
         // Create forwarded request
         const originalRequest: IPCMessageRequest = {
             protocol_version: "1.0",
@@ -839,31 +795,37 @@ describe('IPCServer - Secondary Role', () => {
         };
 
         const aggregationId = uuidv4();
-        const forwardedMessage = {
-            protocol_version: "1.0",
-            message_id: aggregationId,
-            type: "request",
-            command: 'forward_request_to_secondaries',
-            payload: { originalRequest }
-        };
 
-        // Ensure the mock primary WebSocket is in OPEN state
-        mockPrimaryWs.readyState = MockWebSocket.OPEN;
+        // Clear previous mock calls
+        jest.clearAllMocks();
 
-        await (server as any).handleSecondaryMessage(Buffer.from(JSON.stringify(forwardedMessage)));
+        // Mock ConnectionService.sendMessage to actually capture the sent payload
+        let capturedPayload: any = null;
+        mockConnectionService.sendMessage.mockImplementation((ws: any, type: any, command: any, payload: any, message_id?: string) => {
+            capturedPayload = payload;
+            // Simulate calling the mock WebSocket send method
+            if (ws && ws.send) {
+                const message = {
+                    protocol_version: '1.0',
+                    message_id: message_id || 'test-id',
+                    type,
+                    command,
+                    payload
+                };
+                ws.send(JSON.stringify(message));
+            }
+        });
 
-        await new Promise(resolve => setTimeout(resolve, 50));
+        // Call the handleForwardedRequest method directly
+        await server['handleForwardedRequest'](originalRequest, aggregationId);
 
-        expect(mockPrimaryWs.send).toHaveBeenCalled();
-        const response = JSON.parse(mockPrimaryWs.send.mock.calls[0][0]);
-        expect(response.type).toBe('push');
-        expect(response.command).toBe('forward_response_to_primary');
-        expect(response.payload.originalMessageId).toBe(aggregationId);
-
-        expect(response.payload.originalMessageId).toBe(aggregationId);
-        expect(response.payload.responsePayload).toBeTruthy();
-        expect(response.payload.responsePayload.data.results.length).toBe(1);
-        expect(response.payload.responsePayload.data.results[0].windowId).toBe('secondary-window-id');
-        expect(response.payload.responsePayload.data.windowId).toBe('secondary-window-id');
+        // Verify that ConnectionService.sendMessage was called (which means the command was handled)
+        expect(mockConnectionService.sendMessage).toHaveBeenCalled();
+        
+        // Verify that the MultiWindowService.sendResponseToPrimary was eventually called
+        expect(mockMultiWindowService.sendResponseToPrimary).toHaveBeenCalledWith(
+            aggregationId,
+            capturedPayload
+        );
     });
 });

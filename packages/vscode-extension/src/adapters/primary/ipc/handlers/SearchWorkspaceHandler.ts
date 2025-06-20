@@ -9,8 +9,8 @@ import { Logger } from '@contextweaver/shared';
 
 import { ICommandHandler } from '../ICommandHandler';
 import { ClientContext } from '../types';
-import { SearchService } from '../../../../searchService';
-import { WorkspaceServiceError } from '../../../../workspaceService';
+import { SearchService } from '../../../../core/services/SearchService';
+import { WorkspaceServiceError } from '../../../../core/services/WorkspaceService';
 import {
     SearchWorkspaceRequestPayload,
     SearchWorkspaceResponsePayload as CWSearchWorkspaceResponsePayload

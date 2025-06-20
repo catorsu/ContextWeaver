@@ -1,5 +1,5 @@
 /**
- * @file searchService.ts
+ * @file SearchService.ts
  * @description Provides search functionality for files and folders within the workspace.
  * @module ContextWeaver/VSCE
  */
@@ -8,9 +8,9 @@ import * as vscode from 'vscode';
 import path from 'path';
 import { Ignore } from 'ignore';
 import { Logger } from '@contextweaver/shared';
-import { WorkspaceService } from './workspaceService';
+import { WorkspaceService } from './WorkspaceService';
 import { FilterType } from '@contextweaver/shared';
-import { IFilterService } from './core/ports/IFilterService';
+import { IFilterService } from '../ports/IFilterService';
 
 // Local type for search results without windowId (which is added later in ipcServer)
 type LocalSearchResult = {

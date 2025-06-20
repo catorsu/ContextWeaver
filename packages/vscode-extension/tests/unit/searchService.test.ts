@@ -34,8 +34,8 @@ jest.mock('vscode', () => ({
 
 // Now import modules that use vscode
 import * as vscode from 'vscode';
-import { SearchService } from '../../src/searchService';
-import { WorkspaceService } from '../../src/workspaceService';
+import { SearchService } from '../../src/core/services/SearchService';
+import { WorkspaceService } from '../../src/core/services/WorkspaceService';
 import { IFilterService } from '../../src/core/ports/IFilterService';
 import { FilterType } from '@contextweaver/shared';
 import ignore, { Ignore } from 'ignore';

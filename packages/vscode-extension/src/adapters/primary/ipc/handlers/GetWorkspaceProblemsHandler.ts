@@ -10,8 +10,8 @@ import { Logger } from '@contextweaver/shared';
 
 import { ICommandHandler } from '../ICommandHandler';
 import { ClientContext } from '../types';
-import { WorkspaceService } from '../../../../workspaceService';
-import { DiagnosticsService } from '../../../../diagnosticsService';
+import { WorkspaceService } from '../../../../core/services/WorkspaceService';
+import { DiagnosticsService } from '../../../../core/services/DiagnosticsService';
 import {
     GetWorkspaceProblemsRequestPayload,
     WorkspaceProblemsResponsePayload,

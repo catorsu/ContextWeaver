@@ -8,21 +8,14 @@ import WebSocket from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 import { Logger, extractErrorInfo } from '@contextweaver/shared';
 import { IAggregationService } from '../ports/IAggregationService';
+import { AggregationStrategyFactory } from '../../adapters/primary/ipc/aggregation/AggregationStrategyFactory';
+import { AggregationResponse } from '../entities/Aggregation';
 
 // Import types from shared module
 import {
-    SearchWorkspaceResponsePayload as CWSearchWorkspaceResponsePayload,
-    ErrorResponsePayload,
-    SearchResult as CWSearchResult,
-    FileContentResponseData,
     IPCBaseMessage,
     IPCMessageResponse
 } from '@contextweaver/shared';
-
-interface AggregationResponse {
-    windowId: string;
-    payload: unknown;
-}
 
 interface AggregationSession {
     originalRequester: WebSocket;
@@ -43,9 +36,11 @@ export class AggregationService implements IAggregationService {
     private messageIdToAggregationId: Map<string, string> = new Map();
     private readonly logger = new Logger('AggregationService');
     private readonly windowId: string;
+    private readonly strategyFactory: AggregationStrategyFactory;
 
-    constructor(windowId: string) {
+    constructor(windowId: string, strategyFactory: AggregationStrategyFactory) {
         this.windowId = windowId;
+        this.strategyFactory = strategyFactory;
         this.logger.info(`AggregationService initialized for window ${windowId}`);
     }
 
@@ -156,110 +151,12 @@ export class AggregationService implements IAggregationService {
             this.messageIdToAggregationId.delete(aggregation.originalMessageId);
         }, 2000);
 
-        // Aggregate responses based on command type
-        let aggregatedPayload: unknown;
+        // Use strategy pattern to aggregate responses based on command type
         const command = aggregation.originalCommand;
+        const strategy = this.strategyFactory.createStrategy(command);
+        const aggregatedPayload = strategy.aggregate(aggregation.responses);
 
-        switch (command) {
-            case 'search_workspace': {
-                // Combine search results
-                const allResults: CWSearchResult[] = [];
-                const allErrors: { windowId: string, error: string, errorCode?: string }[] = [];
-                for (const response of aggregation.responses) {
-                    // response.payload is a SearchWorkspaceResponsePayload or ErrorResponsePayload
-                    const payload = response.payload as CWSearchWorkspaceResponsePayload | ErrorResponsePayload;
-                    if (payload.success && 'data' in payload && payload.data?.results) {
-                        allResults.push(...payload.data.results);
-                    } else if (!payload.success) {
-                        allErrors.push({
-                            windowId: response.windowId,
-                            error: payload.error || 'Unknown error from secondary',
-                            errorCode: payload.errorCode
-                        });
-                    }
-                }
-                aggregatedPayload = {
-                    success: allErrors.length === 0,
-                    data: { results: allResults, windowId: this.windowId, errors: allErrors.length > 0 ? allErrors : undefined },
-                    error: null
-                };
-                break;
-            }
- 
-            case 'get_workspace_details': {
-                const allFolders: Array<{ uri: string; name: string; isTrusted: boolean }> = [];
-                let isTrusted = true;
-                let primaryWorkspaceName: string | undefined;
- 
-                for (const response of aggregation.responses) {
-                    const payload = response.payload as { data?: { workspaceFolders?: Array<{ uri: string; name: string; isTrusted: boolean }>; isTrusted?: boolean; workspaceName?: string } };
-                    if (payload?.data?.workspaceFolders) {
-                        allFolders.push(...payload.data.workspaceFolders);
-                    }
-                    if (payload?.data?.isTrusted === false) isTrusted = false;
-                    if (response.windowId === this.windowId) primaryWorkspaceName = payload?.data?.workspaceName;
-                }
-                aggregatedPayload = {
-                    success: true,
-                    data: { isTrusted, workspaceFolders: allFolders, workspaceName: primaryWorkspaceName },
-                    error: null
-                };
-                break;
-            }
-
-            case 'get_open_files': {
-                // Combine open files
-                const allOpenFiles: Array<{
-                    path: string;
-                    name: string;
-                    workspaceFolderUri: string | null;
-                    workspaceFolderName: string | null;
-                    windowId: string;
-                }> = [];
-                for (const response of aggregation.responses) {
-                    const payload = response.payload as { data?: { openFiles?: typeof allOpenFiles } };
-                    if (payload?.data?.openFiles) {
-                        allOpenFiles.push(...payload.data.openFiles);
-                    }
-                }
-                aggregatedPayload = {
-                    success: true,
-                    data: { openFiles: allOpenFiles },
-                    error: null
-                };
-                break;
-            }
-
-            case 'get_contents_for_files': {
-                const allData: FileContentResponseData[] = [];
-                const allErrors: { uri: string; error: string; errorCode?: string }[] = [];
-                for (const response of aggregation.responses) {
-                    // The payload of each response is a ContentsForFilesResponsePayload
-                    const payload = response.payload as { data?: FileContentResponseData[]; errors?: typeof allErrors };
-                    if (payload?.data) {
-                        allData.push(...payload.data);
-                    }
-                    if (payload?.errors) {
-                        allErrors.push(...payload.errors);
-                    }
-                }
-                aggregatedPayload = {
-                    success: true,
-                    data: allData,
-                    errors: allErrors,
-                    error: null
-                };
-                break;
-            }
-
-            // Add more aggregation logic for other commands as needed
-            default: {
-                // For commands that don't need special aggregation, prioritize the primary's response.
-                // This avoids non-deterministic behavior where a secondary's response might be used.
-                const primaryResponse = aggregation.responses.find(r => r.windowId === this.windowId);
-                aggregatedPayload = primaryResponse?.payload || aggregation.responses[0]?.payload || { success: false, error: 'No responses received' };
-            }
-        }
+        this.logger.debug(`Aggregation completed using strategy for command: ${command}`);
 
         // Send aggregated response
         this.sendMessage(aggregation.originalRequester, 'response', `response_${command}` as IPCMessageResponse['command'], aggregatedPayload, aggregation.originalMessageId, true);

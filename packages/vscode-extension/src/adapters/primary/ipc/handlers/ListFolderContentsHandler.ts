@@ -10,8 +10,8 @@ import { Logger } from '@contextweaver/shared';
 import { ICommandHandler } from '../ICommandHandler';
 import { ClientContext } from '../types';
 import { IFilterService } from '../../../../core/ports/IFilterService';
-import { WorkspaceService } from '../../../../workspaceService';
-import { getDirectoryListing } from '../../../../fileSystemService';
+import { WorkspaceService } from '../../../../core/services/WorkspaceService';
+import { FileSystemService } from '../../../../core/services/FileSystemService';
 import {
     ListFolderContentsRequestPayload,
     ListFolderContentsResponsePayload
@@ -27,6 +27,7 @@ export class ListFolderContentsHandler implements ICommandHandler<ListFolderCont
     constructor(
         private readonly filterService: IFilterService,
         private readonly workspaceService: WorkspaceService,
+        private readonly fileSystemService: FileSystemService,
         private readonly windowId: string
     ) {}
 
@@ -48,7 +49,7 @@ export class ListFolderContentsHandler implements ICommandHandler<ListFolderCont
             const targetWorkspaceFolder = await this.getTargetWorkspaceFolder(workspaceFolderUri, 'list_folder_contents');
 
             const filter = await this.filterService.createFilterForWorkspace(targetWorkspaceFolder);
-            const result = await getDirectoryListing(
+            const result = await this.fileSystemService.getDirectoryListing(
                 folderUri,
                 targetWorkspaceFolder,
                 filter

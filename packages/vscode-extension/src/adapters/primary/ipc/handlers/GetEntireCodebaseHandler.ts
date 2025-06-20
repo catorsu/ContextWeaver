@@ -11,8 +11,8 @@ import { Logger } from '@contextweaver/shared';
 import { ICommandHandler } from '../ICommandHandler';
 import { ClientContext } from '../types';
 import { IFilterService } from '../../../../core/ports/IFilterService';
-import { WorkspaceService, WorkspaceServiceError } from '../../../../workspaceService';
-import { getWorkspaceDataForIPC } from '../../../../fileSystemService';
+import { WorkspaceService, WorkspaceServiceError } from '../../../../core/services/WorkspaceService';
+import { FileSystemService } from '../../../../core/services/FileSystemService';
 import {
     GetEntireCodebaseRequestPayload,
     EntireCodebaseResponsePayload,
@@ -29,6 +29,7 @@ export class GetEntireCodebaseHandler implements ICommandHandler<GetEntireCodeba
     constructor(
         private readonly filterService: IFilterService,
         private readonly workspaceService: WorkspaceService,
+        private readonly fileSystemService: FileSystemService,
         private readonly windowId: string
     ) { }
 
@@ -47,7 +48,7 @@ export class GetEntireCodebaseHandler implements ICommandHandler<GetEntireCodeba
 
         try {
             const filter = await this.filterService.createFilterForWorkspace(targetWorkspaceFolder);
-            const result = await getWorkspaceDataForIPC(targetWorkspaceFolder, filter);
+            const result = await this.fileSystemService.getWorkspaceDataForIPC(targetWorkspaceFolder, filter);
 
             if (!result || typeof result === 'string') {
                 throw new Error(typeof result === 'string' ? result : 'Failed to read codebase.');

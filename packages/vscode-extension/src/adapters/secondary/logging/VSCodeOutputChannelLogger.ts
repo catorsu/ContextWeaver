@@ -1,5 +1,5 @@
 /**
- * @file vsceLogger.ts
+ * @file VSCodeOutputChannelLogger.ts
  * @description Implements the ILoggerOutput interface for the VS Code Extension,
  * directing logs to the VS Code OutputChannel and the Debug Console.
  * @module ContextWeaver/VSCE
