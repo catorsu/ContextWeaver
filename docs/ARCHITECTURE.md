@@ -74,31 +74,35 @@ graph TD
 
 ### 4.1. VS Code Extension (VSCE)
 
-The VS Code Extension acts as the backend data provider for the system. Its architecture is service-oriented, with a central `IPCServer` that acts as the primary entry point for requests from the Chrome Extension.
+The VS Code Extension acts as the backend data provider for the system. Its architecture follows a **hexagonal (ports and adapters)** pattern, separating core application logic from infrastructure concerns.
 
 ```mermaid
 graph TD
-    subgraph "VSCode Extension Core"
-        A[extension.ts] --> B(IPCServer)
-        A --> C(SearchService)
-        A --> D(WorkspaceService)
-        A --> E(SnippetService)
-        A --> F(DiagnosticsService)
-
-        B -- routes to --> C
-        B -- routes to --> D
-        B -- routes to --> G(fileSystemService.ts)
-        B -- routes to --> F
-        B -- uses --> E
-
-        C -- uses --> D
-        C -- uses --> G
-        G -- uses --> D
-        F -- uses --> D
+    subgraph "VSCode Extension"
+        direction TB
+        subgraph "Adapters (Infrastructure)"
+            A[ipcServer.ts]
+            B[CommandRegistry.ts]
+            C[Command Handlers]
+        end
+        subgraph "Core (Application Logic)"
+            D[WorkspaceService]
+            E[FileSystemService]
+            F[FilterService]
+            G[SearchService]
+            H[DiagnosticsService]
+            I[AggregationService]
+            J[SnippetService]
+        end
+        K[extension.ts] -- Wires up --> A
+        K -- Wires up --> D & E & F & G & H & I & J
+        A -- Uses --> B
+        B -- Routes to --> C
+        C -- Uses --> D & E & F & G & H & I
     end
 
     subgraph "External Communication"
-        H[Chrome Extension IPCClient] <--> B
+        L[Chrome Extension] -- WebSocket --> A
     end
 ```
 
@@ -108,14 +112,21 @@ graph TD
     *   **IPC Server:** Hosting a local server (WebSocket) to listen for requests from the CE. Includes port fallback mechanism and message routing.
     *   **Snippet Handling:** Capturing selected code snippets and pushing them to the CE.
     *   **Workspace Management:** Handling multi-root workspaces and respecting VS Code's Workspace Trust feature.
+    *   **Multi-Window Aggregation:** Coordinating requests and aggregating responses from multiple open VS Code windows.
 *   **Key Modules:**
     *   `extension.ts`: The main entry point for the VSCE, responsible for activating and coordinating all services and the IPC server. It also registers commands, such as the one for sending snippets.
-    *   `ipcServer.ts`: The **primary adapter** for external communication. It manages the WebSocket server, handles client connections, routes incoming IPC requests to the appropriate service methods, and contains the logic for handling outgoing pushes (like snippets). It also implements the primary/secondary architecture for multi-window support.
-    *   `WorkspaceService.ts`: Centralizes all logic for interacting with the VS Code workspace API, such as getting workspace folders and checking the trust state. It acts as a foundational service used by other services.
-    *   `fileSystemService.ts`: Handles all direct interactions with the file system (reading files, listing directories, traversing structures) via the VS Code `fs` API. It encapsulates the logic for `.gitignore` parsing and applying filtering rules.
-    *   `searchService.ts`: Provides file/folder search capabilities, utilizing the `WorkspaceService` and `fileSystemService` to perform filtered searches across trusted folders.
-    *   `diagnosticsService.ts`: Responsible for fetching and formatting workspace diagnostics (problems) from VS Code's language services.
-    *   `snippetService.ts`: Prepares snippet data (selected text, file path, line numbers, etc.). It is used by the `sendSnippet` command handler in `extension.ts`.
+    *   `ipcServer.ts`: The primary adapter for external communication. It manages the WebSocket server, handles client connections, and contains the logic for the primary/secondary multi-window architecture.
+    *   `adapters/primary/ipc/`:
+        *   `CommandRegistry.ts`: Routes incoming IPC requests to the appropriate command handlers.
+        *   `handlers/`: Directory containing individual command handlers (e.g., `GetFileTreeHandler`, `SearchWorkspaceHandler`), each implementing the logic for a specific IPC command.
+    *   `core/services/`:
+        *   `AggregationService.ts`: Manages the aggregation of responses from multiple VS Code windows.
+        *   `FilterService.ts`: Manages `.gitignore` and default ignore patterns.
+    *   `workspaceService.ts`: Centralizes all logic for interacting with the VS Code workspace API.
+    *   `fileSystemService.ts`: Handles all direct interactions with the file system via the VS Code `fs` API.
+    *   `searchService.ts`: Provides file/folder search capabilities.
+    *   `diagnosticsService.ts`: Fetches and formats workspace diagnostics (problems).
+    *   `snippetService.ts`: Prepares snippet data for the `sendSnippet` command.
 *   **Technology Stack:**
     *   TypeScript
     *   VS Code API
@@ -258,12 +269,16 @@ For those needing a complete file-by-file view, the following structure is provi
 <details>
 <summary>Click to expand the full file tree</summary>
 
+*Note: This file tree reflects the current state of the repository and may differ from older architectural diagrams.*
+
 ```
 .
 ├── docs
 │   ├── ARCHITECTURE.md
 │   ├── IPC_Protocol_Design.md
-│   └── SRS.md
+│   ├── REFACTORING_PLAN.md
+│   ├── SRS.md
+│   └── TROUBLESHOOTING_AND_LESSONS_LEARNED.md
 ├── packages
 │   ├── chrome-extension
 │   │   ├── .eslintrc.json
@@ -271,6 +286,27 @@ For those needing a complete file-by-file view, the following structure is provi
 │   │   ├── manifest.json
 │   │   ├── package.json
 │   │   ├── popup.html
+│   │   ├── assets
+│   │   │   ├── fonts
+│   │   │   │   └── MaterialSymbols-Variable.woff2
+│   │   │   └── icons
+│   │   │       ├── arrow_back.svg
+│   │   │       ├── check_box.svg
+│   │   │       ├── check_box_outline_blank.svg
+│   │   │       ├── close.svg
+│   │   │       ├── content_copy.svg
+│   │   │       ├── description.svg
+│   │   │       ├── docs_add_on.svg
+│   │   │       ├── folder.svg
+│   │   │       ├── folder_open.svg
+│   │   │       ├── info.svg
+│   │   │       ├── package_2.svg
+│   │   │       ├── search.svg
+│   │   │       └── warning_amber.svg
+│   │   ├── images
+│   │   │   ├── icon128.png
+│   │   │   ├── icon16.png
+│   │   │   └── icon48.png
 │   │   ├── src
 │   │   │   ├── ceLogger.ts
 │   │   │   ├── contentScript.ts
@@ -340,6 +376,7 @@ For those needing a complete file-by-file view, the following structure is provi
 │   │   ├── package.json
 │   │   ├── src
 │   │   │   ├── data-models.ts
+│   │   │   ├── error-types.ts
 │   │   │   ├── index.ts
 │   │   │   ├── ipc-types.ts
 │   │   │   └── logger.ts
@@ -350,6 +387,38 @@ For those needing a complete file-by-file view, the following structure is provi
 │       ├── jest.config.js
 │       ├── package.json
 │       ├── src
+│       │   ├── adapters
+│       │   │   └── primary
+│       │   │       └── ipc
+│       │   │           ├── CommandRegistry.ts
+│       │   │           ├── ICommandHandler.ts
+│       │   │           ├── types.ts
+│       │   │           └── handlers
+│       │   │               ├── GetActiveFileInfoHandler.ts
+│       │   │               ├── GetContentsForFilesHandler.ts
+│       │   │               ├── GetEntireCodebaseHandler.ts
+│       │   │               ├── GetFileContentHandler.ts
+│       │   │               ├── GetFileTreeHandler.ts
+│       │   │               ├── GetFilterInfoHandler.ts
+│       │   │               ├── GetFolderContentHandler.ts
+│       │   │               ├── GetOpenFilesHandler.ts
+│       │   │               ├── GetWorkspaceDetailsHandler.ts
+│       │   │               ├── GetWorkspaceProblemsHandler.ts
+│       │   │               ├── ListFolderContentsHandler.ts
+│       │   │               ├── RegisterActiveTargetHandler.ts
+│       │   │               └── SearchWorkspaceHandler.ts
+│       │   ├── core
+│       │   │   ├── ports
+│       │   │   │   ├── IAggregationService.ts
+│       │   │   │   └── IFilterService.ts
+│       │   │   └── services
+│       │   │       ├── AggregationService.ts
+│       │   │       └── FilterService.ts
+│       │   ├── ipc
+│       │   │   └── ports
+│       │   │       ├── ICommandHandler.ts
+│       │   │       ├── ICommandRegistry.ts
+│       │   │       └── IpcServer.ts
 │       │   ├── diagnosticsService.ts
 │       │   ├── extension.ts
 │       │   ├── fileSystemService.ts
@@ -357,15 +426,12 @@ For those needing a complete file-by-file view, the following structure is provi
 │       │   ├── searchService.ts
 │       │   ├── snippetService.ts
 │       │   ├── vsceLogger.ts
-│       │   ├── workspaceService.ts
-│       │   └── ipc
-│       │       └── ports
-│       │           ├── ICommandHandler.ts
-│       │           ├── ICommandRegistry.ts
-│       │           └── IpcServer.ts
+│       │   └── workspaceService.ts
 │       ├── tests
 │       │   └── unit
+│       │       ├── AggregationService.test.ts
 │       │       ├── fileSystemService.test.ts
+│       │       ├── FilterService.test.ts
 │       │       └── ipcServer.test.ts
 │       └── tsconfig.json
 ├── package.json

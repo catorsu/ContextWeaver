@@ -1,138 +1,113 @@
 # ContextWeaver Project Guidelines
 
-This guide provides instructions for working on the ContextWeaver project. Adherence to these guidelines is mandatory to ensure consistency, quality, and maintainability.
+## Project Overview
 
-## 1. Core Principles & Architecture
+**System Architecture:** ContextWeaver bridges VS Code and Chrome to insert project context into LLM chats via local IPC.
 
-This project follows strict architectural principles. Before making changes, you MUST be familiar with the project's documentation.
+**Key Project Documents:**
+- `docs/ARCHITECTURE.md` - System components, design decisions (D-XXX), package responsibilities
+- `docs/IPC_Protocol_Design.md` - Message types, payloads, error codes, protocol schemas  
+- `docs/SRS.md` - Functional requirements (FR-XXX), user workflows, system capabilities
 
-- **Separation of Concerns**: The project is divided into a data provider (VSCE) and a UI/presentation layer (CE). You MUST adhere to the specific roles and conventions defined for each package in Section 4. Refer to `docs/ARCHITECTURE.md` for more detail.
-- **Single Source of Truth (IPC)**: All IPC message types and data models are defined in `packages/shared`. YOU MUST use and import these shared types. Do not define local versions. Refer to `docs/IPC_Protocol_Design.md` and the files in `packages/shared/src/`.
-- **Documentation First**: For any changes affecting functionality, architecture, or IPC, you MUST update the relevant documents (`SRS.md`, `ARCHITECTURE.md`, `IPC_Protocol_Design.md`) before or alongside the code changes.
+**Shared Type Definitions:**
+- `packages/shared/src/ipc-types.ts` - All IPC message interfaces and payloads
+- `packages/shared/src/data-models.ts` - Core data structures (ContextBlockMetadata, FileData, etc.)
 
-## 2. Build & Compilation Workflow
+## Package Structure & Conventions
 
-The project is a TypeScript monorepo. The build order is critical.
+| Package | Module System | Role | Key Responsibilities |
+|---------|---------------|------|---------------------|
+| `packages/shared` | **ES Modules** | API Guardian | IPC types, data models, shared utilities |
+| `packages/vscode-extension` | **CommonJS** | Data Provider | File system access, IPC server, workspace management |
+| `packages/chrome-extension` | **ES Modules** | UI Implementer | User interface, IPC client, content insertion |
 
-- **Full Rebuild**: To perform a full, clean rebuild of the entire project, run the commands in this specific order from the root directory:
-  1. `npm run build --workspace=@contextweaver/shared`
-  2. `npm run compile --workspace=contextweaver-vscode`
-  3. `npm run build --workspace=contextweaver-chrome`
-- **Quick Check**: To quickly check for TypeScript errors across the project, run this from the root:
-  ```bash
-  npm run check
-  ```
+## Code Standards
 
-## 3. Testing & Linting
+### Critical Requirements
+- **Use Shared Types**: Import all IPC/data types from `@contextweaver/shared` - never create local duplicates
+- **Follow IPC Protocol**: Use exact message schemas from `packages/shared/src/ipc-types.ts`
+- **No `any` Types**: Use proper typing with `// TODO:` comments if unavoidable
+- **Use Defined Error Codes**: From IPC protocol (e.g., `WORKSPACE_NOT_TRUSTED`, `FILE_NOT_FOUND`)
 
-- **Run All Tests**: From the root directory, run all tests for all packages:
-  ```bash
-  npm test --workspaces --if-present
-  ```
-- **Run Specific Tests**: To run tests for a single package, navigate to its directory and run `npm test`. For example:
-  ```bash
-  cd packages/vscode-extension && npm test
-  ```
-- **Linting**: Run the linter from the root to check all packages:
-  ```bash
-  npm run lint --workspaces --if-present
-  ```
-- **Auto-fix Lint Issues**: To automatically fix simple linting issues:
-  ```bash
-  npm run lint --workspaces --if-present -- --fix
-  ```
+### JSDoc Documentation
 
-## 4. Code Style & Conventions
+**File Header** (required for all `.ts` files except `index.ts` and simple tests):
+```typescript
+/**
+ * @file filename.ts
+ * @description Brief purpose description.
+ * @module ContextWeaver/[VSCE|CE|Shared]
+ */
+```
 
-*You MUST prioritize and strictly follow the conventions and standards outlined below when generating or modifying code.*
+**API Documentation Priority:**
+- **MUST Document**: All exports in `packages/shared`, IPC handlers, core services (`*Service.ts`)
+- **SHOULD Document**: Complex business logic, multi-property interfaces
+- **MAY Skip**: Simple type aliases, self-explanatory constants (except in `packages/shared`)
 
-### Package-Specific Roles & Conventions
-Each package in the monorepo has specific technical rules and a distinct conceptual role. Adhere to the corresponding conventions when modifying a file.
+### Essential Code Patterns
 
-#### `packages/shared` (Role: API Guardian)
-- **Module System**: You MUST use **ES Modules** (`import`/`export`).
+**IPC Message Handling:**
+```typescript
+import { IPCMessageRequest, GetFileContentPayload } from '@contextweaver/shared';
 
-#### `packages/vscode-extension` (Role: Data Provider)
-- **Module System**: You MUST use **CommonJS** (`require`/`module.exports`).
+// Implements FR-VSCE-002: Data Provider - File Content
+async handleGetFileContent(payload: GetFileContentPayload): Promise<...>
+```
 
-#### `packages/chrome-extension` (Role: UI Implementer)
-- **Module System**: You MUST use **ES Modules** (`import`/`export`).
+**Error Responses:**
+```typescript
+return {
+  success: false,
+  error: "File not found",
+  errorCode: "FILE_NOT_FOUND"  // From IPC protocol
+};
+```
 
-#### General Rule for `utils` Folders
-- Helper functions within any `utils` sub-folder may have relaxed documentation standards for obvious, pure functions. However, you **MUST** document any helper that has side effects.
+**Metadata Objects:**
+```typescript
+const metadata: ContextBlockMetadata = {
+  unique_block_id: generateUUID(),
+  content_source_id: normalizedUri,
+  type: "file_content",
+  label: fileName,
+  workspaceFolderUri: folder.uri.toString(),
+  workspaceFolderName: folder.name,
+  windowId: this.windowId
+};
+```
 
-### Type Safety
-- **Constraint**: You MUST import and use types from `@contextweaver/shared` for all IPC messages and shared data models. Do not define local, duplicative types.
-- **Constraint**: You MUST NOT introduce new `any` types. The project is configured to warn on explicit `any`. If a temporary `any` is unavoidable, you MUST add a `// TODO:` comment explaining why and create a follow-up task to fix it.
+### Comment Guidelines
 
-### TypeScript Commenting Standards
+**Add Comments For:**
+- **FR Implementation**: `// Implements FR-CE-014: Context Block Indicator Display`
+- **Complex Logic**: `// Apply gitignore filtering with default patterns`
+- **Workarounds**: `// HACK: Chrome race condition workaround (issue #123)`
+- **Security**: `// Sanitize content to prevent tag injection`
 
-#### 1. File Header (JSDoc)
-A JSDoc file header is required for all `.ts` files except for `index.ts` re-export files and simple test files.
+**Never Comment:** Self-evident code actions or leave commented-out code blocks.
 
-- **Mandatory Format**:
-  ```typescript
-  /**
-   * @file filename.ts
-   * @description A brief, one-sentence summary of the file's purpose.
-   * @module ContextWeaver/[VSCE|CE|Shared]
-   */
-  ```
+## Build & Test Commands
 
-#### 2. API Documentation (JSDoc)
-All exported entities (`class`, `interface`, `type`, `enum`, `function`) require a JSDoc block based on the following priority tiers and package-specific overrides.
+**Full Clean Rebuild (execute in order):**
+```bash
+npm run build --workspace=@contextweaver/shared
+npm run compile --workspace=contextweaver-vscode  
+npm run build --workspace=contextweaver-chrome
+```
 
-**Package Overrides (Highest Priority):**
-- **`packages/shared`**: All Tier 1 and Tier 2 items MUST be documented. The "MAY Skip" rule does not apply. This package is the API contract and requires full documentation.
-- **`packages/vscode-extension` & `packages/chrome-extension`**: Follow the Tier 1/2/3 system below.
+**Quick Operations:**
+- **Type Check**: `npm run check`
+- **All Tests**: `npm test --workspaces --if-present`
+- **Lint & Fix**: `npm run lint --workspaces --if-present -- --fix`
 
-**Tier 1 - MUST Document (Strictly)**:
-- Public methods of exported classes.
-- Exported functions, especially those in service modules (`*Service.ts`).
-- Complex configuration objects.
+## Quick Reference Checklist
 
-**Tier 2 - SHOULD Document**:
-- Internal interfaces with multiple properties.
-- Helper functions with side effects.
-- Types requiring usage examples.
-
-**Tier 3 - MAY Skip (If Self-Documenting, except in `packages/shared`)**:
-- Simple type aliases (e.g., `type UserID = string;`).
-- Enums with descriptive values.
-- Constants with self-explanatory names (e.g., `const MAX_RETRIES = 5;`).
-
-- **Mandatory JSDoc Format**:
-  ```typescript
-  /**
-   * A brief description of the entity's purpose and usage.
-   * @param paramName - Description of the parameter's role. (Omit type if obvious from TS signature).
-   * @returns Description of the return value. (Omit type if obvious from TS signature).
-   */
-  ```
-
-#### 3. Inline Implementation Comments (`//`)
-The principle for inline comments is **justification, not description**.
-
-- **MUST Add Comments For**:
-    - **Complex Business Logic**: `// Apply 15% discount for premium users.`
-    - **Workarounds**: `// HACK: Use setTimeout to fix Chrome race condition (see bug CW-123).`
-    - **Performance Optimizations**: `// This is O(n) instead of O(n^2) because we pre-sort the array.`
-    - **Security-Critical Code**: `// Sanitize input here to prevent XSS attacks.`
-    - **"Magic" Values**: `const RETRY_DELAY_MS = 250; // API rate limit allows 4 req/sec.`
-
-- **Negative Constraints**:
-    - **NEVER** write comments that restate the code in English (e.g., `// Loop through users`).
-    - **NEVER** leave commented-out code blocks. Delete them.
-
-#### 4. Special Cases & Patterns
-- **Type Assertions**: MUST be justified with a comment explaining why the assertion is safe.
-  ```typescript
-  // This is safe because the data is validated against configSchema before parsing.
-  const config = JSON.parse(data) as Config;
-  ```
-- **TODO/FIXME**: Use a structured format.
-  ```typescript
-  // TODO(CW-123): Refactor this to use the new AuthenticationService.
-  // FIXME: This causes a memory leak under high load.
-  ```
-- **Generated Code**: Mark the top of the file with `/* AUTO-GENERATED - DO NOT EDIT */`.
+- [ ] Correct module system for target package
+- [ ] Types imported from `@contextweaver/shared`
+- [ ] No new `any` types
+- [ ] JSDoc headers on new files
+- [ ] IPC messages use exact schemas from shared types
+- [ ] Error codes match IPC protocol definitions
+- [ ] FR-XXX references when implementing functional requirements
+- [ ] Tests pass and linting clean

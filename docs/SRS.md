@@ -182,7 +182,7 @@ The target users are software developers and other technical users who:
             *   For "Insert Searched File Content": The file name with extension (e.g., `utils.js`).
             *   For "Insert Searched Folder Content": The folder name (e.g., `routers/`).
             *   For "Insert Snippet from VS Code": File name and line range (e.g., `auth.py (10-20)`).
-            *   For "Insert Workspace Problems": "Problems ([WorkspaceFolderName])" (where [WorkspaceFolderName] is the name of the relevant workspace folder).
+            *   For "Insert Workspace Problems": "[WorkspaceFolderName]" (where [WorkspaceFolderName] is the name of the relevant workspace folder).
 
 *   **FR-CE-015: Context Block Indicator Removal:**
     *   Each context block indicator shall feature a close button (e.g., an "x" icon).
@@ -235,9 +235,9 @@ The target users are software developers and other technical users who:
     *   The VSCE shall be able to read and concatenate the content of all text files within a **specified active workspace folder** (identified by its URI in the IPC request).
     *   This operation shall respect filtering rules (see FR-VSCE-005).
     *   The order of file concatenation shall be consistent.
-    *   The content, along with metadata for its indicator (type: "codebase_content", label: `"[folder name]"` (where `[folder name]` is the name of the specified workspace folder), unique_block_id, `content_source_id`: `specified_workspaceFolderUri.toString() + "::codebase"`), shall be provided to the CE.
+    *   The content, along with metadata for its indicator (type: "codebase_content", label: `folder name` (where `folder name` is the name of the specified workspace folder), unique_block_id, `content_source_id`: `specified_workspaceFolderUri.toString() + "::codebase"`), shall be provided to the CE.
     *   This operation is triggered by an IPC request that includes the URI of the target workspace folder.
-    *   ...label: `"[folder name] Codebase"` (where `[folder name]` is the name of the specified workspace folder), unique_block_id, `content_source_id`: `specified_workspaceFolderUri.toString() + "::entire_codebase"`), shall be provided to the CE.
+    *   ...label: `folder name` (where `folder name` is the name of the specified workspace folders, unique_block_id, `content_source_id`: `specified_workspaceFolderUri.toString() + "::entire_codebase"`), shall be provided to the CE.
 
 *   **FR-VSCE-005: Filtering Logic:**
     *   The VSCE shall attempt to read and parse the `.gitignore` file from the root of each workspace folder.
@@ -280,7 +280,7 @@ The target users are software developers and other technical users who:
     *   The service shall retrieve diagnostics from VS Code's language services using `vscode.languages.getDiagnostics()`.
     *   The service shall filter diagnostics to include only those belonging to files within the specified workspace folder.
     *   The service shall format each diagnostic with severity level, file path (relative to workspace), line and character position, diagnostic message, source, and code.
-    *   The formatted problems list, along with metadata for its indicator (type: "WorkspaceProblems", label: "Problems ([WorkspaceFolderName])", unique_block_id, `content_source_id`: workspace URI + "::problems"), shall be provided to the CE.
+    *   The formatted problems list, along with metadata for its indicator (type: "WorkspaceProblems", label: "WorkspaceFolderName", unique_block_id, `content_source_id`: workspace URI + "::problems"), shall be provided to the CE.
 
 ##### 3.1.3. Inter-Plugin Communication (IPC)
 

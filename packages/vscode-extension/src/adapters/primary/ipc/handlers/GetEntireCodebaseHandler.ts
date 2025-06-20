@@ -30,14 +30,14 @@ export class GetEntireCodebaseHandler implements ICommandHandler<GetEntireCodeba
         private readonly filterService: IFilterService,
         private readonly workspaceService: WorkspaceService,
         private readonly windowId: string
-    ) {}
+    ) { }
 
     /**
      * Handles a get_entire_codebase request by reading all files in the workspace.
      */
     async handle(request: { payload: GetEntireCodebaseRequestPayload; client: ClientContext }): Promise<EntireCodebaseResponsePayload> {
         const { payload, client } = request;
-        
+
         const targetWorkspaceFolder = await this.getTargetWorkspaceFolder(
             payload.workspaceFolderUri,
             'get_entire_codebase'

@@ -425,7 +425,7 @@ Response to `get_entire_codebase`.
           "unique_block_id": "string",
           "content_source_id": "string", // e.g., "uri_of_specified_workspace_folder::entire_codebase"
           "type": "codebase_content",
-          "label": "string", // e.g., "[folder_name] Codebase"
+          "label": "string", // e.g., "folder_name"
           "workspaceFolderUri": "string | null", // URI of the processed workspace folder
           "workspaceFolderName": "string | null", // Name of the processed workspace folder
           "windowId": "string" // Unique identifier for the VS Code window instance
@@ -519,6 +519,14 @@ Response to `search_workspace`.
           }
           // ... more results
         ],
+        "errors": [ // Optional: Array of errors from specific windows, present only if some windows failed
+          {
+            "windowId": "string", // The window that encountered the error
+            "error": "string", // Error message
+            "errorCode": "string | null" // Optional error code
+          }
+          // ... more errors
+        ] | undefined,
         "windowId": "string" // Unique identifier for the VS Code window instance
       } | null,
       "error": "string | null", // Present if success is false
@@ -603,7 +611,7 @@ Response to `get_contents_for_files`.
     ```json
     {
       "success": "boolean",
-      "data": [ // Array of successful file data responses, present if success is true
+      "data": [ // Array of successful file data responses. Always present, may be empty.
         {
           "fileData": { // Object containing file details
             "fullPath": "string", // Normalized, absolute path to the file
@@ -622,15 +630,15 @@ Response to `get_contents_for_files`.
           "windowId": "string" // Unique identifier for the VS Code window instance
         }
         // ... more successful files
-      ] | null,
-      "errors": [ // Array of errors for files that failed, present if some files failed
+      ],
+      "errors": [ // Array of errors for files that failed. Always present, may be empty.
         {
           "uri": "string", // URI of the file that failed
           "error": "string", // Error message
           "errorCode": "string | null" // Optional error code
         }
         // ... more errors
-      ] | null,
+      ],
       "error": "string | null", // Present if the entire operation failed
       "errorCode": "string | null" // Optional error code for the entire operation
     }
@@ -687,7 +695,7 @@ Response to `get_workspace_problems`.
           "unique_block_id": "string",
           "content_source_id": "string", // e.g., "workspace_uri::problems"
           "type": "WorkspaceProblems",
-          "label": "string", // e.g., "Problems (WorkspaceName)"
+          "label": "string", // e.g., "WorkspaceName"
           "workspaceFolderUri": "string | null",
           "workspaceFolderName": "string | null",
           "windowId": "string" // Unique identifier for the VS Code window instance

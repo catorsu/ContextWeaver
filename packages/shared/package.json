@@ -7,9 +7,11 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "check": "tsc --noEmit"
   },
   "devDependencies": {
-    "typescript": "^5.0.0"
+    "@types/node": "18.x",
+    "typescript": "^5.8.3"
   }
 }
