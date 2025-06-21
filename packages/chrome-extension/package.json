@@ -11,7 +11,9 @@
     "watch": "npm run bundle -- --watch",
     "check": "tsc --noEmit && npm run lint",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:coverage:watch": "jest --coverage --watch"
   },
   "devDependencies": {
     "@jest/globals": "^29.7.0",

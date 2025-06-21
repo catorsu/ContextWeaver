@@ -137,6 +137,10 @@ export class InputHandler {
      * @param {LLMInputConfig} config - The configuration for the current LLM input field.
      */
     private observeForElement(config: LLMInputConfig): void {
+        // Guard against undefined document.body in test environment
+        if (!document || !document.body) {
+            return;
+        }
         if (config.isAttached && config.attachedElement && document.body.contains(config.attachedElement)) {
             return;
         }
@@ -144,7 +148,11 @@ export class InputHandler {
         config.attachedElement = null;
 
         const observer = new MutationObserver(() => {
-            if (config.isAttached && config.attachedElement && document.body.contains(config.attachedElement)) {
+            // Guard against undefined document in test environment
+            if (!document || !document.body) {
+                return;
+            }
+            if (config.isAttached && config.attachedElement && document.body && document.body.contains(config.attachedElement)) {
                 return;
             }
             const inputField = document.querySelector(config.selector) as HTMLElement;
@@ -154,6 +162,9 @@ export class InputHandler {
             }
         });
         this.logger.debug(`Setting up/re-arming MutationObserver for selector: ${config.selector}`);
-        observer.observe(document.body, { childList: true, subtree: true });
+        // Guard against undefined document.body in test environment
+        if (document && document.body) {
+            observer.observe(document.body, { childList: true, subtree: true });
+        }
     }
 }

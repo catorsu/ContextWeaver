@@ -102,7 +102,7 @@ jest.mock('vscode', () => ({
 import * as vscode from 'vscode';
 import { IPCServer } from '../../src/adapters/primary/ipc/ipcServer';
 import { SearchService } from '../../src/core/services/SearchService';
-import { WorkspaceService } from '../../src/core/services/WorkspaceService';
+import { WorkspaceService, WorkspaceServiceError } from '../../src/core/services/WorkspaceService';
 import { FilterService } from '../../src/core/services/FilterService';
 import {
     IPCMessageRequest
@@ -634,6 +634,421 @@ describe('IPCServer - Primary Role', () => {
     });
 });
 
+describe('IPCServer - Message Handling', () => {
+    let mockOutputChannel: MockOutputChannel;
+    let mockWorkspaceService: any;
+    let mockConnectionService: any;
+    let mockMultiWindowService: any;
+    let mockCommandRegistry: any;
+    let server: IPCServer;
+    let mockWs: MockWebSocket;
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+        mockOutputChannel = new MockOutputChannel();
+        
+        mockWorkspaceService = {
+            getWorkspaceFolders: jest.fn().mockReturnValue([]),
+            isWorkspaceTrusted: jest.fn().mockReturnValue(true),
+            getWorkspaceFolder: jest.fn(),
+            ensureWorkspaceTrustedAndOpen: jest.fn().mockResolvedValue(undefined)
+        };
+        
+        mockConnectionService = {
+            startServer: jest.fn().mockResolvedValue(30001),
+            sendMessage: jest.fn(),
+            sendError: jest.fn(),
+            getClients: jest.fn().mockReturnValue(new Map()),
+            updateClient: jest.fn(),
+            stop: jest.fn()
+        };
+        
+        mockMultiWindowService = {
+            start: jest.fn().mockResolvedValue(undefined),
+            getIsPrimary: jest.fn().mockReturnValue(true),
+            getSecondaryClients: jest.fn().mockReturnValue(new Map()),
+            handleRegisterSecondary: jest.fn(),
+            handleUnregisterSecondary: jest.fn(),
+            broadcastToSecondaries: jest.fn(),
+            handleForwardedResponse: jest.fn(),
+            handleForwardedPush: jest.fn(),
+            handleSnippetSendRequest: jest.fn(),
+            removeSecondaryClient: jest.fn(),
+            sendResponseToPrimary: jest.fn(),
+            stop: jest.fn(),
+            onForwardRequestReceived: undefined
+        };
+        
+        mockCommandRegistry = {
+            register: jest.fn(),
+            getHandler: jest.fn()
+        };
+
+        server = new IPCServer(
+            'test-window-id',
+            mockContext,
+            mockOutputChannel as any,
+            mockWorkspaceService,
+            mockConnectionService,
+            mockMultiWindowService,
+            mockCommandRegistry
+        );
+
+        mockWs = new MockWebSocket('ws://test');
+    });
+
+    describe('Message Validation', () => {
+        it('should reject invalid JSON messages', async () => {
+            const client = {
+                ws: mockWs,
+                isAuthenticated: true,
+                ip: '127.0.0.1'
+            };
+
+            await (server as any).handleMessage(client, Buffer.from('invalid json'));
+
+            expect(mockConnectionService.sendError).toHaveBeenCalledWith(
+                mockWs,
+                null,
+                'INVALID_MESSAGE_FORMAT',
+                expect.stringContaining('Error parsing message')
+            );
+        });
+
+        it('should reject messages missing required fields', async () => {
+            const client = {
+                ws: mockWs,
+                isAuthenticated: true,
+                ip: '127.0.0.1'
+            };
+
+            const invalidMessage = {
+                protocol_version: '1.0',
+                // Missing message_id, type, command
+            };
+
+            await (server as any).handleMessage(client, Buffer.from(JSON.stringify(invalidMessage)));
+
+            expect(mockConnectionService.sendError).toHaveBeenCalledWith(
+                mockWs,
+                null,
+                'INVALID_MESSAGE_FORMAT',
+                expect.stringContaining('Message does not conform to IPC message structure')
+            );
+        });
+
+        it('should reject unsupported protocol version', async () => {
+            const client = {
+                ws: mockWs,
+                isAuthenticated: true,
+                ip: '127.0.0.1'
+            };
+
+            const message: IPCMessageRequest = {
+                protocol_version: '2.0' as any,
+                message_id: uuidv4(),
+                type: 'request',
+                command: 'get_file_content',
+                payload: { filePath: 'file:///test.js' }
+            };
+
+            await (server as any).handleMessage(client, Buffer.from(JSON.stringify(message)));
+
+            expect(mockConnectionService.sendError).toHaveBeenCalledWith(
+                mockWs,
+                message.message_id,
+                'UNSUPPORTED_PROTOCOL_VERSION',
+                'Protocol version mismatch.'
+            );
+        });
+
+        it('should reject invalid message type', async () => {
+            const client = {
+                ws: mockWs,
+                isAuthenticated: true,
+                ip: '127.0.0.1'
+            };
+
+            const message = {
+                protocol_version: '1.0',
+                message_id: uuidv4(),
+                type: 'invalid_type',
+                command: 'get_file_content',
+                payload: { filePath: 'file:///test.js' }
+            };
+
+            await (server as any).handleMessage(client, Buffer.from(JSON.stringify(message)));
+
+            expect(mockConnectionService.sendError).toHaveBeenCalledWith(
+                mockWs,
+                message.message_id,
+                'INVALID_MESSAGE_TYPE',
+                expect.stringContaining('Unexpected message type')
+            );
+        });
+
+        it('should reject unknown command', async () => {
+            const client = {
+                ws: mockWs,
+                isAuthenticated: true,
+                ip: '127.0.0.1'
+            };
+
+            const message: IPCMessageRequest = {
+                protocol_version: '1.0',
+                message_id: uuidv4(),
+                type: 'request',
+                command: 'get_file_content',
+                payload: { filePath: 'file:///test.js' }
+            };
+
+            mockCommandRegistry.getHandler.mockReturnValue(undefined);
+
+            await (server as any).handleMessage(client, Buffer.from(JSON.stringify(message)));
+
+            expect(mockConnectionService.sendError).toHaveBeenCalledWith(
+                mockWs,
+                message.message_id,
+                'UNKNOWN_COMMAND',
+                'Unknown command: get_file_content'
+            );
+        });
+    });
+
+    describe('Workspace Trust', () => {
+        it('should check workspace trust for commands requiring workspace', async () => {
+            const client = {
+                ws: mockWs,
+                isAuthenticated: true,
+                ip: '127.0.0.1'
+            };
+
+            const message: IPCMessageRequest = {
+                protocol_version: '1.0',
+                message_id: uuidv4(),
+                type: 'request',
+                command: 'get_file_content',
+                payload: { filePath: 'file:///test.js' }
+            };
+
+            mockCommandRegistry.getHandler.mockReturnValue({
+                handle: jest.fn().mockResolvedValue({ success: true, data: 'content' })
+            });
+
+            await (server as any).handleMessage(client, Buffer.from(JSON.stringify(message)));
+
+            expect(mockWorkspaceService.ensureWorkspaceTrustedAndOpen).toHaveBeenCalled();
+        });
+
+        it('should handle workspace trust errors', async () => {
+            const client = {
+                ws: mockWs,
+                isAuthenticated: true,
+                ip: '127.0.0.1'
+            };
+
+            const message: IPCMessageRequest = {
+                protocol_version: '1.0',
+                message_id: uuidv4(),
+                type: 'request',
+                command: 'get_file_content',
+                payload: { filePath: 'file:///test.js' }
+            };
+
+            const error = new WorkspaceServiceError('WORKSPACE_NOT_TRUSTED', 'Workspace not trusted');
+            mockWorkspaceService.ensureWorkspaceTrustedAndOpen.mockRejectedValue(error);
+
+            await (server as any).handleMessage(client, Buffer.from(JSON.stringify(message)));
+
+            expect(mockConnectionService.sendError).toHaveBeenCalledWith(
+                mockWs,
+                message.message_id,
+                'WORKSPACE_NOT_TRUSTED',
+                'Workspace not trusted'
+            );
+        });
+
+        it('should not check workspace trust for commands not requiring it', async () => {
+            const client = {
+                ws: mockWs,
+                isAuthenticated: true,
+                ip: '127.0.0.1'
+            };
+
+            const message: IPCMessageRequest = {
+                protocol_version: '1.0',
+                message_id: uuidv4(),
+                type: 'request',
+                command: 'register_active_target',
+                payload: { tabId: 123, llmHost: 'example.com' }
+            };
+
+            mockCommandRegistry.getHandler.mockReturnValue({
+                handle: jest.fn().mockResolvedValue({ success: true })
+            });
+
+            await (server as any).handleMessage(client, Buffer.from(JSON.stringify(message)));
+
+            expect(mockWorkspaceService.ensureWorkspaceTrustedAndOpen).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('Command Execution', () => {
+        it('should execute command handler and send response', async () => {
+            const client = {
+                ws: mockWs,
+                isAuthenticated: true,
+                ip: '127.0.0.1',
+                activeLLMTabId: 123
+            };
+
+            const message: IPCMessageRequest = {
+                protocol_version: '1.0',
+                message_id: uuidv4(),
+                type: 'request',
+                command: 'register_active_target',
+                payload: { tabId: 456, llmHost: 'llm.example.com' }
+            };
+
+            const mockHandler = {
+                handle: jest.fn().mockResolvedValue({ success: true, message: 'Target registered' })
+            };
+            mockCommandRegistry.getHandler.mockReturnValue(mockHandler);
+
+            await (server as any).handleMessage(client, Buffer.from(JSON.stringify(message)));
+
+            expect(mockHandler.handle).toHaveBeenCalledWith({
+                payload: message.payload,
+                client: {
+                    ws: mockWs,
+                    isAuthenticated: true,
+                    ip: '127.0.0.1',
+                    activeLLMTabId: 123,
+                    activeLLMHost: undefined,
+                    windowId: undefined
+                }
+            });
+
+            expect(mockConnectionService.sendMessage).toHaveBeenCalledWith(
+                mockWs,
+                'response',
+                'response_generic_ack',
+                { success: true, message: 'Target registered' },
+                message.message_id
+            );
+        });
+
+        it('should handle command execution errors', async () => {
+            const client = {
+                ws: mockWs,
+                isAuthenticated: true,
+                ip: '127.0.0.1'
+            };
+
+            const message: IPCMessageRequest = {
+                protocol_version: '1.0',
+                message_id: uuidv4(),
+                type: 'request',
+                command: 'get_file_content',
+                payload: { filePath: 'file:///test.js' }
+            };
+
+            const mockHandler = {
+                handle: jest.fn().mockRejectedValue(new Error('File read failed'))
+            };
+            mockCommandRegistry.getHandler.mockReturnValue(mockHandler);
+
+            await (server as any).handleMessage(client, Buffer.from(JSON.stringify(message)));
+
+            expect(mockConnectionService.sendError).toHaveBeenCalledWith(
+                mockWs,
+                message.message_id,
+                'COMMAND_EXECUTION_ERROR',
+                'Error executing command: File read failed'
+            );
+        });
+    });
+
+    describe('Push Messages', () => {
+        it('should handle forward_response_to_primary push command when primary', async () => {
+            mockMultiWindowService.getIsPrimary.mockReturnValue(true);
+
+            const client = {
+                ws: mockWs,
+                isAuthenticated: true,
+                ip: '127.0.0.1'
+            };
+
+            const message = {
+                protocol_version: '1.0',
+                message_id: uuidv4(),
+                type: 'push',
+                command: 'forward_response_to_primary',
+                payload: {
+                    originalMessageId: 'original-id',
+                    responsePayload: { success: true, data: 'test' },
+                    secondaryWindowId: 'secondary-id'
+                }
+            };
+
+            await (server as any).handleMessage(client, Buffer.from(JSON.stringify(message)));
+
+            expect(mockMultiWindowService.handleForwardedResponse).toHaveBeenCalledWith(message.payload);
+        });
+
+        it('should handle forward_push_to_primary push command when primary', async () => {
+            mockMultiWindowService.getIsPrimary.mockReturnValue(true);
+
+            const client = {
+                ws: mockWs,
+                isAuthenticated: true,
+                ip: '127.0.0.1'
+            };
+
+            const message = {
+                protocol_version: '1.0',
+                message_id: uuidv4(),
+                type: 'push',
+                command: 'forward_push_to_primary',
+                payload: {
+                    originalPushPayload: {
+                        snippet: 'test code',
+                        language: 'javascript'
+                    }
+                }
+            };
+
+            await (server as any).handleMessage(client, Buffer.from(JSON.stringify(message)));
+
+            expect(mockMultiWindowService.handleForwardedPush).toHaveBeenCalledWith(
+                message.payload,
+                mockConnectionService
+            );
+        });
+
+        it('should ignore unknown push commands', async () => {
+            const client = {
+                ws: mockWs,
+                isAuthenticated: true,
+                ip: '127.0.0.1'
+            };
+
+            const message = {
+                protocol_version: '1.0',
+                message_id: uuidv4(),
+                type: 'push',
+                command: 'unknown_push_command',
+                payload: {}
+            };
+
+            await (server as any).handleMessage(client, Buffer.from(JSON.stringify(message)));
+
+            // Should not throw or send error, just log warning
+            expect(mockConnectionService.sendError).not.toHaveBeenCalled();
+        });
+    });
+});
+
 describe('IPCServer - Secondary Role', () => {
     let mockOutputChannel: MockOutputChannel;
     let mockWorkspaceService: any;
@@ -785,6 +1200,14 @@ describe('IPCServer - Secondary Role', () => {
     });
 
     test('should handle forwarded request and send back response', async () => {
+        // Set up the onForwardRequestReceived callback
+        await server.start();
+        
+        // Now the callback should be set up
+        expect(mockMultiWindowService.onForwardRequestReceived).toBeDefined();
+    });
+
+    test('should process forwarded request through mock client', async () => {
         // Create forwarded request
         const originalRequest: IPCMessageRequest = {
             protocol_version: "1.0",
@@ -816,6 +1239,9 @@ describe('IPCServer - Secondary Role', () => {
             }
         });
 
+        // Set up the callback by starting the server
+        await server.start();
+        
         // Call the handleForwardedRequest method directly
         await server['handleForwardedRequest'](originalRequest, aggregationId);
 
@@ -827,5 +1253,260 @@ describe('IPCServer - Secondary Role', () => {
             aggregationId,
             capturedPayload
         );
+    });
+});
+
+describe('IPCServer - Public Methods', () => {
+    let mockOutputChannel: MockOutputChannel;
+    let mockWorkspaceService: any;
+    let mockConnectionService: any;
+    let mockMultiWindowService: any;
+    let mockCommandRegistry: any;
+    let server: IPCServer;
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+        mockOutputChannel = new MockOutputChannel();
+        
+        mockWorkspaceService = {
+            getWorkspaceFolders: jest.fn().mockReturnValue([]),
+            isWorkspaceTrusted: jest.fn().mockReturnValue(true),
+            getWorkspaceFolder: jest.fn(),
+            ensureWorkspaceTrustedAndOpen: jest.fn().mockResolvedValue(undefined)
+        };
+        
+        mockConnectionService = {
+            startServer: jest.fn().mockResolvedValue(30001),
+            sendMessage: jest.fn(),
+            sendError: jest.fn(),
+            getClients: jest.fn().mockReturnValue(new Map()),
+            updateClient: jest.fn(),
+            stop: jest.fn(),
+            isRunning: jest.fn().mockReturnValue(true),
+            getActivePort: jest.fn().mockReturnValue(30001)
+        };
+        
+        mockMultiWindowService = {
+            start: jest.fn().mockResolvedValue(undefined),
+            getIsPrimary: jest.fn().mockReturnValue(true),
+            getSecondaryClients: jest.fn().mockReturnValue(new Map()),
+            handleRegisterSecondary: jest.fn(),
+            handleUnregisterSecondary: jest.fn(),
+            broadcastToSecondaries: jest.fn(),
+            handleForwardedResponse: jest.fn(),
+            handleForwardedPush: jest.fn(),
+            handleSnippetSendRequest: jest.fn(),
+            removeSecondaryClient: jest.fn(),
+            sendResponseToPrimary: jest.fn(),
+            stop: jest.fn(),
+            onForwardRequestReceived: undefined
+        };
+        
+        mockCommandRegistry = {
+            register: jest.fn(),
+            getHandler: jest.fn()
+        };
+
+        server = new IPCServer(
+            'test-window-id',
+            mockContext,
+            mockOutputChannel as any,
+            mockWorkspaceService,
+            mockConnectionService,
+            mockMultiWindowService,
+            mockCommandRegistry
+        );
+    });
+
+    describe('getPrimaryTargetTabId', () => {
+        it('should return tab ID from authenticated client', () => {
+            const mockWs = new MockWebSocket('ws://test');
+            const client = {
+                ws: mockWs,
+                isAuthenticated: true,
+                ip: '127.0.0.1',
+                activeLLMTabId: 12345
+            };
+
+            mockConnectionService.getClients.mockReturnValue(new Map([[mockWs, client]]));
+
+            const tabId = server.getPrimaryTargetTabId();
+            expect(tabId).toBe(12345);
+        });
+
+        it('should return undefined when no authenticated clients with tab ID', () => {
+            const mockWs = new MockWebSocket('ws://test');
+            const client = {
+                ws: mockWs,
+                isAuthenticated: false,
+                ip: '127.0.0.1',
+                activeLLMTabId: 12345
+            };
+
+            mockConnectionService.getClients.mockReturnValue(new Map([[mockWs, client]]));
+
+            const tabId = server.getPrimaryTargetTabId();
+            expect(tabId).toBeUndefined();
+        });
+
+        it('should return undefined when no clients connected', () => {
+            mockConnectionService.getClients.mockReturnValue(new Map());
+
+            const tabId = server.getPrimaryTargetTabId();
+            expect(tabId).toBeUndefined();
+        });
+    });
+
+    describe('handleSnippetSendRequest', () => {
+        it('should delegate to MultiWindowService', () => {
+            const snippetData = {
+                snippet: 'console.log("test");',
+                language: 'javascript',
+                filePath: '/test.js',
+                relativeFilePath: 'test.js',
+                fileLabel: 'test.js',
+                startLine: 1,
+                endLine: 1,
+                metadata: {
+                    unique_block_id: uuidv4(),
+                    content_source_id: 'file:///test.js',
+                    type: 'CodeSnippet' as const,
+                    label: 'test.js:1-1',
+                    workspaceFolderUri: 'file:///workspace',
+                    workspaceFolderName: 'TestWorkspace',
+                    windowId: 'test-window-id'
+                }
+            };
+
+            server.handleSnippetSendRequest(snippetData);
+
+            expect(mockMultiWindowService.handleSnippetSendRequest).toHaveBeenCalledWith(
+                snippetData,
+                mockConnectionService
+            );
+        });
+    });
+
+    describe('pushSnippetToTarget', () => {
+        it('should push snippet to client with matching tab ID', () => {
+            const mockWs = new MockWebSocket('ws://test');
+            mockWs.readyState = MockWebSocket.OPEN;
+            const client = {
+                ws: mockWs,
+                isAuthenticated: true,
+                ip: '127.0.0.1',
+                activeLLMTabId: 12345
+            };
+
+            mockConnectionService.getClients.mockReturnValue(new Map([[mockWs, client]]));
+
+            const snippetData = {
+                targetTabId: 12345,
+                windowId: 'test-window-id',
+                snippet: 'test code',
+                language: 'javascript'
+            } as any;
+
+            server.pushSnippetToTarget(12345, snippetData);
+
+            expect(mockWs.send).toHaveBeenCalled();
+            const sentMessage = JSON.parse(mockWs.send.mock.calls[0][0]);
+            expect(sentMessage).toMatchObject({
+                protocol_version: '1.0',
+                type: 'push',
+                command: 'push_snippet',
+                payload: snippetData
+            });
+        });
+
+        it('should not push snippet when no matching client found', () => {
+            mockConnectionService.getClients.mockReturnValue(new Map());
+
+            const snippetData = {
+                targetTabId: 12345,
+                windowId: 'test-window-id',
+                snippet: 'test code',
+                language: 'javascript'
+            } as any;
+
+            server.pushSnippetToTarget(12345, snippetData);
+
+            expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
+                'ContextWeaver: Could not send snippet. No active, authenticated Chrome tab found.'
+            );
+        });
+
+        it('should not push snippet when WebSocket is not open', () => {
+            const mockWs = new MockWebSocket('ws://test');
+            mockWs.readyState = MockWebSocket.CLOSED;
+            const client = {
+                ws: mockWs,
+                isAuthenticated: true,
+                ip: '127.0.0.1',
+                activeLLMTabId: 12345
+            };
+
+            mockConnectionService.getClients.mockReturnValue(new Map([[mockWs, client]]));
+
+            const snippetData = {
+                targetTabId: 12345,
+                windowId: 'test-window-id',
+                snippet: 'test code',
+                language: 'javascript'
+            } as any;
+
+            server.pushSnippetToTarget(12345, snippetData);
+
+            expect(mockWs.send).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('stop', () => {
+        it('should stop all services', () => {
+            server.stop();
+
+            expect(mockConnectionService.stop).toHaveBeenCalled();
+            expect(mockMultiWindowService.stop).toHaveBeenCalled();
+        });
+    });
+
+    describe('Error Handling', () => {
+        it('should handle errors during primary server setup', async () => {
+            mockMultiWindowService.getIsPrimary.mockReturnValue(true);
+            mockConnectionService.startServer.mockRejectedValue(new Error('Port binding failed'));
+
+            await server.start();
+
+            expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+                'ContextWeaver: Failed to start server: Port binding failed'
+            );
+        });
+
+        it('should cleanup secondary client on disconnect', async () => {
+            const onConnectionCallback = jest.fn();
+            mockConnectionService.startServer.mockImplementation(async (callback: any) => {
+                onConnectionCallback.mockImplementation(callback);
+                return 30001;
+            });
+
+            await server.start();
+
+            // Simulate a new connection with windowId
+            const mockWs = new MockWebSocket('ws://test');
+            const client = {
+                ws: mockWs,
+                isAuthenticated: true,
+                ip: '127.0.0.1',
+                windowId: 'secondary-window-id'
+            };
+
+            // Call the connection handler
+            onConnectionCallback(client);
+
+            // Simulate close event
+            mockWs.emit('close');
+
+            expect(mockMultiWindowService.removeSecondaryClient).toHaveBeenCalledWith('secondary-window-id');
+        });
     });
 });

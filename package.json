@@ -8,7 +8,9 @@
     "check": "pnpm --recursive run check",
     "vscode:build": "echo \"VSCE build script placeholder\"",
     "chrome:build": "echo \"CE build script placeholder\"",
-    "test": "npm run test --workspaces --if-present"
+    "test": "npm run test --workspaces --if-present",
+    "test:coverage": "npm run test:coverage --workspaces --if-present",
+    "coverage": "npm run test:coverage"
   },
   "workspaces": [
     "packages/*"

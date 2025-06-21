@@ -12,6 +12,23 @@ module.exports = {
     }],
   },
   moduleNameMapper: {
-    '^@src/(.*)$': '<rootDir>/src/$1'
+    '^@src/(.*)$': '<rootDir>/src/$1',
+    '^vscode$': '<rootDir>/__mocks__/vscode.js'
   },
+  coverageDirectory: 'coverage',
+  collectCoverageFrom: [
+    'src/**/*.{ts,tsx}',
+    '!src/**/*.d.ts',
+    '!src/**/*.test.{ts,tsx}',
+    '!src/**/*.spec.{ts,tsx}'
+  ],
+  coverageThreshold: {
+    global: {
+      branches: 70,
+      functions: 75,
+      lines: 80,
+      statements: 80
+    }
+  },
+  coverageReporters: ['text', 'lcov', 'html']
 };

@@ -9,10 +9,29 @@ module.exports = {
   transform: {
     '^.+\\.(ts|tsx)$': ['ts-jest', {
       tsconfig: 'tsconfig.json',
+      useESM: true,
     }],
   },
+  extensionsToTreatAsEsm: ['.ts'],
   moduleNameMapper: {
     '^@src/(.*)$': '<rootDir>/src/$1'
   },
   setupFiles: ['<rootDir>/tests/setup.js'],
+  coverageDirectory: 'coverage',
+  collectCoverageFrom: [
+    'src/**/*.{ts,tsx}',
+    '!src/**/*.d.ts',
+    '!src/**/*.test.{ts,tsx}',
+    '!src/**/*.spec.{ts,tsx}',
+    '!src/**/index.ts'
+  ],
+  coverageThreshold: {
+    global: {
+      branches: 65,
+      functions: 65,
+      lines: 70,
+      statements: 70
+    }
+  },
+  coverageReporters: ['text', 'lcov', 'html']
 };

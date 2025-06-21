@@ -23,6 +23,11 @@ dist_test/
 out/
 build/
 
+# Test coverage
+coverage/
+*.lcov
+.nyc_output/
+
 # OS generated files
 .DS_Store
 .DS_Store?
